@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+sqlalchemy
+pymysql
+fitparse
+pydantic
+pytest
+pytest-cov 

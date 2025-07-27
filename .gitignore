@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# 环境/依赖
+.env
+.venv/
+venv/
+ENV/
+*.egg-info/
+.eggs/
+
+# 数据库/本地数据
+*.sqlite3
+*.db
+*.log
+uploads/
+
+# MySQL/MariaDB dump
+*.sql
+*.sql.gz
+
+# 测试/覆盖率
+htmlcov/
+.coverage
+.cache
+.pytest_cache/
+
+# IDE/编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# 其他
+*.bak
+*.tmp
+
+# pytest
+pytestdebug.log
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# 运行脚本生成的覆盖率报告
+coverage.xml
+
+# 生产/临时文件
+*.pid
+*.pid.lock
+
+# 备份文件
+*~ 
