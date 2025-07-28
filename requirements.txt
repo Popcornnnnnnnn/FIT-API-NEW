@@ -5,4 +5,5 @@ pymysql
 fitparse
 pydantic
 pytest
-pytest-cov 
+pytest-cov
+python-multipart 

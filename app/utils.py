@@ -1,3 +1,12 @@
+"""
+本文件包含数据库连接和会话管理的工具函数。
+
+主要功能：
+1. 数据库连接配置
+2. 数据库会话管理
+3. FastAPI依赖注入
+"""
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 import os
@@ -13,9 +22,13 @@ SQLALCHEMY_DATABASE_URL = f"mysql+pymysql://root:{encoded_password}@localhost/fi
 engine = create_engine(SQLALCHEMY_DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# 这里定义了一个FastAPI依赖项，用于获取数据库会话（Session）。
-# 每次请求调用get_db时，会创建一个新的数据库会话db，并在请求处理完毕后自动关闭，确保资源释放。
 def get_db():
+    """
+    FastAPI依赖项，用于获取数据库会话（Session）。
+    
+    每次请求调用get_db时，会创建一个新的数据库会话db，
+    并在请求处理完毕后自动关闭，确保资源释放。
+    """
     db = SessionLocal()
     try:
         yield db  # 提供数据库会话给依赖它的路径操作函数
