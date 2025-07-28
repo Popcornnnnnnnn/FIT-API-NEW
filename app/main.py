@@ -20,7 +20,7 @@ app = FastAPI(title="FIT 文件分析 API")
 # 路由注册
 app.include_router(athletes_router, prefix="/athletes", tags=["运动员"])
 app.include_router(activities_router, prefix="/activities", tags=["活动"])
-app.include_router(streams_router, prefix="/streams", tags=["数据流"])
+app.include_router(streams_router, tags=["数据流"])
 app.include_router(uploads_router, prefix="/uploads", tags=["文件上传"])
 
 # 预留：后台队列、临时存储等功能接口

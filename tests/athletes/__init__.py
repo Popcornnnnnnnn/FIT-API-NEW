@@ -1,1 +1,0 @@
-# Athletes tests package 

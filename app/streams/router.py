@@ -1,65 +1,92 @@
 """
 本文件定义了数据流相关的API路由。
 
-提供以下API端点：
-1. GET /{activity_id} - 获取活动流数据
-2. POST /batch - 批量获取多种流数据
+包含以下端点：
+1. GET /activities/{id}/streams - 获取活动的流数据
+2. GET /activities/{id}/streams/available - 获取可用的流数据类型
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List
-from . import schemas
+from typing import List, Optional
 from ..utils import get_db
+from . import schemas, models
+from .crud import stream_crud
 
-router = APIRouter()
+router = APIRouter(prefix="/activities", tags=["streams"])
 
-@router.get("/{activity_id}", response_model=schemas.StreamResponse)
-def get_activity_stream(
-    activity_id: int, 
-    stream_type: str = Query("power", description="流数据类型"),
-    sample_rate: int = Query(1, description="采样率"),
-    db: Session = Depends(get_db)
+@router.get("/{activity_id}/streams", response_model=List[schemas.StreamResponse])
+def get_activity_streams(
+    activity_id: int,
+    keys: List[str] = Query(..., description="请求的流数据类型列表"),
+    resolution: models.Resolution = Query(models.Resolution.HIGH, description="数据分辨率")
 ):
-    """获取活动流数据"""
-    # TODO: 实现流数据查询和处理
-    mock_data = []
-    for i in range(0, 100, sample_rate):
-        mock_data.append({
-            "timestamp": i,
-            "power": 200 + i % 10,
-            "heart_rate": 150 + i % 5
-        })
+    """
+    获取活动的流数据
     
-    return {
-        "activity_id": activity_id,
-        "stream_type": stream_type,
-        "data": mock_data,
-        "sample_rate": sample_rate
-    }
-
-@router.post("/batch", response_model=List[schemas.StreamResponse])
-def get_multiple_streams(
-    request: schemas.StreamRequest,
-    db: Session = Depends(get_db)
-):
-    """批量获取多种流数据"""
-    # TODO: 实现批量流数据查询
-    responses = []
-    for stream_type in request.stream_types:
-        mock_data = []
-        for i in range(0, 50, request.sample_rate):
-            mock_data.append({
-                "timestamp": i,
-                "power": 200 + i % 10 if stream_type == "power" else None,
-                "heart_rate": 150 + i % 5 if stream_type == "heart_rate" else None
-            })
+    Args:
+        activity_id: 活动ID
+        keys: 请求的流数据类型列表，支持：distance, altitude, cadence, heart_rate, speed, latitude, longitude, power, temperature
+        resolution: 数据分辨率 (low, medium, high)
         
-        responses.append({
-            "activity_id": request.activity_id,
-            "stream_type": stream_type,
-            "data": mock_data,
-            "sample_rate": request.sample_rate
-        })
+    Returns:
+        List[StreamResponse]: 流数据列表
+    """
+    db = next(get_db())
+    try:
+        streams = stream_crud.get_activity_streams(db, activity_id, keys, resolution)
+        
+        if not streams:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"活动 {activity_id} 未找到或没有可用的流数据"
+            )
+        
+        return streams
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"获取流数据时发生错误: {str(e)}"
+        )
+    finally:
+        db.close()
+
+@router.get("/{activity_id}/streams/available")
+def get_available_streams(activity_id: int):
+    """
+    获取活动可用的流数据类型
     
-    return responses 
+    Args:
+        activity_id: 活动ID
+        
+    Returns:
+        Dict: 可用的流类型列表
+    """
+    db = next(get_db())
+    try:
+        available_streams = stream_crud.get_available_streams(db, activity_id)
+        
+        if not available_streams:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"活动 {activity_id} 未找到或没有可用的流数据"
+            )
+        
+        return {
+            "activity_id": activity_id,
+            "available_streams": available_streams,
+            "total_streams": len(available_streams)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"获取可用流数据类型时发生错误: {str(e)}"
+        )
+    finally:
+        db.close() 

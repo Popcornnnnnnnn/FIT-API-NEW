@@ -238,6 +238,26 @@ class DatabaseManager:
             except Exception as e:
                 session.rollback()
                 raise e
+    
+    def get_table_structure(self, table_name: str = None):
+        """获取表结构"""
+        with self.SessionLocal() as session:
+            if table_name:
+                # 获取指定表的结构
+                result = session.execute(text(f"DESCRIBE {table_name}"))
+                columns = result.fetchall()
+                return {table_name: columns}
+            else:
+                # 获取所有表的结构
+                tables = ['athletes', 'athlete_metrics', 'activities']
+                structures = {}
+                
+                for table in tables:
+                    result = session.execute(text(f"DESCRIBE {table}"))
+                    columns = result.fetchall()
+                    structures[table] = columns
+                
+                return structures
 
 def main():
     """主函数"""
@@ -254,10 +274,11 @@ def main():
         print(f"4. 查看文件数据预览")
         print(f"5. 导出文件")
         print(f"6. 查看运动员")
-        print(f"7. 清空所有表")
-        print(f"8. 按顺序清空表")
-        print(f"9. 删除并重新创建表")
-        print(f"10. 重置自增ID")
+        print(f"7. 查看表结构")
+        print(f"8. 清空所有表")
+        print(f"9. 按顺序清空表")
+        print(f"10. 删除并重新创建表")
+        print(f"11. 重置自增ID")
         print(f"0. 退出")
         
         choice = input("\n请输入选择: ").strip()
@@ -366,6 +387,55 @@ def main():
                 print(f"{athlete.id:<4} {athlete.name:<15} {athlete.ftp or '-':<6} {athlete.max_hr or '-':<8} {athlete.weight or '-':<6} {athlete.activity_count:<6}")
         
         elif choice == "7":
+            # 查看表结构
+            print("\n选择要查看的表结构:")
+            print("1. 查看所有表结构")
+            print("2. 查看 athletes 表结构")
+            print("3. 查看 athlete_metrics 表结构")
+            print("4. 查看 activities 表结构")
+            
+            table_choice = input("请输入选择: ").strip()
+            
+            if table_choice == "1":
+                structures = manager.get_table_structure()
+                for table_name, columns in structures.items():
+                    print(f"\n📋 {table_name} 表结构:")
+                    print("-" * 80)
+                    print(f"{'字段名':<20} {'类型':<20} {'NULL':<8} {'KEY':<8} {'DEFAULT':<12} {'EXTRA':<10}")
+                    print("-" * 80)
+                    for col in columns:
+                        print(f"{col[0]:<20} {col[1]:<20} {col[2]:<8} {col[3]:<8} {str(col[4]):<12} {col[5]:<10}")
+            elif table_choice == "2":
+                structures = manager.get_table_structure("athletes")
+                table_name, columns = list(structures.items())[0]
+                print(f"\n📋 {table_name} 表结构:")
+                print("-" * 80)
+                print(f"{'字段名':<20} {'类型':<20} {'NULL':<8} {'KEY':<8} {'DEFAULT':<12} {'EXTRA':<10}")
+                print("-" * 80)
+                for col in columns:
+                    print(f"{col[0]:<20} {col[1]:<20} {col[2]:<8} {col[3]:<8} {str(col[4]):<12} {col[5]:<10}")
+            elif table_choice == "3":
+                structures = manager.get_table_structure("athlete_metrics")
+                table_name, columns = list(structures.items())[0]
+                print(f"\n📋 {table_name} 表结构:")
+                print("-" * 80)
+                print(f"{'字段名':<20} {'类型':<20} {'NULL':<8} {'KEY':<8} {'DEFAULT':<12} {'EXTRA':<10}")
+                print("-" * 80)
+                for col in columns:
+                    print(f"{col[0]:<20} {col[1]:<20} {col[2]:<8} {col[3]:<8} {str(col[4]):<12} {col[5]:<10}")
+            elif table_choice == "4":
+                structures = manager.get_table_structure("activities")
+                table_name, columns = list(structures.items())[0]
+                print(f"\n📋 {table_name} 表结构:")
+                print("-" * 80)
+                print(f"{'字段名':<20} {'类型':<20} {'NULL':<8} {'KEY':<8} {'DEFAULT':<12} {'EXTRA':<10}")
+                print("-" * 80)
+                for col in columns:
+                    print(f"{col[0]:<20} {col[1]:<20} {col[2]:<8} {col[3]:<8} {str(col[4]):<12} {col[5]:<10}")
+            else:
+                print("❌ 无效的选择")
+        
+        elif choice == "8":
             # 清空所有表
             print("⚠️  警告：即将清空所有表")
             confirm = input("请输入 'YES' 确认，或按回车取消: ").strip()
@@ -378,7 +448,7 @@ def main():
             else:
                 print("❌ 操作已取消")
         
-        elif choice == "8":
+        elif choice == "9":
             # 按顺序清空表
             print("⚠️  警告：即将按顺序清空表")
             confirm = input("请输入 'YES' 确认，或按回车取消: ").strip()
@@ -392,7 +462,7 @@ def main():
             else:
                 print("❌ 操作已取消")
         
-        elif choice == "9":
+        elif choice == "10":
             # 删除并重新创建表
             print("⚠️  警告：即将删除并重新创建所有表")
             confirm = input("请输入 'YES' 确认，或按回车取消: ").strip()
@@ -405,7 +475,7 @@ def main():
             else:
                 print("❌ 操作已取消")
         
-        elif choice == "10":
+        elif choice == "11":
             # 重置自增ID
             print("🔄 重置自增ID...")
             try:

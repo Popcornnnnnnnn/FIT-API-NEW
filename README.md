@@ -346,3 +346,81 @@ export SECRET_KEY="your-secret-key"
 ## �� 许可证
 
 MIT License 
+
+## 如何用 Postman 测试本项目 API
+
+以下以常用的接口为例，演示如何用 Postman 进行完整测试：
+
+### 1. 创建运动员
+- **方法**：POST
+- **URL**：`http://localhost:8000/athletes/`
+- **Body**：选择 `raw` + `JSON`
+```json
+{
+  "name": "测试运动员",
+  "ftp": 250,
+  "max_hr": 185,
+  "weight": 70.0
+}
+```
+- **返回**：包含 `id` 的运动员信息
+
+### 2. 上传 FIT 文件
+- **方法**：POST
+- **URL**：`http://localhost:8000/uploads/`
+- **Body**：选择 `form-data`
+    - `file`（类型：File）：选择本地 `.fit` 文件
+    - `name`（类型：Text，可选）：活动名称
+    - `description`（类型：Text，可选）：活动描述
+    - `data_type`（类型：Text，建议填 `fit`）
+    - `athlete_id`（类型：Text）：上一步返回的运动员ID
+- **返回**：包含 `activity_id` 的信息
+
+### 3. 查询流数据
+- **方法**：GET
+- **URL**：`http://localhost:8000/activities/{activity_id}/streams`
+- **Params**：
+    - `keys`：如 `distance,heart_rate,power`（可多选，逗号分隔）
+    - `resolution`：如 `high`、`medium`、`low`
+- **示例**：
+```
+GET http://localhost:8000/activities/16/streams?keys=distance,heart_rate,power&resolution=high
+```
+- **返回**：
+```json
+[
+  {
+    "type": "distance",
+    "data": [ ... ],
+    "series_type": "distance",
+    "original_size": 1000,
+    "resolution": "high"
+  },
+  ...
+]
+```
+
+### 4. 查询可用流类型
+- **方法**：GET
+- **URL**：`http://localhost:8000/activities/{activity_id}/streams/available`
+- **返回**：
+```json
+{
+  "activity_id": 16,
+  "available_streams": ["distance", "heart_rate", ...],
+  "total_streams": 9
+}
+```
+
+---
+
+#### Postman 使用技巧
+- 上传文件时，`file` 字段类型要选 File，其他字段选 Text。
+- GET 请求的参数建议用 Params 面板填写，多个 keys 用英文逗号分隔。
+- 返回数据可直接在 Postman 的 Response 面板查看。
+
+如需批量测试，可用 `tests/streams/fit_streams_test.py` 脚本自动上传和查询。
+
+---
+
+如有更多接口需求或遇到问题，欢迎随时反馈！ 

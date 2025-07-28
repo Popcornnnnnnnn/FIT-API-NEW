@@ -32,7 +32,10 @@ def read_athlete(athlete_id: int, db: Session = Depends(get_db)):
 @router.post("/", response_model=schemas.Athlete)
 def create_athlete(athlete: schemas.AthleteCreate, db: Session = Depends(get_db)):
     """创建新运动员"""
-    return crud.create_athlete(db, athlete)
+    db_athlete = crud.create_athlete(db, athlete)
+    if db_athlete is None:
+        raise HTTPException(status_code=400, detail="运动员姓名不能重复")
+    return db_athlete
 
 @router.put("/{athlete_id}", response_model=schemas.Athlete)
 def update_athlete(athlete_id: int, athlete_update: schemas.AthleteUpdate, db: Session = Depends(get_db)):

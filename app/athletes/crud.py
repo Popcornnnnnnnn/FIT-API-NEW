@@ -19,7 +19,11 @@ def get_athletes(db: Session, skip: int = 0, limit: int = 100):
     return db.query(models.Athlete).offset(skip).limit(limit).all()
 
 def create_athlete(db: Session, athlete: schemas.AthleteCreate):
-    """创建新运动员"""
+    """创建新运动员，name不能重复"""
+    # 检查name是否已存在
+    exists = db.query(models.Athlete).filter(models.Athlete.name == athlete.name).first()
+    if exists:
+        return None  # 或抛出异常，由router处理
     db_athlete = models.Athlete(
         name=athlete.name,
         ftp=athlete.ftp,
