@@ -29,45 +29,70 @@ class StreamCRUD:
         db: Session, 
         activity_id: int, 
         keys: List[str], 
-        resolution: models.Resolution = models.Resolution.HIGH
+        resolution: models.Resolution = models.Resolution.HIGH,
+        series_type: models.SeriesType = models.SeriesType.NONE
     ) -> List[Dict[str, Any]]:
         """
-        获取活动的流数据
-        
-        Args:
-            db: 数据库会话
-            activity_id: 活动ID
-            keys: 请求的流数据类型列表
-            resolution: 数据分辨率
-            
-        Returns:
-            List[Dict]: 流数据列表
+        获取活动的流数据，支持series_type参数
         """
         # 检查活动是否存在
         activity = db.query(Activity).filter(Activity.id == activity_id).first()
         if not activity:
             return []
-        
         # 获取或解析流数据
         stream_data = self._get_or_parse_stream_data(db, activity)
         if not stream_data:
             return []
+        # 获取原始distance和timestamp数据（用于distance系列类型）
+        original_distance = stream_data.distance
+        original_timestamp = stream_data.timestamp
         
-        # 获取请求的流数据
-        streams = []
+        # 获取重采样后的distance和timestamp数据（用于其他用途）
+        resampled_distance = stream_data._resample_data(stream_data.distance, resolution)
+        resampled_timestamp = stream_data._resample_data(stream_data.timestamp, resolution)
+        result = []
         for key in keys:
             if key in self.fit_parser.supported_fields:
-                stream = stream_data.get_stream(key, resolution)
-                if stream:
-                    streams.append({
+                key_data = stream_data._resample_data(getattr(stream_data, key), resolution)
+                if not key_data:
+                    continue
+                # 获取原始数据长度（不经过重采样）
+                original_data = getattr(stream_data, key)
+                original_size = len(original_data) if original_data else 0
+                
+                if series_type == models.SeriesType.DISTANCE:
+                    # 使用原始distance数据，确保distance间隔准确
+                    min_len = min(len(key_data), len(original_distance))
+                    data = [{"distance": original_distance[i], "value": key_data[i]} for i in range(min_len)]
+                    result.append({
                         "type": key,
-                        "data": stream.data,
-                        "series_type": stream.series_type.value,
-                        "original_size": stream.original_size,
-                        "resolution": stream.resolution.value
+                        "data": data,
+                        "series_type": "distance",
+                        "original_size": original_size,
+                        "resolution": resolution.value
                     })
-        
-        return streams
+                elif series_type == models.SeriesType.TIME:
+                    # 使用原始timestamp数据，确保时间间隔准确
+                    min_len = min(len(key_data), len(original_timestamp))
+                    data = [{"time": original_timestamp[i], "value": key_data[i]} for i in range(min_len)]
+                    result.append({
+                        "type": key,
+                        "data": data,
+                        "series_type": "time",
+                        "original_size": original_size,
+                        "resolution": resolution.value
+                    })
+                else:
+                    # none: 只返回key序列本身
+                    data = key_data
+                    result.append({
+                        "type": key,
+                        "data": data,
+                        "series_type": "none",
+                        "original_size": original_size,
+                        "resolution": resolution.value
+                    })
+        return result
     
     def get_available_streams(self, db: Session, activity_id: int) -> List[str]:
         """

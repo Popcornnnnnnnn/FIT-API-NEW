@@ -21,6 +21,7 @@ class SeriesType(str, Enum):
     """系列类型枚举"""
     DISTANCE = "distance"
     TIME = "time"
+    NONE = "none"
 
 class BaseStream(BaseModel):
     """基础流数据类"""
@@ -123,27 +124,30 @@ class StreamData(BaseModel):
         """根据分辨率重采样数据"""
         if not data:
             return []
-            
         original_size = len(data)
-        
         if resolution == Resolution.HIGH:
             return data
         elif resolution == Resolution.MEDIUM:
-            # 中等分辨率：保留50%的数据点
-            step = max(1, original_size // (original_size // 2))
-            return data[::step]
+            # 采样25%
+            target_size = max(1, int(original_size * 0.25))
+            step = max(1, original_size // target_size)
+            result = data[::step]
+            # 确保结果长度不超过目标长度
+            return result[:target_size]
         elif resolution == Resolution.LOW:
-            # 低分辨率：保留25%的数据点
-            step = max(1, original_size // (original_size // 4))
-            return data[::step]
-        
+            # 采样5%
+            target_size = max(1, int(original_size * 0.05))
+            step = max(1, original_size // target_size)
+            result = data[::step]
+            # 确保结果长度不超过目标长度
+            return result[:target_size]
         return data
     
     def get_available_streams(self) -> List[str]:
-        """获取可用的流类型列表"""
+        """获取可用的流类型列表（不包含distance和timestamp）"""
         available = []
         for field_name in StreamData.model_fields:
-            if field_name != 'timestamp' and getattr(self, field_name):
+            if field_name not in ('timestamp', 'distance') and getattr(self, field_name):
                 available.append(field_name)
         return available
     

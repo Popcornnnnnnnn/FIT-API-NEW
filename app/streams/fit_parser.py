@@ -2,12 +2,14 @@
 FIT文件解析器
 
 用于解析FIT文件中的records数据，提取各种流数据。
-注意：这里使用模拟数据，实际项目中需要集成真实的FIT解析库。
+使用fitparse库进行真实的FIT文件解析。
 """
 
 import base64
 import json
 from typing import Dict, List, Optional, Any
+from fitparse import FitFile
+from io import BytesIO
 from .models import StreamData, Resolution
 
 class FitParser:
@@ -32,52 +34,137 @@ class FitParser:
             StreamData: 包含所有流数据的对象
         """
         try:
-            # 这里应该使用真实的FIT解析库
-            # 目前使用模拟数据来演示功能
-            return self._parse_mock_data(file_data)
+            # 使用fitparse库解析真实的FIT文件
+            return self._parse_real_fit_data(file_data)
         except Exception as e:
             # 如果解析失败，返回空的StreamData
             print(f"FIT文件解析失败: {e}")
             return StreamData()
     
-    def _parse_mock_data(self, file_data: bytes) -> StreamData:
+    def _parse_real_fit_data(self, file_data: bytes) -> StreamData:
         """
-        解析模拟数据（用于演示）
-        实际项目中应该使用fitparse或其他FIT解析库
+        解析真实的FIT文件数据
+        使用fitparse库提取所有可用的流数据
         """
-        # 基于文件大小生成模拟数据
-        file_size = len(file_data)
+        # 创建FitFile对象
+        fitfile = FitFile(BytesIO(file_data))
         
-        # 生成模拟的时间序列数据
-        num_points = min(1000, max(100, file_size // 100))  # 根据文件大小决定数据点数量
+        # 初始化数据列表
+        timestamps = []
+        distances = []
+        altitudes = []
+        cadences = []
+        heart_rates = []
+        speeds = []
+        latitudes = []
+        longitudes = []
+        powers = []
+        temperatures = []
         
-        # 生成时间戳（从0开始，每秒一个点）
-        timestamps = list(range(0, num_points))
+        # 解析所有记录
+        record_count = 0
+        for record in fitfile.get_messages('record'):
+            record_count += 1
+            
+            # 提取时间戳
+            try:
+                timestamp = record.get_value('timestamp')
+                if timestamp:
+                    # 转换为相对时间戳（秒）
+                    if len(timestamps) == 0:
+                        start_time = timestamp
+                    timestamps.append(int((timestamp - start_time).total_seconds()))
+            except:
+                pass
+            
+            # 只处理前几个记录进行调试
+            if record_count <= 5:
+                print(f"Record {record_count}: timestamp={len(timestamps)}, distance={len(distances)}, power={len(powers)}, cadence={len(cadences)}")
+            
+            # 提取距离（米）
+            try:
+                distance = record.get_value('distance')
+                if distance is not None:
+                    distances.append(float(distance))
+            except:
+                pass
+            
+            # 提取海拔（米）- 优先使用enhanced_altitude
+            altitude = None
+            if 'enhanced_altitude' in record:
+                altitude = record.get_value('enhanced_altitude')
+            elif 'altitude' in record:
+                altitude = record.get_value('altitude')
+            
+            if altitude is not None:
+                altitudes.append(float(altitude))
+            
+            # 提取踏频（RPM）
+            try:
+                cadence = record.get_value('cadence')
+                if cadence is not None:
+                    cadences.append(int(cadence))
+            except:
+                pass
+            
+            # 提取心率（BPM）
+            if 'heart_rate' in record:
+                hr = record.get_value('heart_rate')
+                if hr is not None:
+                    heart_rates.append(int(hr))
+            
+            # 提取速度（米/秒）- 优先使用enhanced_speed
+            speed = None
+            if 'enhanced_speed' in record:
+                speed = record.get_value('enhanced_speed')
+            elif 'speed' in record:
+                speed = record.get_value('speed')
+            
+            if speed is not None:
+                speeds.append(float(speed))
+            
+            # 提取GPS坐标
+            if 'position_lat' in record:
+                lat = record.get_value('position_lat')
+                if lat is not None:
+                    latitudes.append(float(lat))
+            
+            if 'position_long' in record:
+                lon = record.get_value('position_long')
+                if lon is not None:
+                    longitudes.append(float(lon))
+            
+            # 提取功率（瓦特）
+            try:
+                power = record.get_value('power')
+                if power is not None:
+                    powers.append(int(power))
+            except:
+                pass
+            
+            # 提取温度（摄氏度）
+            if 'temperature' in record:
+                temp = record.get_value('temperature')
+                if temp is not None:
+                    temperatures.append(float(temp))
         
-        # 生成距离数据（累积距离）
-        distances = [i * 10.0 for i in range(num_points)]  # 每10米一个点
+        # 确保所有列表长度一致（使用最长列表的长度）
+        lengths = [len(timestamps), len(distances), len(altitudes), len(cadences),
+                  len(heart_rates), len(speeds), len(latitudes), len(longitudes),
+                  len(powers), len(temperatures)]
+        max_len = max(lengths) if lengths else 0
         
-        # 生成海拔数据（模拟起伏）
-        altitudes = [100 + 50 * (i % 20) / 20 for i in range(num_points)]
-        
-        # 生成心率数据（模拟变化，整数）
-        heart_rates = [120 + int(40 * (i % 30) / 30) for i in range(num_points)]
-        
-        # 生成踏频数据（整数）
-        cadences = [80 + int(20 * (i % 25) / 25) for i in range(num_points)]
-        
-        # 生成速度数据
-        speeds = [5.0 + 3.0 * (i % 40) / 40 for i in range(num_points)]
-        
-        # 生成功率数据（整数）
-        powers = [150 + int(100 * (i % 35) / 35) for i in range(num_points)]
-        
-        # 生成GPS坐标（模拟路径）
-        latitudes = [40.0 + 0.01 * i for i in range(num_points)]
-        longitudes = [-74.0 + 0.01 * i for i in range(num_points)]
-        
-        # 生成温度数据
-        temperatures = [20.0 + 5.0 * (i % 50) / 50 for i in range(num_points)]
+        # 填充缺失的数据（使用默认值）
+        timestamps.extend([0] * (max_len - len(timestamps)))
+        distances.extend([0.0] * (max_len - len(distances)))
+        altitudes.extend([0.0] * (max_len - len(altitudes)))
+        cadences.extend([0] * (max_len - len(cadences)))
+        heart_rates.extend([0] * (max_len - len(heart_rates)))
+        speeds.extend([0.0] * (max_len - len(speeds)))
+        latitudes.extend([0.0] * (max_len - len(latitudes)))
+        longitudes.extend([0.0] * (max_len - len(longitudes)))
+        powers.extend([0] * (max_len - len(powers)))
+        temperatures.extend([0.0] * (max_len - len(temperatures)))
         
         return StreamData(
             timestamp=timestamps,

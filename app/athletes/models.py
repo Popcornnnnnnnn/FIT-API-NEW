@@ -28,7 +28,7 @@ class Athlete(Base):
     max_hr = Column(Integer, nullable=True)
     weight = Column(Float, nullable=True)
     metrics = relationship('AthleteMetric', back_populates='athlete')
-    activities = relationship('Activity', back_populates='athlete')
+    activities = relationship('Activity', back_populates='athlete', lazy='dynamic')
 
 class AthleteMetric(Base):
     """

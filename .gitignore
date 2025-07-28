@@ -23,12 +23,6 @@ uploads/
 *.sql
 *.sql.gz
 
-# 测试/覆盖率
-htmlcov/
-.coverage
-.cache
-.pytest_cache/
-
 # IDE/编辑器
 .vscode/
 .idea/
@@ -40,21 +34,20 @@ htmlcov/
 *.bak
 *.tmp
 
-# pytest
-pytestdebug.log
-
 # Jupyter
 .ipynb_checkpoints/
 
 # macOS
 .DS_Store
 
-# 运行脚本生成的覆盖率报告
-coverage.xml
-
 # 生产/临时文件
 *.pid
 *.pid.lock
 
 # 备份文件
-*~ 
+*~
+
+# 环境变量文件
+.env
+.env.local
+.env.production 

@@ -26,6 +26,24 @@ def create_activity_from_upload(
 ):
     """从上传的文件创建活动记录"""
     
+    # 检查是否存在相同的文件名和大小的文件
+    file_size = len(file_data)
+    existing_activity = db.query(models.Activity).filter(
+        models.Activity.athlete_id == athlete_id,
+        models.Activity.file_name == file_name,
+        models.Activity.file_data.isnot(None)
+    ).first()
+    
+    if existing_activity:
+        # 如果找到同名文件，检查文件大小是否相同
+        try:
+            existing_file_data = base64.b64decode(existing_activity.file_data.encode('utf-8'))
+            if len(existing_file_data) == file_size:
+                raise ValueError(f"文件 '{file_name}' 已存在且大小相同，不允许重复上传")
+        except Exception as e:
+            # 如果解码失败，仍然认为可能是重复文件，阻止上传
+            raise ValueError(f"文件 '{file_name}' 已存在，不允许重复上传")
+    
     # 生成唯一ID字符串
     id_str = str(uuid.uuid4())
     

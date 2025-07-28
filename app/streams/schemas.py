@@ -17,15 +17,30 @@ class Resolution(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
 
+class SeriesType(str, Enum):
+    """系列类型枚举"""
+    DISTANCE = "distance"
+    TIME = "time"
+    NONE = "none"
+
+class TimeValuePair(BaseModel):
+    time: int
+    value: Union[int, float]
+
+class DistanceValuePair(BaseModel):
+    distance: float
+    value: Union[int, float]
+
 class StreamRequest(BaseModel):
     """流数据请求模型"""
-    keys: List[str] = Field(..., description="请求的流数据类型列表")
+    keys: List[str] = Field(..., description="请求的流数据类型列表（不包括distance和time）")
     resolution: Resolution = Field(default=Resolution.HIGH, description="数据分辨率")
+    series_type: SeriesType = Field(default=SeriesType.NONE, description="采样方式，可选：distance、time、none")
 
 class StreamResponse(BaseModel):
     """流数据响应模型"""
     type: str = Field(..., description="流数据类型")
-    data: List[Union[int, float]] = Field(..., description="数据点列表")
+    data: List[Union[int, float, TimeValuePair, DistanceValuePair]] = Field(..., description="数据点列表")
     series_type: str = Field(..., description="系列类型")
     original_size: int = Field(..., description="原始数据点数量")
     resolution: str = Field(..., description="数据分辨率")

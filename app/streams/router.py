@@ -18,8 +18,9 @@ router = APIRouter(prefix="/activities", tags=["streams"])
 @router.get("/{activity_id}/streams", response_model=List[schemas.StreamResponse])
 def get_activity_streams(
     activity_id: int,
-    keys: List[str] = Query(..., description="请求的流数据类型列表"),
-    resolution: models.Resolution = Query(models.Resolution.HIGH, description="数据分辨率")
+    keys: List[str] = Query(..., description="请求的流数据类型列表（不包括distance和time）"),
+    resolution: models.Resolution = Query(models.Resolution.HIGH, description="数据分辨率"),
+    series_type: models.SeriesType = Query(models.SeriesType.NONE, description="采样方式，可选：distance、time、none")
 ):
     """
     获取活动的流数据
@@ -32,9 +33,13 @@ def get_activity_streams(
     Returns:
         List[StreamResponse]: 流数据列表
     """
+    # 校验keys
+    for key in keys:
+        if key in ["distance", "time"]:
+            raise HTTPException(status_code=400, detail="keys参数不能包含distance或time")
     db = next(get_db())
     try:
-        streams = stream_crud.get_activity_streams(db, activity_id, keys, resolution)
+        streams = stream_crud.get_activity_streams(db, activity_id, keys, resolution, series_type)
         
         if not streams:
             raise HTTPException(
