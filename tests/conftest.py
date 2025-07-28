@@ -61,7 +61,7 @@ def db_session():
     session = TestingSessionLocal(bind=connection)
     yield session
     session.close()
-    transaction.commit()  # 显式提交以保持数据用于检查
+    transaction.rollback()  # 改为rollback以避免事务问题
     connection.close()
 
 @pytest.fixture

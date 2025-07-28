@@ -1,0 +1,22 @@
+{
+  "uploaded_files": [
+    {
+      "file": "还是好虚啊.fit",
+      "activity_id": 3,
+      "external_id": "local-还是好虚啊-1"
+    }
+  ],
+  "failed_files": [],
+  "summary": {
+    "uploaded": [
+      {
+        "file": "还是好虚啊.fit",
+        "activity_id": 3,
+        "external_id": "local-还是好虚啊-1"
+      }
+    ],
+    "failed": [],
+    "total_uploaded": 1,
+    "total_failed": 0
+  }
+}
