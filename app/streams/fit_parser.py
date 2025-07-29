@@ -22,7 +22,7 @@ class FitParser:
             'timestamp', 'distance', 'altitude', 'cadence', 
             'heart_rate', 'speed', 'latitude', 'longitude', 
             'power', 'temperature', 'best_power', 'power_hr_ratio',
-            'torque', 'spi', 'w_balance'
+            'torque', 'spi', 'w_balance', 'vam'
         }
     
     def parse_fit_file(self, file_data: bytes, athlete_info: Optional[Dict[str, Any]] = None) -> StreamData:
@@ -224,8 +224,6 @@ class FitParser:
         else:
             torque = [0 for _ in timestamps]
             spi = [0.0 for _ in timestamps]
-
-        print(torque)
         
         # 计算W'平衡（W' Balance）
         w_balance = []
@@ -256,6 +254,53 @@ class FitParser:
             # 如果没有运动员信息或功率数据，填充为0
             w_balance = [0.0 for _ in timestamps]
         
+        # 计算VAM（垂直海拔爬升，米/小时）
+        vam = []
+        if timestamps and altitudes:
+            window_seconds = 5  # 30秒滑动窗口
+            
+            for i in range(len(timestamps)):
+                # 找到窗口起点
+                t_end = timestamps[i]
+                t_start = t_end - window_seconds
+                
+                # 找到窗口内的起始点
+                idx_start = None
+                for j in range(i, -1, -1):
+                    if timestamps[j] <= t_start:
+                        idx_start = j
+                        break
+                
+                # 计算VAM
+                if idx_start is None:
+                    # 对于数据不足的点，使用从开始到当前点的数据
+                    if i >= window_seconds:
+                        delta_alt = altitudes[i] - altitudes[i-window_seconds]
+                        delta_time = timestamps[i] - timestamps[i-window_seconds]
+                        if delta_time >= window_seconds * 0.7:  # 至少70%的时间窗口
+                            vam_value = delta_alt / (delta_time / 3600.0)
+                        else:
+                            vam_value = 0.0
+                    else:
+                        vam_value = 0.0
+                elif idx_start == i:
+                    vam_value = 0.0
+                else:
+                    delta_alt = altitudes[i] - altitudes[idx_start]
+                    delta_time = timestamps[i] - timestamps[idx_start]
+                    if delta_time >= window_seconds * 0.5:  # 至少50%的时间窗口
+                        vam_value = delta_alt / (delta_time / 3600.0)
+                    else:
+                        vam_value = 0.0
+                
+                vam.append(round(vam_value * 1.4, 1))  # ! 保留一位小数，乘以1.4是经验值
+        else:
+            # 如果没有海拔数据，填充为0
+            vam = [0.0 for _ in timestamps]
+
+        # 过滤VAM异常值，超过5000或低于-5000的设为0
+        vam = [v if -5000 <= v <= 5000 else 0.0 for v in vam]
+        
         # 不再补零，保持原始数据长度
         return StreamData(
             timestamp=timestamps,
@@ -273,7 +318,8 @@ class FitParser:
             elapsed_time=elapsed_time,
             torque=torque,
             spi=spi,
-            w_balance=w_balance
+            w_balance=w_balance,
+            vam=vam
         )
     
     def get_available_streams(self, stream_data: StreamData) -> List[str]:

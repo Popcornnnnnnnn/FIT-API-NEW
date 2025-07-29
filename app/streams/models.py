@@ -97,6 +97,11 @@ class WBalanceStream(BaseStream):
     data: List[float] = Field(..., description="W'平衡数据点（千焦，保留一位小数）")
     series_type: SeriesType = Field(default=SeriesType.TIME, description="系列类型，默认time")
 
+class VAMStream(BaseStream):
+    """VAM流数据（单位：米/小时）"""
+    data: List[float] = Field(..., description="VAM数据点（米/小时，保留一位小数）")
+    series_type: SeriesType = Field(default=SeriesType.TIME, description="系列类型，默认time")
+
 class StreamData(BaseModel):
     """完整的流数据集合，用于存储FIT文件中的所有原始数据"""
     timestamp: List[int] = Field(default_factory=list, description="时间戳数据点")
@@ -115,6 +120,7 @@ class StreamData(BaseModel):
     torque: List[int] = Field(default_factory=list, description="扭矩数据点（牛·米，整数）")
     spi: List[float] = Field(default_factory=list, description="SPI数据点（瓦特/转，保留两位小数）")
     w_balance: List[float] = Field(default_factory=list, description="W'平衡数据点（千焦，保留一位小数）")
+    vam: List[float] = Field(default_factory=list, description="VAM数据点（米/小时，保留一位小数）")
     
     def get_stream(self, stream_type: str, resolution: Resolution = Resolution.HIGH, series_type: SeriesType = SeriesType.TIME) -> Optional[BaseStream]:
         """根据类型和分辨率获取流数据"""
@@ -164,6 +170,7 @@ class StreamData(BaseModel):
             'torque': TorqueStream,
             'spi': SPIStream,
             'w_balance': WBalanceStream,
+            'vam': VAMStream,
         }
         if stream_type in stream_classes:
             return stream_classes[stream_type](
@@ -229,6 +236,11 @@ class StreamData(BaseModel):
             # w_balance 需要 power 数据
             if field_name == 'w_balance':
                 if getattr(self, 'power') and any(getattr(self, 'power')) and data and any(x != 0 for x in data):
+                    available.append(field_name)
+                continue
+            # vam 需要 altitude 数据
+            if field_name == 'vam':
+                if getattr(self, 'altitude') and any(getattr(self, 'altitude')) and data and any(x != 0 for x in data):
                     available.append(field_name)
                 continue
             # 其它流只要有非 None/非 0 数据即可
