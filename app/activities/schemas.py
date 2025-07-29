@@ -7,10 +7,12 @@
 3. ActivityUpdate: 更新活动时的请求模型
 4. Activity: 活动完整响应模型
 5. ActivitySummary: 活动摘要响应模型
+6. ZoneBucket: 区间分布桶模型
+7. ZoneDistribution: 区间分布模型
 """
 
 from pydantic import BaseModel, ConfigDict
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import datetime
 
 class ActivityBase(BaseModel):
@@ -55,4 +57,18 @@ class ActivitySummary(BaseModel):
     avg_hr: Optional[float] = None
     max_power: Optional[float] = None
     max_hr: Optional[float] = None
-    activity_type: Optional[str] = None 
+    activity_type: Optional[str] = None
+
+class ZoneBucket(BaseModel):
+    """区间分布桶模型"""
+    min: float
+    max: float
+    time: int  # 时间（秒）
+    string: str  # 格式化的时间字符串
+    percentage: str  # 百分比字符串
+    name: Optional[str] = None  # 区间名称
+
+class ZoneDistribution(BaseModel):
+    """区间分布模型"""
+    distribution_buckets: List[ZoneBucket]
+    type: str  # "power" 或 "heart_rate" 

@@ -11,6 +11,7 @@
 - 👥 **运动员管理** - 运动员信息管理和指标跟踪
 - 📊 **活动分析** - 活动摘要和高级指标计算
 - 📈 **数据流处理** - 时间序列数据流获取和分析
+- 🎯 **区间分布分析** - 功率和心率区间分布统计
 - 🗄️ **数据存储** - 文件数据Base64编码存储在数据库中
 
 ## 🏗️ 项目结构
@@ -353,6 +354,7 @@ export SECRET_KEY="your-secret-key"
 - ✅ 运动员管理功能
 - ✅ 活动管理功能
 - ✅ 数据流功能
+- ✅ 区间分布分析功能
 - ✅ 完整的测试套件
 - ✅ 数据库管理工具
 - ✅ 本地文件上传工具
@@ -429,6 +431,61 @@ GET http://localhost:8000/activities/16/streams?keys=distance,heart_rate,power&r
   "total_streams": 9
 }
 ```
+
+### 5. 获取活动区间分布数据
+- **方法**：GET
+- **URL**：`http://localhost:8000/activities/{activity_id}/zones`
+- **Params**：
+    - `type`：区间类型，支持 `power`（功率）或 `heart_rate`（心率）
+- **示例**：
+```
+GET http://localhost:8000/activities/5/zones?type=power
+GET http://localhost:8000/activities/5/zones?type=heart_rate
+```
+- **返回**：
+```json
+{
+  "distribution_buckets": [
+    {
+      "min": 0.0,
+      "max": 143.0,
+      "time": 344,
+      "string": "0:05:44",
+      "percentage": "14.1%",
+      "name": "动态恢复"
+    },
+    {
+      "min": 143.0,
+      "max": 195.0,
+      "time": 274,
+      "string": "0:04:34",
+      "percentage": "11.2%",
+      "name": "耐力"
+    }
+  ],
+  "type": "power"
+}
+```
+
+**区间说明**：
+- **功率区间**：基于FTP分为7个区间
+  - 动态恢复 (0-55% FTP)
+  - 耐力 (55-75% FTP)
+  - 节奏 (75-90% FTP)
+  - 阈值 (90-105% FTP)
+  - 最大摄氧量 (105-120% FTP)
+  - 厌氧 (120-150% FTP)
+  - 神经肌肉 (>150% FTP)
+- **心率区间**：基于最大心率分为5个区间
+  - 耐力 (50-60% Max HR)
+  - 中等 (60-70% Max HR)
+  - 节奏 (70-80% Max HR)
+  - 阈值 (80-90% Max HR)
+  - 厌氧 (90-100% Max HR)
+- **时间格式**：`string` 字段显示格式化的时间（HH:MM:SS）
+- **百分比**：`percentage` 字段显示该区间占总时间的百分比
+- **区间名称**：`name` 字段包含默认的区间名称，你可以根据需要修改
+- **自动关联**：通过活动ID自动找到对应的运动员，使用其FTP和最大心率计算区间
 
 ---
 
