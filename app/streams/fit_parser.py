@@ -77,9 +77,6 @@ class FitParser:
             except:
                 pass
             
-            # 只处理前几个记录进行调试
-            if record_count <= 5:
-                print(f"Record {record_count}: timestamp={len(timestamps)}, distance={len(distances)}, power={len(powers)}, cadence={len(cadences)}")
             
             # 提取距离（米）
             try:
@@ -90,63 +87,46 @@ class FitParser:
                 pass
             
             # 提取海拔（米）- 优先使用enhanced_altitude
-            altitude = None
-            if 'enhanced_altitude' in record:
-                altitude = record.get_value('enhanced_altitude')
-            elif 'altitude' in record:
+            altitude = record.get_value('enhanced_altitude')
+            if altitude is None:
                 altitude = record.get_value('altitude')
-            
             if altitude is not None:
                 altitudes.append(float(altitude))
             
             # 提取踏频（RPM）
-            try:
-                cadence = record.get_value('cadence')
-                if cadence is not None:
-                    cadences.append(int(cadence))
-            except:
-                pass
+            cadence = record.get_value('cadence')
+            if cadence is not None:
+                cadences.append(int(cadence))
             
             # 提取心率（BPM）
-            if 'heart_rate' in record:
-                hr = record.get_value('heart_rate')
-                if hr is not None:
-                    heart_rates.append(int(hr))
+            hr = record.get_value('heart_rate')
+            if hr is not None:
+                heart_rates.append(int(hr))
             
             # 提取速度（米/秒）- 优先使用enhanced_speed
-            speed = None
-            if 'enhanced_speed' in record:
-                speed = record.get_value('enhanced_speed')
-            elif 'speed' in record:
+            speed = record.get_value('enhanced_speed')
+            if speed is None:
                 speed = record.get_value('speed')
-            
             if speed is not None:
                 speeds.append(float(speed))
             
             # 提取GPS坐标
-            if 'position_lat' in record:
-                lat = record.get_value('position_lat')
-                if lat is not None:
-                    latitudes.append(float(lat))
-            
-            if 'position_long' in record:
-                lon = record.get_value('position_long')
-                if lon is not None:
-                    longitudes.append(float(lon))
+            lat = record.get_value('position_lat')
+            if lat is not None:
+                latitudes.append(float(lat))
+            lon = record.get_value('position_long')
+            if lon is not None:
+                longitudes.append(float(lon))
             
             # 提取功率（瓦特）
-            try:
-                power = record.get_value('power')
-                if power is not None:
-                    powers.append(int(power))
-            except:
-                pass
+            power = record.get_value('power')
+            if power is not None:
+                powers.append(int(power))
             
             # 提取温度（摄氏度）
-            if 'temperature' in record:
-                temp = record.get_value('temperature')
-                if temp is not None:
-                    temperatures.append(float(temp))
+            temp = record.get_value('temperature')
+            if temp is not None:
+                temperatures.append(float(temp))
         
         # 确保所有列表长度一致（使用最长列表的长度）
         lengths = [len(timestamps), len(distances), len(altitudes), len(cadences),
