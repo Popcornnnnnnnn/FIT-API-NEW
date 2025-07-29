@@ -86,8 +86,10 @@ class StreamCRUD:
                         "resolution": resolution.value
                     })
                 elif series_type == models.SeriesType.TIME:
-                    min_len = min(len(key_data), len(original_timestamp))
-                    data = [{"time": original_timestamp[i], "value": key_data[i]} for i in range(min_len)]
+                    # 统一用 elapsed_time 作为 time 轴
+                    resampled_elapsed_time = stream_data._resample_data(stream_data.elapsed_time, resolution)
+                    min_len = min(len(key_data), len(resampled_elapsed_time))
+                    data = [{"time": resampled_elapsed_time[i], "value": key_data[i]} for i in range(min_len)]
                     result.append({
                         "type": key,
                         "data": data,

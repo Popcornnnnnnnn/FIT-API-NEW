@@ -63,6 +63,10 @@ class FitParser:
         
         # 解析所有记录
         record_count = 0
+        prev_timestamp = None
+        elapsed_time = []
+        total_elapsed = 0
+        expected_interval = 1  # 采样间隔秒数，默认1秒，可根据实际情况调整
         for record in fitfile.get_messages('record'):
             record_count += 1
             
@@ -70,9 +74,20 @@ class FitParser:
             try:
                 timestamp = record.get_value('timestamp')
                 if timestamp:
-                    # 转换为相对时间戳（秒）
                     if len(timestamps) == 0:
                         start_time = timestamp
+                        prev_timestamp = timestamp
+                        total_elapsed = 0
+                        elapsed_time.append(0)
+                    else:
+                        delta = (timestamp - prev_timestamp).total_seconds()
+                        # 如果间隔大于2倍采样间隔，视为暂停
+                        if delta > expected_interval * 2:
+                            total_elapsed += expected_interval  # 只加一个采样间隔
+                        else:
+                            total_elapsed += delta
+                        elapsed_time.append(int(total_elapsed))
+                        prev_timestamp = timestamp
                     timestamps.append(int((timestamp - start_time).total_seconds()))
             except:
                 pass
@@ -191,7 +206,8 @@ class FitParser:
             power=powers,
             temperature=temperatures,
             best_power=best_powers,
-            power_hr_ratio=power_hr_ratio
+            power_hr_ratio=power_hr_ratio,
+            elapsed_time=elapsed_time
         )
     
     def get_available_streams(self, stream_data: StreamData) -> List[str]:
