@@ -53,15 +53,29 @@ class StreamCRUD:
         result = []
         for key in keys:
             if key in self.fit_parser.supported_fields:
-                key_data = stream_data._resample_data(getattr(stream_data, key), resolution)
-                if not key_data:
+                try:
+                    stream_obj = stream_data.get_stream(key, resolution, series_type)
+                except ValueError as e:
+                    from fastapi import HTTPException
+                    raise HTTPException(status_code=400, detail=str(e))
+                if not stream_obj or not stream_obj.data:
                     continue
-                # 获取原始数据长度（不经过重采样）
+                # best_power特殊处理，time从1开始
+                if key == 'best_power':
+                    data = [{"time": i+1, "value": v} for i, v in enumerate(stream_obj.data)]
+                    result.append({
+                        "type": key,
+                        "data": data,
+                        "series_type": "time",
+                        "original_size": len(stream_obj.data),
+                        "resolution": resolution.value
+                    })
+                    continue
+                # 其它流
+                key_data = stream_obj.data
                 original_data = getattr(stream_data, key)
                 original_size = len(original_data) if original_data else 0
-                
                 if series_type == models.SeriesType.DISTANCE:
-                    # 使用原始distance数据，确保distance间隔准确
                     min_len = min(len(key_data), len(original_distance))
                     data = [{"distance": original_distance[i], "value": key_data[i]} for i in range(min_len)]
                     result.append({
@@ -72,7 +86,6 @@ class StreamCRUD:
                         "resolution": resolution.value
                     })
                 elif series_type == models.SeriesType.TIME:
-                    # 使用原始timestamp数据，确保时间间隔准确
                     min_len = min(len(key_data), len(original_timestamp))
                     data = [{"time": original_timestamp[i], "value": key_data[i]} for i in range(min_len)]
                     result.append({
@@ -83,7 +96,6 @@ class StreamCRUD:
                         "resolution": resolution.value
                     })
                 else:
-                    # none: 只返回key序列本身
                     data = key_data
                     result.append({
                         "type": key,

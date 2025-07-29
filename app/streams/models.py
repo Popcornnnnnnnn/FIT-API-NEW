@@ -10,6 +10,7 @@
 from typing import List, Optional, Union, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
+import sys
 
 class Resolution(str, Enum):
     """数据分辨率枚举"""
@@ -71,6 +72,16 @@ class TemperatureStream(BaseStream):
     """温度流数据"""
     data: List[float] = Field(..., description="温度数据点（摄氏度）")
 
+class BestPowerStream(BaseStream):
+    """最佳功率曲线流数据（每秒区间最大均值）"""
+    data: List[float] = Field(..., description="最佳功率曲线（每秒区间最大均值）")
+    series_type: SeriesType = Field(default=SeriesType.TIME, description="系列类型，只允许time")
+
+class PowerHrRatioStream(BaseStream):
+    """功率/心率比流数据"""
+    data: List[float] = Field(..., description="功率/心率比数据点")
+    series_type: SeriesType = Field(default=SeriesType.TIME, description="系列类型，允许time和distance")
+
 class StreamData(BaseModel):
     """完整的流数据集合，用于存储FIT文件中的所有原始数据"""
     timestamp: List[int] = Field(default_factory=list, description="时间戳数据点")
@@ -83,20 +94,41 @@ class StreamData(BaseModel):
     longitude: List[float] = Field(default_factory=list, description="经度数据点")
     power: List[int] = Field(default_factory=list, description="功率数据点")
     temperature: List[float] = Field(default_factory=list, description="温度数据点")
+    best_power: List[float] = Field(default_factory=list, description="最佳功率曲线（每秒区间最大均值）")
+    power_hr_ratio: List[float] = Field(default_factory=list, description="功率/心率比数据点")
     
-    def get_stream(self, stream_type: str, resolution: Resolution = Resolution.HIGH) -> Optional[BaseStream]:
+    def get_stream(self, stream_type: str, resolution: Resolution = Resolution.HIGH, series_type: SeriesType = SeriesType.TIME) -> Optional[BaseStream]:
         """根据类型和分辨率获取流数据"""
+
+        
+
+        available = self.get_available_streams()
+        if stream_type not in available:
+            raise ValueError('该流类型在当前活动中不可用，请通过 available_streams 接口获取可用流类型')
+
         if stream_type not in StreamData.model_fields:
             return None
-            
+        
         data = getattr(self, stream_type)
         if not data:
             return None
-            
-        # 根据分辨率进行重采样
-        resampled_data = self._resample_data(data, resolution)
         
-        # 创建对应的Stream对象
+        # best_power 只能 series_type=time 且 resolution=high
+        if stream_type == 'best_power':
+            if series_type != SeriesType.TIME:
+                raise ValueError('best_power 只允许 series_type=time')
+            if resolution != Resolution.HIGH:
+                raise ValueError('best_power 只允许 resolution=high')
+            # time 从 1 开始
+            x_axis = list(range(1, len(data) + 1))
+            return BestPowerStream(
+                original_size=len(data),
+                resolution=resolution,
+                data=data,  # y轴数据
+                series_type=SeriesType.TIME
+            )
+        # 其它流（包括 power_hr_ratio）统一处理
+        resampled_data = self._resample_data(data, resolution)
         stream_classes = {
             'distance': DistanceStream,
             'time': TimeStream,
@@ -108,8 +140,9 @@ class StreamData(BaseModel):
             'longitude': LongitudeStream,
             'power': PowerStream,
             'temperature': TemperatureStream,
+            'best_power': BestPowerStream,
+            'power_hr_ratio': PowerHrRatioStream,
         }
-        
         if stream_type in stream_classes:
             return stream_classes[stream_type](
                 original_size=len(data),
@@ -117,7 +150,6 @@ class StreamData(BaseModel):
                 data=resampled_data,
                 series_type=SeriesType.DISTANCE if stream_type == 'distance' else SeriesType.TIME
             )
-        
         return None
     
     def _resample_data(self, data: List[Union[int, float]], resolution: Resolution) -> List[Union[int, float]]:
@@ -144,10 +176,31 @@ class StreamData(BaseModel):
         return data
     
     def get_available_streams(self) -> List[str]:
-        """获取可用的流类型列表（不包含distance和timestamp）"""
+        """
+        只返回当前活动实际有数据且非全 None/空的字段。
+        power_hr_ratio 只有在 power 和 heart_rate 都有数据且 power_hr_ratio 至少有一个非 None 时才返回。
+        """
         available = []
         for field_name in StreamData.model_fields:
-            if field_name not in ('timestamp', 'distance') and getattr(self, field_name):
+            if field_name in ('timestamp', 'distance'):
+                continue
+            data = getattr(self, field_name)
+            # power_hr_ratio 需要特殊判断
+            if field_name == 'power_hr_ratio':
+                if (
+                    getattr(self, 'power') and any(getattr(self, 'power')) and
+                    getattr(self, 'heart_rate') and any(getattr(self, 'heart_rate')) and
+                    data and any(x is not None for x in data)
+                ):
+                    available.append(field_name)
+                continue
+            # best_power 依赖 power
+            if field_name == 'best_power':
+                if getattr(self, 'power') and any(getattr(self, 'power')) and data and any(x != 0 for x in data):
+                    available.append(field_name)
+                continue
+            # 其它流只要有非 None/非 0 数据即可
+            if data and any(x is not None and x != 0 for x in data):
                 available.append(field_name)
         return available
     

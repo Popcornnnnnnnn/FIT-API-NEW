@@ -20,7 +20,7 @@ class FitParser:
         self.supported_fields = {
             'timestamp', 'distance', 'altitude', 'cadence', 
             'heart_rate', 'speed', 'latitude', 'longitude', 
-            'power', 'temperature'
+            'power', 'temperature', 'best_power', 'power_hr_ratio'
         }
     
     def parse_fit_file(self, file_data: bytes) -> StreamData:
@@ -127,25 +127,58 @@ class FitParser:
             temp = record.get_value('temperature')
             if temp is not None:
                 temperatures.append(float(temp))
+
+        # 计算最佳功率曲线
+        def calculate_best_power_curve(powers: list) -> list:
+            """
+            计算最佳功率输出（Best Power Curve），每秒区间的最大均值
+            返回列表 best_powers，其中 best_powers[0] = 1秒内最大平均功率，best_powers[1] = 2秒内最大平均功率，依此类推
+            """
+            n = len(powers)
+            best_powers = []
+            for window in range(1, n + 1):
+                max_avg = 0
+                if n >= window:
+                    window_sum = sum(powers[:window])
+                    max_avg = window_sum / window
+                    for i in range(1, n - window + 1):
+                        window_sum = window_sum - powers[i - 1] + powers[i + window - 1]
+                        avg = window_sum / window
+                        if avg > max_avg:
+                            max_avg = avg
+                best_powers.append(max_avg)
+            return best_powers
+
+        best_powers = calculate_best_power_curve(powers)
         
-        # 确保所有列表长度一致（使用最长列表的长度）
-        lengths = [len(timestamps), len(distances), len(altitudes), len(cadences),
-                  len(heart_rates), len(speeds), len(latitudes), len(longitudes),
-                  len(powers), len(temperatures)]
-        max_len = max(lengths) if lengths else 0
+        # ! 计算功率/心率比（只有 power 和 heart_rate 都有值且长度一致时才计算，否则为空）
+        # 计算功率/心率比，通过时间戳对齐，不要求长度一致
+        power_hr_ratio = []
+        if timestamps and powers and heart_rates:
+            # 构建时间戳到功率和心率的映射
+            power_map = {}
+            hr_map = {}
+            for idx, ts in enumerate(timestamps):
+                if idx < len(powers):
+                    power_map[ts] = powers[idx]
+                if idx < len(heart_rates):
+                    hr_map[ts] = heart_rates[idx]
+            # 以所有时间戳为基准，计算比值
+            for ts in timestamps:
+                p = power_map.get(ts)
+                hr = hr_map.get(ts)
+                if (
+                    p is not None and hr is not None and hr > 0
+                    and p is not None and hr is not None
+                ):
+                    power_hr_ratio.append(round(float(p) / float(hr), 3))
+                else:
+                    # 避免 None，填充为 0.0
+                    power_hr_ratio.append(0.0)
+        else:
+            power_hr_ratio = [0.0 for _ in timestamps]
         
-        # 填充缺失的数据（使用默认值）
-        timestamps.extend([0] * (max_len - len(timestamps)))
-        distances.extend([0.0] * (max_len - len(distances)))
-        altitudes.extend([0.0] * (max_len - len(altitudes)))
-        cadences.extend([0] * (max_len - len(cadences)))
-        heart_rates.extend([0] * (max_len - len(heart_rates)))
-        speeds.extend([0.0] * (max_len - len(speeds)))
-        latitudes.extend([0.0] * (max_len - len(latitudes)))
-        longitudes.extend([0.0] * (max_len - len(longitudes)))
-        powers.extend([0] * (max_len - len(powers)))
-        temperatures.extend([0.0] * (max_len - len(temperatures)))
-        
+        # 不再补零，保持原始数据长度
         return StreamData(
             timestamp=timestamps,
             distance=distances,
@@ -156,7 +189,9 @@ class FitParser:
             latitude=latitudes,
             longitude=longitudes,
             power=powers,
-            temperature=temperatures
+            temperature=temperatures,
+            best_power=best_powers,
+            power_hr_ratio=power_hr_ratio
         )
     
     def get_available_streams(self, stream_data: StreamData) -> List[str]:
