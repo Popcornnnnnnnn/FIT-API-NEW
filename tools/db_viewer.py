@@ -13,16 +13,24 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
-from app.utils import SQLALCHEMY_DATABASE_URL
+# from app.utils import SQLALCHEMY_DATABASE_URL  # 移除
 import base64
 from pathlib import Path
+from urllib.parse import quote_plus
+
+# 数据库连接字符串，优先读取环境变量
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    password = "plz@myshit"
+    encoded_password = quote_plus(password)
+    DATABASE_URL = f"mysql+pymysql://root:{encoded_password}@localhost/fitdb"
 
 class DatabaseManager:
     """数据库管理器"""
     
     def __init__(self):
         """初始化数据库连接"""
-        self.engine = create_engine(SQLALCHEMY_DATABASE_URL)
+        self.engine = create_engine(DATABASE_URL)
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
     
     def get_activities_summary(self):
