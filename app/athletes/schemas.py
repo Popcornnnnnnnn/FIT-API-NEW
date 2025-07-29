@@ -21,6 +21,7 @@ class AthleteBase(BaseModel):
     ftp: Optional[float] = None
     max_hr: Optional[int] = None
     weight: Optional[float] = None
+    wj: Optional[float] = 20000  # 无氧储备，单位焦耳，默认20000
 
 class AthleteCreate(AthleteBase):
     """创建运动员时的请求模型"""
@@ -32,6 +33,7 @@ class AthleteUpdate(BaseModel):
     ftp: Optional[float] = None
     max_hr: Optional[int] = None
     weight: Optional[float] = None
+    wj: Optional[float] = None  # 无氧储备，单位焦耳
 
 class Athlete(AthleteBase):
     """运动员完整响应模型"""

@@ -28,7 +28,8 @@ def create_athlete(db: Session, athlete: schemas.AthleteCreate):
         name=athlete.name,
         ftp=athlete.ftp,
         max_hr=athlete.max_hr,
-        weight=athlete.weight
+        weight=athlete.weight,
+        wj=athlete.wj
     )
     db.add(db_athlete)
     db.commit()

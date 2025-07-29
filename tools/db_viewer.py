@@ -94,6 +94,7 @@ class DatabaseManager:
                         ftp, 
                         max_hr, 
                         weight,
+                        wj,
                         (SELECT COUNT(*) FROM activities WHERE athlete_id = athletes.id) as activity_count
                     FROM athletes 
                     ORDER BY id
@@ -110,6 +111,7 @@ class DatabaseManager:
                         ftp, 
                         max_hr, 
                         weight,
+                        wj,
                         0 as activity_count
                     FROM athletes 
                     ORDER BY id
@@ -314,12 +316,12 @@ def main():
             # 查看运动员
             athletes = manager.get_athletes_summary()
             print(f"\n👥 所有运动员 ({len(athletes)} 个):")
-            print("-" * 70)
-            print(f"{'ID':<4} {'姓名':<15} {'FTP':<6} {'最大心率':<8} {'体重':<6} {'活动数':<6}")
-            print("-" * 70)
+            print("-" * 85)
+            print(f"{'ID':<4} {'姓名':<15} {'FTP':<6} {'最大心率':<8} {'体重':<6} {'无氧储备':<8} {'活动数':<6}")
+            print("-" * 85)
             
             for athlete in athletes:
-                print(f"{athlete.id:<4} {athlete.name:<15} {athlete.ftp or '-':<6} {athlete.max_hr or '-':<8} {athlete.weight or '-':<6} {athlete.activity_count:<6}")
+                print(f"{athlete.id:<4} {athlete.name:<15} {athlete.ftp or '-':<6} {athlete.max_hr or '-':<8} {athlete.weight or '-':<6} {athlete.wj or '-':<8} {athlete.activity_count:<6}")
         
         elif choice == "5":
             # 查看表结构

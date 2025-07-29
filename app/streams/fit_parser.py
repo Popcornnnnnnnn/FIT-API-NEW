@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Any
 from fitparse import FitFile
 from io import BytesIO
 from .models import StreamData, Resolution
+import numpy as np
 
 class FitParser:
     """FIT文件解析器"""
@@ -20,28 +21,30 @@ class FitParser:
         self.supported_fields = {
             'timestamp', 'distance', 'altitude', 'cadence', 
             'heart_rate', 'speed', 'latitude', 'longitude', 
-            'power', 'temperature', 'best_power', 'power_hr_ratio'
+            'power', 'temperature', 'best_power', 'power_hr_ratio',
+            'torque', 'spi', 'w_balance'
         }
     
-    def parse_fit_file(self, file_data: bytes) -> StreamData:
+    def parse_fit_file(self, file_data: bytes, athlete_info: Optional[Dict[str, Any]] = None) -> StreamData:
         """
         解析FIT文件数据
         
         Args:
             file_data: FIT文件的二进制数据
+            athlete_info: 运动员信息，包含ftp和wj字段，用于w_balance计算
             
         Returns:
             StreamData: 包含所有流数据的对象
         """
         try:
             # 使用fitparse库解析真实的FIT文件
-            return self._parse_real_fit_data(file_data)
+            return self._parse_real_fit_data(file_data, athlete_info)
         except Exception as e:
             # 如果解析失败，返回空的StreamData
             print(f"FIT文件解析失败: {e}")
             return StreamData()
     
-    def _parse_real_fit_data(self, file_data: bytes) -> StreamData:
+    def _parse_real_fit_data(self, file_data: bytes, athlete_info: Optional[Dict[str, Any]] = None) -> StreamData:
         """
         解析真实的FIT文件数据
         使用fitparse库提取所有可用的流数据
@@ -186,12 +189,72 @@ class FitParser:
                     p is not None and hr is not None and hr > 0
                     and p is not None and hr is not None
                 ):
-                    power_hr_ratio.append(round(float(p) / float(hr), 3))
+                    power_hr_ratio.append(round(float(p) / float(hr), 2))
                 else:
                     # 避免 None，填充为 0.0
                     power_hr_ratio.append(0.0)
         else:
             power_hr_ratio = [0.0 for _ in timestamps]
+        
+        # 计算扭矩（牛·米，整数）和 SPI（功率/踏频，保留两位小数），通过时间戳对齐，不要求 powers 和 cadences 长度一致，空的记录为 0
+        torque = []
+        spi = []
+        if timestamps and powers and cadences:
+            # 构建时间戳到功率和踏频的映射
+            power_map = {}
+            cadence_map = {}
+            for idx, ts in enumerate(timestamps):
+                if idx < len(powers):
+                    power_map[ts] = powers[idx]
+                if idx < len(cadences):
+                    cadence_map[ts] = cadences[idx]
+            for ts in timestamps:
+                p = power_map.get(ts)
+                c = cadence_map.get(ts)
+                if (
+                    p is not None and c is not None and c > 0
+                ):
+                    # 扭矩 = 功率 / (踏频 * 2 * pi / 60)
+                    t = p / (c * 2 * 3.1415926 / 60)
+                    torque.append(int(round(t)))
+                    spi.append(round(p / c, 2))
+                else:
+                    torque.append(0)
+                    spi.append(0.0)
+        else:
+            torque = [0 for _ in timestamps]
+            spi = [0.0 for _ in timestamps]
+
+        print(torque)
+        
+        # 计算W'平衡（W' Balance）
+        w_balance = []
+        if athlete_info and powers and athlete_info.get('ftp') and athlete_info.get('wj'):
+            W_prime = athlete_info['wj']  # 无氧储备
+            CP = athlete_info['ftp']      # 功能阈值功率
+            
+            dt = 1.0
+            tau = W_prime / (CP * 0.5)  # 根据 Skiba 建议公式调整
+            
+            balance = W_prime  # 初始储备
+            
+            for p in powers:
+                if p is None:
+                    w_balance.append(round(balance / 1000, 1))  # 转换为千焦，保留一位小数
+                    continue
+                    
+                if p <= CP:
+                    # 恢复：指数回复（参考 Skiba 模型）
+                    balance += (W_prime - balance) * (1 - np.exp(-dt / tau))
+                else:
+                    # 消耗：线性损耗
+                    balance -= (p - CP) * dt
+                
+                balance = max(0.0, min(W_prime, balance))  # 限定范围
+                w_balance.append(round(balance / 1000, 1))  # 转换为千焦，保留一位小数
+        else:
+            # 如果没有运动员信息或功率数据，填充为0
+            w_balance = [0.0 for _ in timestamps]
         
         # 不再补零，保持原始数据长度
         return StreamData(
@@ -207,7 +270,10 @@ class FitParser:
             temperature=temperatures,
             best_power=best_powers,
             power_hr_ratio=power_hr_ratio,
-            elapsed_time=elapsed_time
+            elapsed_time=elapsed_time,
+            torque=torque,
+            spi=spi,
+            w_balance=w_balance
         )
     
     def get_available_streams(self, stream_data: StreamData) -> List[str]:

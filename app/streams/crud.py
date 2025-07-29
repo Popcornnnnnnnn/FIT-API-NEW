@@ -175,8 +175,19 @@ class StreamCRUD:
             # 解码Base64数据
             file_data = base64.b64decode(activity.file_data)
             
+            # 获取运动员信息用于w_balance计算
+            athlete_info = None
+            if activity.athlete_id:
+                from ..athletes.models import Athlete
+                athlete = db.query(Athlete).filter(Athlete.id == activity.athlete_id).first()
+                if athlete and athlete.ftp and athlete.wj:
+                    athlete_info = {
+                        'ftp': athlete.ftp,
+                        'wj': athlete.wj
+                    }
+            
             # 解析FIT文件
-            stream_data = self.fit_parser.parse_fit_file(file_data)
+            stream_data = self.fit_parser.parse_fit_file(file_data, athlete_info)
             
             # 缓存结果
             self._stream_cache[cache_key] = stream_data

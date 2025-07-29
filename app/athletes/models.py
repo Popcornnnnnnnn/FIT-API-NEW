@@ -27,6 +27,7 @@ class Athlete(Base):
     ftp = Column(Float, nullable=True)
     max_hr = Column(Integer, nullable=True)
     weight = Column(Float, nullable=True)
+    wj = Column(Float, nullable=True, default=20000)  # 无氧储备，单位焦耳，默认20000
     metrics = relationship('AthleteMetric', back_populates='athlete')
     activities = relationship('Activity', back_populates='athlete', lazy='dynamic')
 

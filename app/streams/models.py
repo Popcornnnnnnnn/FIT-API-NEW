@@ -82,6 +82,21 @@ class PowerHrRatioStream(BaseStream):
     data: List[float] = Field(..., description="功率/心率比数据点")
     series_type: SeriesType = Field(default=SeriesType.TIME, description="系列类型，允许time和distance")
 
+class TorqueStream(BaseStream):
+    """扭矩流数据（单位：牛·米，整数）"""
+    data: List[int] = Field(..., description="扭矩数据点（牛·米，整数）")
+    series_type: SeriesType = Field(default=SeriesType.TIME, description="系列类型，默认time")
+
+class SPIStream(BaseStream):
+    """SPI流数据（单位：瓦特/转，保留两位小数）"""
+    data: List[float] = Field(..., description="SPI数据点（瓦特/转，保留两位小数）")
+    series_type: SeriesType = Field(default=SeriesType.TIME, description="系列类型，默认time")
+
+class WBalanceStream(BaseStream):
+    """W'平衡流数据（单位：千焦）"""
+    data: List[float] = Field(..., description="W'平衡数据点（千焦，保留一位小数）")
+    series_type: SeriesType = Field(default=SeriesType.TIME, description="系列类型，默认time")
+
 class StreamData(BaseModel):
     """完整的流数据集合，用于存储FIT文件中的所有原始数据"""
     timestamp: List[int] = Field(default_factory=list, description="时间戳数据点")
@@ -97,6 +112,9 @@ class StreamData(BaseModel):
     best_power: List[float] = Field(default_factory=list, description="最佳功率曲线（每秒区间最大均值）")
     power_hr_ratio: List[float] = Field(default_factory=list, description="功率/心率比数据点")
     elapsed_time: List[int] = Field(default_factory=list, description="去除暂停后的累计运动时间（秒）")
+    torque: List[int] = Field(default_factory=list, description="扭矩数据点（牛·米，整数）")
+    spi: List[float] = Field(default_factory=list, description="SPI数据点（瓦特/转，保留两位小数）")
+    w_balance: List[float] = Field(default_factory=list, description="W'平衡数据点（千焦，保留一位小数）")
     
     def get_stream(self, stream_type: str, resolution: Resolution = Resolution.HIGH, series_type: SeriesType = SeriesType.TIME) -> Optional[BaseStream]:
         """根据类型和分辨率获取流数据"""
@@ -143,6 +161,9 @@ class StreamData(BaseModel):
             'temperature': TemperatureStream,
             'best_power': BestPowerStream,
             'power_hr_ratio': PowerHrRatioStream,
+            'torque': TorqueStream,
+            'spi': SPIStream,
+            'w_balance': WBalanceStream,
         }
         if stream_type in stream_classes:
             return stream_classes[stream_type](
@@ -183,7 +204,7 @@ class StreamData(BaseModel):
         """
         available = []
         for field_name in StreamData.model_fields:
-            if field_name in ('timestamp', 'distance'):
+            if field_name in ('timestamp', 'distance', 'elapsed_time'):
                 continue
             data = getattr(self, field_name)
             # power_hr_ratio 需要特殊判断
@@ -197,6 +218,16 @@ class StreamData(BaseModel):
                 continue
             # best_power 依赖 power
             if field_name == 'best_power':
+                if getattr(self, 'power') and any(getattr(self, 'power')) and data and any(x != 0 for x in data):
+                    available.append(field_name)
+                continue
+            # SPI 和 torque 需要 power 和 cadence 都有
+            if field_name in ('spi', 'torque'):
+                if getattr(self, 'power') and any(getattr(self, 'power')) and getattr(self, 'cadence') and any(getattr(self, 'cadence')):
+                    available.append(field_name)
+                continue
+            # w_balance 需要 power 数据
+            if field_name == 'w_balance':
                 if getattr(self, 'power') and any(getattr(self, 'power')) and data and any(x != 0 for x in data):
                     available.append(field_name)
                 continue
