@@ -12,15 +12,15 @@ from sqlalchemy.orm import sessionmaker, Session
 import os
 from urllib.parse import quote_plus
 
-# 从环境变量获取数据库连接URL，如果没有则使用默认配置
-# 生产环境建议通过环境变量DATABASE_URL进行配置
-DATABASE_URL = os.getenv("DATABASE_URL")
+# 生产环境数据库连接配置
+DB_HOST = "121.41.238.53:3306"
+DB_USER = "root"
+DB_PASSWORD = "86230ce6558fd9a1"
+DB_NAME = "ry-system"
 
-if not DATABASE_URL:
-    # 本地开发环境数据库连接URL（默认配置）
-    password = "plz@myshit"
-    encoded_password = quote_plus(password)  
-    DATABASE_URL = f"mysql+pymysql://root:{encoded_password}@localhost/fitdb"
+# 构建数据库连接URL
+encoded_password = quote_plus(DB_PASSWORD)
+DATABASE_URL = f"mysql+pymysql://{DB_USER}:{encoded_password}@{DB_HOST}/{DB_NAME}"
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

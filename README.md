@@ -1,0 +1,226 @@
+# FIT API
+
+一个用于解析和处理 FIT 文件数据的 FastAPI 应用。
+
+## 功能特性
+
+- FIT 文件解析和数据提取
+- 流数据 API 接口
+- 支持多种数据分辨率
+- 实时数据缓存
+- 支持 W'平衡计算
+- 支持最佳功率曲线计算
+
+## 安装和运行
+
+### 1. 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. 运行应用
+
+```bash
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+应用将在 `http://localhost:8000` 启动。
+
+## API 接口
+
+### 1. 获取活动可用的流数据类型
+
+**接口**: `GET /activities/{activity_id}/available`
+
+**参数**:
+- `activity_id` (int): 活动ID
+
+**响应示例**:
+```json
+{
+  "activity_id": 106,
+  "available_streams": ["power", "heart_rate", "cadence", "altitude"],
+  "total_streams": 4,
+  "message": "获取成功"
+}
+```
+
+### 2. 获取活动的流数据
+
+**接口**: `GET /activities/{activity_id}/streams`
+
+**参数**:
+- `activity_id` (int): 活动ID
+- `key` (string, 必需): 请求的流数据类型
+- `resolution` (string, 可选): 数据分辨率，默认为 "high"
+
+**支持的分辨率**:
+- `low`: 低分辨率（5% 的数据点）
+- `medium`: 中分辨率（25% 的数据点）
+- `high`: 高分辨率（100% 的数据点）
+
+**响应格式**:
+接口返回一个数组，每个元素包含以下字段：
+
+```json
+[
+  {
+    "type": "power",
+    "data": [5, 0, 25, 25, 100, ...],
+    "series_type": "none",
+    "original_size": 10879,
+    "resolution": "high"
+  }
+]
+```
+
+**字段说明**:
+- `type`: 流数据类型，与请求的 key 参数一致
+- `data`: 数据数组，大小取决于 resolution 参数
+- `series_type`: 系列类型，统一为 "none"
+- `original_size`: 原始数据的总长度（不采样前的数据点数量）
+- `resolution`: 实际使用的分辨率
+
+**响应示例**:
+```bash
+# 获取功率数据（高分辨率）
+curl -X GET "http://localhost:8000/activities/106/streams?key=power&resolution=high"
+
+# 获取心率数据（中分辨率）
+curl -X GET "http://localhost:8000/activities/106/streams?key=heart_rate&resolution=medium"
+
+# 获取踏频数据（低分辨率）
+curl -X GET "http://localhost:8000/activities/106/streams?key=cadence&resolution=low"
+```
+
+**支持的流数据类型**:
+- `power`: 功率数据（瓦特）
+- `heart_rate`: 心率数据（BPM）
+- `cadence`: 踏频数据（RPM）
+- `altitude`: 海拔数据（米，整数）
+- `speed`: 速度数据（千米/小时，保留一位小数）
+- `temperature`: 温度数据（摄氏度）
+- `best_power`: 最佳功率曲线（每秒区间最大均值，整数，忽略 resolution 参数，始终使用 high 分辨率）
+- `power_hr_ratio`: 功率心率比
+- `torque`: 扭矩数据（牛·米，整数）
+- `spi`: SPI数据（瓦特/转，保留两位小数）
+- `w_balance`: W'平衡数据（千焦，保留一位小数）
+- `vam`: VAM数据（米/小时，整数）
+- `latitude`: 纬度数据
+- `longitude`: 经度数据
+
+## 数据格式说明
+
+### 数据类型和精度
+
+- **altitude**: 海拔数据保留到整数（米）
+- **speed**: 速度数据转换为千米/小时并保留一位小数
+- **vam**: VAM数据保留到整数（米/小时）
+- **w_balance**: W'平衡数据保留一位小数（千焦）
+- **best_power**: 最佳功率曲线数据（瓦特，整数）
+
+### 特殊字段说明
+
+#### W'平衡 (w_balance)
+- 需要从 `tb_athlete` 表获取运动员的 FTP 和 W'值
+- 使用 Skiba 模型计算无氧储备的消耗和恢复
+- 返回格式为数组，每个元素表示该时刻的 W'平衡值
+
+#### 最佳功率曲线 (best_power)
+- 计算每秒区间的最大平均功率
+- 数据保留到整数（瓦特）
+- 忽略 resolution 参数，始终使用 high 分辨率返回完整数据
+- 返回格式为数组，索引 i 表示 i+1 秒内的最大平均功率
+
+## 数据采样说明
+
+- **original_size**: 表示原始 FIT 文件中的数据点总数，与采样率无关
+- **data 数组大小**: 根据 resolution 参数进行采样：
+  - `low`: 约 5% 的数据点
+  - `medium`: 约 25% 的数据点
+  - `high`: 100% 的数据点
+
+## 错误处理
+
+### 常见错误码
+
+- **404 Not Found**: 活动不存在或文件未找到
+- **422 Unprocessable Entity**: 参数验证失败（如无效的 resolution 值）
+- **500 Internal Server Error**: 服务器内部错误
+
+### 特殊响应
+
+- **空数组 `[]`**: 当请求的字段在该活动中不存在时返回
+
+## 故障排除
+
+### 1. 422 错误
+如果遇到 422 错误，请检查：
+- `resolution` 参数是否为有效值（`low`, `medium`, `high`）
+- 参数名称是否正确
+
+### 2. 404 错误
+如果遇到 404 错误，请检查：
+- 活动ID是否存在
+- FIT 文件是否已正确上传
+
+### 3. 空数据
+如果返回空数组，说明：
+- 该活动不包含请求的流数据类型
+- 数据可能已损坏或格式不支持
+
+### 4. W'平衡计算
+如果 w_balance 字段返回全零数据，请检查：
+- `tb_athlete` 表中是否有对应的运动员数据
+- 运动员数据中是否包含有效的 FTP 和 W'值
+
+## 测试
+
+运行测试脚本验证接口功能：
+
+```bash
+python3 test_api_simulation.py
+```
+
+该脚本会测试所有字段和分辨率组合，并验证数据格式的正确性。
+
+## 开发说明
+
+### 项目结构
+
+```
+FIT-API-NEW/
+├── app/
+│   ├── main.py              # FastAPI 应用入口
+│   ├── streams/             # 流数据相关模块
+│   │   ├── router.py        # API 路由
+│   │   ├── crud.py          # 数据操作
+│   │   ├── models.py        # 数据模型
+│   │   ├── schemas.py       # 数据验证
+│   │   └── fit_parser.py    # FIT 文件解析
+│   └── utils.py             # 工具函数
+├── fit_files/               # FIT 文件目录
+├── test_api_simulation.py   # 测试脚本
+└── README.md               # 项目文档
+```
+
+### 数据流程
+
+1. 客户端请求特定活动的流数据
+2. 系统检查活动是否存在
+3. 验证请求的字段是否可用
+4. 根据分辨率参数对数据进行采样
+5. 返回标准化的数组格式响应
+
+### 数据库表结构
+
+#### tb_activity 表
+- `id`: 活动ID
+- `upload_fit_url`: FIT文件下载URL
+
+#### tb_athlete 表
+- `id`: 运动员ID
+- `max_heartrate`: 最大心率
+- `ftp`: 功能阈值功率
+- `w_balance`: W'平衡值（用于 w_balance 计算） 

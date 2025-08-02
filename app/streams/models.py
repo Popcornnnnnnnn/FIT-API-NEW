@@ -5,12 +5,15 @@
 1. BaseStream - 基础流数据类
 2. 具体的Stream类 - 继承BaseStream，包含具体的数据点
 3. StreamData - 用于存储和访问FIT文件中的原始数据
+4. 数据库模型 - tb_activity和tb_athlete表的映射
 """
 
 from typing import List, Optional, Union, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
 import sys
+from sqlalchemy import Column, Integer, String, Float, Text, DateTime
+from ..db_base import Base
 
 class Resolution(str, Enum):
     """数据分辨率枚举"""
@@ -24,6 +27,26 @@ class SeriesType(str, Enum):
     TIME = "time"
     NONE = "none"
 
+# 数据库模型
+class TbActivity(Base):
+    """活动表模型"""
+    __tablename__ = "tb_activity"
+    
+    id = Column(Integer, primary_key=True, index=True, comment="活动ID")
+    athlete_id = Column(Integer, comment="运动员ID")
+    upload_fit_url = Column(String(500), comment="FIT文件下载URL")
+
+class TbAthlete(Base):
+    """运动员表模型"""
+    __tablename__ = "tb_athlete"
+    
+    id = Column(Integer, primary_key=True, index=True, comment="运动员ID")
+    max_heartrate = Column(Integer, comment="最大心率")
+    ftp = Column(Float, comment="功能阈值功率")
+    w_balance = Column(Float, comment="W'平衡")
+    weight = Column(Float, comment="体重(kg)")
+
+# 流数据模型
 class BaseStream(BaseModel):
     """基础流数据类"""
     original_size: int = Field(..., description="数据点总数")
@@ -42,7 +65,7 @@ class TimeStream(BaseStream):
 
 class AltitudeStream(BaseStream):
     """海拔流数据"""
-    data: List[float] = Field(..., description="海拔数据点（米）")
+    data: List[int] = Field(..., description="海拔数据点（米，整数）")
 
 class CadenceStream(BaseStream):
     """踏频流数据"""
@@ -74,7 +97,7 @@ class TemperatureStream(BaseStream):
 
 class BestPowerStream(BaseStream):
     """最佳功率曲线流数据（每秒区间最大均值）"""
-    data: List[float] = Field(..., description="最佳功率曲线（每秒区间最大均值）")
+    data: List[int] = Field(..., description="最佳功率曲线（每秒区间最大均值，整数）")
     series_type: SeriesType = Field(default=SeriesType.TIME, description="系列类型，只允许time")
 
 class PowerHrRatioStream(BaseStream):
@@ -99,28 +122,28 @@ class WBalanceStream(BaseStream):
 
 class VAMStream(BaseStream):
     """VAM流数据（单位：米/小时）"""
-    data: List[float] = Field(..., description="VAM数据点（米/小时，保留一位小数）")
+    data: List[int] = Field(..., description="VAM数据点（米/小时，整数）")
     series_type: SeriesType = Field(default=SeriesType.TIME, description="系列类型，默认time")
 
 class StreamData(BaseModel):
     """完整的流数据集合，用于存储FIT文件中的所有原始数据"""
     timestamp: List[int] = Field(default_factory=list, description="时间戳数据点")
     distance: List[float] = Field(default_factory=list, description="距离数据点")
-    altitude: List[float] = Field(default_factory=list, description="海拔数据点")
+    altitude: List[int] = Field(default_factory=list, description="海拔数据点（整数）")
     cadence: List[int] = Field(default_factory=list, description="踏频数据点")
     heart_rate: List[int] = Field(default_factory=list, description="心率数据点")
-    speed: List[float] = Field(default_factory=list, description="速度数据点")
+    speed: List[float] = Field(default_factory=list, description="速度数据点（千米/小时，保留一位小数）")
     latitude: List[float] = Field(default_factory=list, description="纬度数据点")
     longitude: List[float] = Field(default_factory=list, description="经度数据点")
     power: List[int] = Field(default_factory=list, description="功率数据点")
     temperature: List[float] = Field(default_factory=list, description="温度数据点")
-    best_power: List[float] = Field(default_factory=list, description="最佳功率曲线（每秒区间最大均值）")
+    best_power: List[int] = Field(default_factory=list, description="最佳功率曲线（每秒区间最大均值，整数）")
     power_hr_ratio: List[float] = Field(default_factory=list, description="功率/心率比数据点")
     elapsed_time: List[int] = Field(default_factory=list, description="去除暂停后的累计运动时间（秒）")
     torque: List[int] = Field(default_factory=list, description="扭矩数据点（牛·米，整数）")
     spi: List[float] = Field(default_factory=list, description="SPI数据点（瓦特/转，保留两位小数）")
     w_balance: List[float] = Field(default_factory=list, description="W'平衡数据点（千焦，保留一位小数）")
-    vam: List[float] = Field(default_factory=list, description="VAM数据点（米/小时，保留一位小数）")
+    vam: List[int] = Field(default_factory=list, description="VAM数据点（米/小时，整数）")
     
     def get_stream(self, stream_type: str, resolution: Resolution = Resolution.HIGH, series_type: SeriesType = SeriesType.TIME) -> Optional[BaseStream]:
         """根据类型和分辨率获取流数据"""

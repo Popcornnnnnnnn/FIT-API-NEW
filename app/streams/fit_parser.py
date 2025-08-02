@@ -104,12 +104,12 @@ class FitParser:
             except:
                 pass
             
-            # 提取海拔（米）- 优先使用enhanced_altitude
+            # 提取海拔（米）- 优先使用enhanced_altitude，保留到整数
             altitude = record.get_value('enhanced_altitude')
             if altitude is None:
                 altitude = record.get_value('altitude')
             if altitude is not None:
-                altitudes.append(float(altitude))
+                altitudes.append(int(round(float(altitude))))
             
             # 提取踏频（RPM）
             cadence = record.get_value('cadence')
@@ -121,12 +121,14 @@ class FitParser:
             if hr is not None:
                 heart_rates.append(int(hr))
             
-            # 提取速度（米/秒）- 优先使用enhanced_speed
+            # 提取速度（米/秒）- 优先使用enhanced_speed，转换为千米/小时并保留一位小数
             speed = record.get_value('enhanced_speed')
             if speed is None:
                 speed = record.get_value('speed')
             if speed is not None:
-                speeds.append(float(speed))
+                # 转换为千米/小时：米/秒 * 3.6 = 千米/小时
+                speed_kmh = float(speed) * 3.6
+                speeds.append(round(speed_kmh, 1))
             
             # 提取GPS坐标
             lat = record.get_value('position_lat')
@@ -164,7 +166,7 @@ class FitParser:
                         avg = window_sum / window
                         if avg > max_avg:
                             max_avg = avg
-                best_powers.append(max_avg)
+                best_powers.append(int(round(max_avg)))  # 保留到整数
             return best_powers
 
         best_powers = calculate_best_power_curve(powers)
@@ -231,8 +233,9 @@ class FitParser:
             W_prime = athlete_info['wj']  # 无氧储备
             CP = athlete_info['ftp']      # 功能阈值功率
             
-            dt = 1.0
-            tau = W_prime / (CP * 0.5)  # 根据 Skiba 建议公式调整
+            dt = 1.0  # 时间间隔（秒）
+            # 使用标准的 Skiba 模型参数
+            tau = 546.0  # 恢复时间常数（秒），约9分钟
             
             balance = W_prime  # 初始储备
             
@@ -240,13 +243,17 @@ class FitParser:
                 if p is None:
                     w_balance.append(round(balance / 1000, 1))  # 转换为千焦，保留一位小数
                     continue
-                    
-                if p <= CP:
-                    # 恢复：指数回复（参考 Skiba 模型）
-                    balance += (W_prime - balance) * (1 - np.exp(-dt / tau))
-                else:
+                
+                # 简化计算：只有当功率明显高于 FTP 时才消耗 W'
+                # 当功率低于 FTP 时，W' 会缓慢恢复
+                if p > CP * 1.05:  # 功率超过 FTP 的 105% 时才消耗
                     # 消耗：线性损耗
                     balance -= (p - CP) * dt
+                elif p < CP * 0.95:  # 功率低于 FTP 的 95% 时恢复
+                    # 恢复：缓慢恢复
+                    recovery = (W_prime - balance) * (dt / tau)
+                    balance += recovery
+                # 在 FTP 附近时，W' 基本保持不变
                 
                 balance = max(0.0, min(W_prime, balance))  # 限定范围
                 w_balance.append(round(balance / 1000, 1))  # 转换为千焦，保留一位小数
@@ -254,52 +261,59 @@ class FitParser:
             # 如果没有运动员信息或功率数据，填充为0
             w_balance = [0.0 for _ in timestamps]
         
-        # 计算VAM（垂直海拔爬升，米/小时）
+        # 计算VAM（垂直海拔爬升，米/小时）- 保留到整数
         vam = []
         if timestamps and altitudes:
-            window_seconds = 5  # 30秒滑动窗口
+            window_seconds = 5  # 5秒滑动窗口
             
             for i in range(len(timestamps)):
-                # 找到窗口起点
-                t_end = timestamps[i]
-                t_start = t_end - window_seconds
-                
-                # 找到窗口内的起始点
-                idx_start = None
-                for j in range(i, -1, -1):
-                    if timestamps[j] <= t_start:
-                        idx_start = j
-                        break
-                
-                # 计算VAM
-                if idx_start is None:
-                    # 对于数据不足的点，使用从开始到当前点的数据
-                    if i >= window_seconds:
-                        delta_alt = altitudes[i] - altitudes[i-window_seconds]
-                        delta_time = timestamps[i] - timestamps[i-window_seconds]
-                        if delta_time >= window_seconds * 0.7:  # 至少70%的时间窗口
-                            vam_value = delta_alt / (delta_time / 3600.0)
+                try:
+                    # 找到窗口起点
+                    t_end = timestamps[i]
+                    t_start = t_end - window_seconds
+                    
+                    # 找到窗口内的起始点
+                    idx_start = None
+                    for j in range(i, -1, -1):
+                        if timestamps[j] <= t_start:
+                            idx_start = j
+                            break
+                    
+                    # 计算VAM
+                    if idx_start is None:
+                        # 对于数据不足的点，使用从开始到当前点的数据
+                        if i >= window_seconds and i - window_seconds < len(altitudes) and i < len(altitudes):
+                            delta_alt = altitudes[i] - altitudes[i-window_seconds]
+                            delta_time = timestamps[i] - timestamps[i-window_seconds]
+                            if delta_time >= window_seconds * 0.7:  # 至少70%的时间窗口
+                                vam_value = delta_alt / (delta_time / 3600.0)
+                            else:
+                                vam_value = 0.0
                         else:
                             vam_value = 0.0
-                    else:
+                    elif idx_start == i:
                         vam_value = 0.0
-                elif idx_start == i:
-                    vam_value = 0.0
-                else:
-                    delta_alt = altitudes[i] - altitudes[idx_start]
-                    delta_time = timestamps[i] - timestamps[idx_start]
-                    if delta_time >= window_seconds * 0.5:  # 至少50%的时间窗口
-                        vam_value = delta_alt / (delta_time / 3600.0)
                     else:
-                        vam_value = 0.0
-                
-                vam.append(round(vam_value * 1.4, 1))  # ! 保留一位小数，乘以1.4是经验值
+                        if idx_start < len(altitudes) and i < len(altitudes):
+                            delta_alt = altitudes[i] - altitudes[idx_start]
+                            delta_time = timestamps[i] - timestamps[idx_start]
+                            if delta_time >= window_seconds * 0.5:  # 至少50%的时间窗口
+                                vam_value = delta_alt / (delta_time / 3600.0)
+                            else:
+                                vam_value = 0.0
+                        else:
+                            vam_value = 0.0
+                    
+                    vam.append(int(round(vam_value * 1.4)))  # 保留到整数，乘以1.4是经验值
+                except Exception as e:
+                    print(f"VAM计算第{i+1}个点时出错: {e}")
+                    vam.append(0)
         else:
             # 如果没有海拔数据，填充为0
-            vam = [0.0 for _ in timestamps]
+            vam = [0 for _ in timestamps]
 
         # 过滤VAM异常值，超过5000或低于-5000的设为0
-        vam = [v if -5000 <= v <= 5000 else 0.0 for v in vam]
+        vam = [v if -5000 <= v <= 5000 else 0 for v in vam]
         
         # 不再补零，保持原始数据长度
         return StreamData(
