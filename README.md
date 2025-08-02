@@ -110,6 +110,139 @@ curl -X GET "http://localhost:8000/activities/106/streams?key=cadence&resolution
 - `latitude`: 纬度数据
 - `longitude`: 经度数据
 
+### 3. 获取活动的区间分析数据
+
+**接口**: `GET /activities/{activity_id}/zones`
+
+**参数**:
+- `activity_id` (int): 活动ID
+- `key` (string, 必需): 区间类型，支持 "power" 或 "heartrate"
+
+**响应格式**:
+```json
+{
+  "zones": [
+    {
+      "distribution_buckets": [
+        {
+          "min": 0,
+          "max": 137,
+          "time": "12:34:56",
+          "percentage": "45.2%"
+        },
+        {
+          "min": 137,
+          "max": 187,
+          "time": "8:45:30",
+          "percentage": "31.8%"
+        }
+      ],
+      "type": "power"
+    }
+  ]
+}
+```
+
+**字段说明**:
+- `distribution_buckets`: 区间分布桶列表
+  - `min`: 区间最小值
+  - `max`: 区间最大值
+  - `time`: 在该区间的时间（格式化字符串，如 "1:23:45" 或 "45s"）
+  - `percentage`: 该区间占总时长的百分比，如 "12.5%"
+- `type`: 区间类型（"power" 或 "heartrate"）
+
+**区间定义**:
+
+**功率区间（基于FTP的7个区间）**:
+- Zone 1: < 55% FTP
+- Zone 2: 55-75% FTP
+- Zone 3: 75-90% FTP
+- Zone 4: 90-105% FTP
+- Zone 5: 105-120% FTP
+- Zone 6: 120-150% FTP
+- Zone 7: 150-200% FTP
+
+**心率区间（基于最大心率的5个区间）**:
+- Zone 1: < 60% Max HR
+- Zone 2: 60-70% Max HR
+- Zone 3: 70-80% Max HR
+- Zone 4: 80-90% Max HR
+- Zone 5: 90-100% Max HR
+
+**响应示例**:
+```bash
+# 获取功率区间分析
+curl -X GET "http://localhost:8000/activities/106/zones?key=power"
+
+# 获取心率区间分析
+curl -X GET "http://localhost:8000/activities/106/zones?key=heartrate"
+```
+
+**错误处理**:
+- **404 Not Found**: 活动或运动员信息不存在
+- **400 Bad Request**: FTP或最大心率数据不存在或无效，或活动数据不存在
+- **500 Internal Server Error**: 服务器内部错误
+
+**参数**:
+- `activity_id` (int): 活动ID
+- `key` (string, 必需): 请求的流数据类型
+- `resolution` (string, 可选): 数据分辨率，默认为 "high"
+
+**支持的分辨率**:
+- `low`: 低分辨率（5% 的数据点）
+- `medium`: 中分辨率（25% 的数据点）
+- `high`: 高分辨率（100% 的数据点）
+
+**响应格式**:
+接口返回一个数组，每个元素包含以下字段：
+
+```json
+[
+  {
+    "type": "power",
+    "data": [5, 0, 25, 25, 100, ...],
+    "series_type": "none",
+    "original_size": 10879,
+    "resolution": "high"
+  }
+]
+```
+
+**字段说明**:
+- `type`: 流数据类型，与请求的 key 参数一致
+- `data`: 数据数组，大小取决于 resolution 参数
+- `series_type`: 系列类型，统一为 "none"
+- `original_size`: 原始数据的总长度（不采样前的数据点数量）
+- `resolution`: 实际使用的分辨率
+
+**响应示例**:
+```bash
+# 获取功率数据（高分辨率）
+curl -X GET "http://localhost:8000/activities/106/streams?key=power&resolution=high"
+
+# 获取心率数据（中分辨率）
+curl -X GET "http://localhost:8000/activities/106/streams?key=heart_rate&resolution=medium"
+
+# 获取踏频数据（低分辨率）
+curl -X GET "http://localhost:8000/activities/106/streams?key=cadence&resolution=low"
+```
+
+**支持的流数据类型**:
+- `power`: 功率数据（瓦特）
+- `heart_rate`: 心率数据（BPM）
+- `cadence`: 踏频数据（RPM）
+- `altitude`: 海拔数据（米，整数）
+- `speed`: 速度数据（千米/小时，保留一位小数）
+- `temperature`: 温度数据（摄氏度）
+- `best_power`: 最佳功率曲线（每秒区间最大均值，整数，忽略 resolution 参数，始终使用 high 分辨率）
+- `power_hr_ratio`: 功率心率比
+- `torque`: 扭矩数据（牛·米，整数）
+- `spi`: SPI数据（瓦特/转，保留两位小数）
+- `w_balance`: W'平衡数据（千焦，保留一位小数）
+- `vam`: VAM数据（米/小时，整数）
+- `latitude`: 纬度数据
+- `longitude`: 经度数据
+
 ## 数据格式说明
 
 ### 数据类型和精度
@@ -199,6 +332,12 @@ FIT-API-NEW/
 │   │   ├── models.py        # 数据模型
 │   │   ├── schemas.py       # 数据验证
 │   │   └── fit_parser.py    # FIT 文件解析
+│   ├── activities/          # 活动相关模块
+│   │   ├── router.py        # API 路由
+│   │   ├── crud.py          # 数据操作
+│   │   ├── models.py        # 数据模型
+│   │   ├── schemas.py       # 数据验证
+│   │   └── zone_analyzer.py # 区间分析器
 │   └── utils.py             # 工具函数
 ├── fit_files/               # FIT 文件目录
 ├── test_api_simulation.py   # 测试脚本

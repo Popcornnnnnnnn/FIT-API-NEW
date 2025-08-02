@@ -11,11 +11,13 @@ FIT文件分析API主应用文件。
 from fastapi import FastAPI
 
 from .streams.router import router as streams_router
+from .activities.router import router as activities_router
 
 app = FastAPI(title="FIT 文件分析 API")
 
 # 路由注册
 app.include_router(streams_router, tags=["数据流"])
+app.include_router(activities_router, tags=["活动"])
 
 # 预留：后台队列、临时存储等功能接口
 # TODO: Celery/RQ任务队列集成

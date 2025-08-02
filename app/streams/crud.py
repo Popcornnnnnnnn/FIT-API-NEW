@@ -261,6 +261,8 @@ class StreamCRUD:
                         print(f"   FTP: {athlete.ftp}")
                         print(f"   W'平衡: {athlete.w_balance}")
                         print(f"   体重: {athlete.weight} kg")
+                        print(f"   运动员对象所有属性: {dir(athlete)}")
+                        print(f"   运动员对象字典: {athlete.__dict__}")
                         
                         if athlete.ftp is None:
                             print(f"⚠️  运动员 {athlete.id} 的 FTP 为空")
