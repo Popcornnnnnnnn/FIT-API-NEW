@@ -7,6 +7,7 @@ Activities模块的请求和响应模式
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from enum import Enum
+from typing import Dict
 
 class ZoneType(str, Enum):
     """区间类型枚举"""
@@ -58,3 +59,42 @@ class PowerResponse(BaseModel):
     work_above_ftp: Optional[int] = Field(None, description="高于FTP做功（千焦，保留整数）")
     eftp: Optional[int] = Field(None, description="本次骑行的eFTP")
     w_balance_decline: Optional[float] = Field(None, description="W平衡下降（保留一位小数）") 
+
+class HeartrateResponse(BaseModel):
+    """活动心率信息响应"""
+    average_heart_rate: int = Field(..., description="平均心率（保留整数）")
+    max_heart_rate: int = Field(..., description="最大心率（保留整数）")
+    heart_rate_recovery_rate: Optional[float] = Field(None, description="心率恢复速率")
+    heart_rate_lag: Optional[float] = Field(None, description="心率滞后")
+    efficiency_index: float = Field(..., description="效率指数（保留两位小数）")
+    decoupling_rate: str = Field(..., description="解耦率（百分比，保留一位小数，带%符号）") 
+
+class CadenceResponse(BaseModel):
+    """活动踏频信息响应"""
+    average_cadence: int = Field(..., description="平均踏频（整数）")
+    max_cadence: int = Field(..., description="最大踏频（整数）")
+    left_right_balance: Optional[Dict[str, int]] = Field(None, description="左右平衡，格式为{'left': 49, 'right': 51}")
+    left_torque_effectiveness: Optional[float] = Field(None, description="左扭矩效率")
+    right_torque_effectiveness: Optional[float] = Field(None, description="右扭矩效率")
+    left_pedal_smoothness: Optional[float] = Field(None, description="左踏板平顺度")
+    right_pedal_smoothness: Optional[float] = Field(None, description="右踏板平顺度")
+    total_strokes: int = Field(..., description="踏板总行程数（一共踩踏了多少次）")
+
+class SpeedResponse(BaseModel):
+    """活动速度信息响应"""
+    average_speed: float = Field(..., description="平均速度（千米每小时，保留一位小数）")
+    max_speed: float = Field(..., description="最大速度（千米每小时，保留一位小数）")
+    moving_time: str = Field(..., description="移动时间（格式化字符串）")
+    total_time: str = Field(..., description="全程耗时（格式化字符串）")
+    pause_time: str = Field(..., description="暂停时间（格式化字符串）")
+    coasting_time: str = Field(..., description="滑行时间（格式化字符串）") 
+
+class AltitudeResponse(BaseModel):
+    """活动海拔信息响应"""
+    elevation_gain: int = Field(..., description="爬升海拔（米，保留整数）")
+    max_altitude: int = Field(..., description="最高海拔（米，保留整数）")
+    max_grade: float = Field(..., description="最大坡度（百分比，保留两位小数）")
+    total_descent: int = Field(..., description="累计下降（米，保留整数）")
+    min_altitude: int = Field(..., description="最低海拔（米，保留整数）")
+    uphill_distance: float = Field(..., description="上坡距离（千米，保留两位小数）")
+    downhill_distance: float = Field(..., description="下坡距离（千米，保留两位小数）") 

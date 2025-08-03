@@ -77,7 +77,7 @@ class FitParser:
         #     print("record字段名称:", field_names)
         #     break  # 只打印第一个record的字段名称即可
         # endregion
- 
+
 
         for record in fitfile.get_messages('record'):
             record_count += 1

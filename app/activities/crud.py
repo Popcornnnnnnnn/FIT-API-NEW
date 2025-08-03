@@ -6,7 +6,7 @@ Activities模块的数据库操作函数
 
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, List
 from ..streams.models import TbActivity, TbAthlete
 from ..streams.crud import StreamCRUD
 from ..utils import get_db
@@ -246,7 +246,11 @@ def get_session_data(fit_url: str) -> Optional[Dict[str, Any]]:
             fields = [
                 'total_distance', 'total_elapsed_time', 'total_timer_time',
                 'avg_power', 'max_power', 'avg_heart_rate', 'max_heart_rate',
-                'total_calories', 'total_ascent', 'total_descent'
+                'total_calories', 'total_ascent', 'total_descent',
+                'avg_cadence', 'max_cadence', 'left_right_balance',
+                'left_torque_effectiveness', 'right_torque_effectiveness',
+                'left_pedal_smoothness', 'right_pedal_smoothness',
+                'avg_speed', 'max_speed'
             ]
             
             for field in fields:
@@ -257,6 +261,88 @@ def get_session_data(fit_url: str) -> Optional[Dict[str, Any]]:
             return session_data
         
         return None
+        
+    except Exception as e:
+        return None
+
+def get_cadence_fields_from_records(fit_url: str) -> Optional[Dict[str, Any]]:
+    """
+    从FIT文件的records中提取踏频相关字段
+    
+    Args:
+        fit_url: FIT文件URL
+        
+    Returns:
+        Dict[str, Any]: 踏频相关字段数据，如果解析失败则返回None
+    """
+    try:
+        # 下载FIT文件
+        response = requests.get(fit_url)
+        if response.status_code != 200:
+            return None
+        
+        fit_data = response.content
+        
+        # 解析FIT文件
+        fitfile = FitFile(BytesIO(fit_data))
+        
+        # 踏频相关字段
+        cadence_fields = {
+            'left_right_balance': [],
+            'left_torque_effectiveness': [],
+            'right_torque_effectiveness': [],
+            'left_pedal_smoothness': [],
+            'right_pedal_smoothness': []
+        }
+        
+        # 从records中提取踏频相关字段
+        for record in fitfile.get_messages('record'):
+            for field_name in cadence_fields.keys():
+                value = record.get_value(field_name)
+                if value is not None:
+                    cadence_fields[field_name].append(float(value))
+        
+        # 计算平均值（如果有数据的话）
+        result = {}
+        for field_name, values in cadence_fields.items():
+            if values:
+                result[field_name] = sum(values) / len(values)
+        
+        return result if result else None
+        
+    except Exception as e:
+        return None
+
+def get_all_left_right_balance_values(fit_url: str) -> Optional[List[int]]:
+    """
+    从FIT文件的records中获取所有left_right_balance值
+    
+    Args:
+        fit_url: FIT文件URL
+        
+    Returns:
+        List[int]: 所有left_right_balance值列表，如果解析失败则返回None
+    """
+    try:
+        # 下载FIT文件
+        response = requests.get(fit_url)
+        if response.status_code != 200:
+            return None
+        
+        fit_data = response.content
+        
+        # 解析FIT文件
+        fitfile = FitFile(BytesIO(fit_data))
+        
+        # 从records中提取所有left_right_balance值
+        left_right_balance_values = []
+        
+        for record in fitfile.get_messages('record'):
+            value = record.get_value('left_right_balance')
+            if value is not None:
+                left_right_balance_values.append(int(value))
+        
+        return left_right_balance_values if left_right_balance_values else None
         
     except Exception as e:
         return None
@@ -595,3 +681,769 @@ def calculate_w_balance_decline(w_balance_data: list) -> float:
     decline = initial_value - min_value
     
     return round(decline, 1) 
+
+def get_activity_heartrate_info(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    """
+    获取活动的心率相关信息
+    
+    Args:
+        db: 数据库会话
+        activity_id: 活动ID
+        
+    Returns:
+        Dict[str, Any]: 心率相关信息，如果不存在则返回None
+    """
+    try:
+        # 获取活动和运动员信息
+        activity_athlete = get_activity_athlete(db, activity_id)
+        if not activity_athlete:
+            return None
+        
+        activity, athlete = activity_athlete
+        
+        # 获取流数据
+        stream_data = get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        
+        # 获取session段数据
+        session_data = get_session_data(activity.upload_fit_url)
+        
+        # 获取心率数据
+        heart_rate_data = stream_data.get('heart_rate', [])
+        if not heart_rate_data:
+            return None
+        
+        # 过滤有效的心率数据（大于0）
+        valid_hr = [hr for hr in heart_rate_data if hr is not None and hr > 0]
+        if not valid_hr:
+            return None
+        
+        result = {}
+        
+        # 1. 平均心率（保留整数）
+        if session_data and 'avg_heart_rate' in session_data:
+            result['average_heart_rate'] = int(session_data['avg_heart_rate'])
+        else:
+            result['average_heart_rate'] = int(sum(valid_hr) / len(valid_hr))
+        
+        # 2. 最大心率（保留整数）
+        if session_data and 'max_heart_rate' in session_data:
+            result['max_heart_rate'] = int(session_data['max_heart_rate'])
+        else:
+            result['max_heart_rate'] = int(max(valid_hr))
+        
+        # 3. 心率恢复速率（返回None）
+        result['heart_rate_recovery_rate'] = None
+        
+        # 4. 心率滞后（返回None）
+        result['heart_rate_lag'] = None
+        
+        # 5. 效率指数（保留两位小数）
+        result['efficiency_index'] = calculate_efficiency_index(stream_data, athlete.ftp)
+        
+        # 6. 解耦率（百分比，保留一位小数）
+        result['decoupling_rate'] = calculate_decoupling_rate(stream_data)
+        
+        return result
+        
+    except Exception as e:
+        return None
+
+def calculate_efficiency_index(stream_data: Dict[str, Any], ftp: str) -> float:
+    """
+    计算效率指数
+    
+    Args:
+        stream_data: 流数据
+        ftp: FTP值（字符串类型）
+        
+    Returns:
+        float: 效率指数（保留两位小数）
+    """
+    try:
+        # 获取功率和心率数据
+        power_data = stream_data.get('power', [])
+        heart_rate_data = stream_data.get('heart_rate', [])
+        
+        if not power_data or not heart_rate_data:
+            return 0.0
+        
+        # 过滤有效数据
+        valid_powers = [p for p in power_data if p is not None and p > 0]
+        valid_hr = [hr for hr in heart_rate_data if hr is not None and hr > 0]
+        
+        if not valid_powers or not valid_hr:
+            return 0.0
+        
+        # 计算平均功率和平均心率
+        avg_power = sum(valid_powers) / len(valid_powers)
+        avg_hr = sum(valid_hr) / len(valid_hr)
+        
+        # 效率指数 = 平均功率 / 平均心率
+        if avg_hr > 0:
+            efficiency_index = avg_power / avg_hr
+            return round(efficiency_index, 2)
+        
+        return 0.0
+        
+    except Exception as e:
+        return 0.0
+
+def calculate_decoupling_rate(stream_data: Dict[str, Any]) -> str:
+    """
+    计算解耦率
+    
+    Args:
+        stream_data: 流数据
+        
+    Returns:
+        str: 解耦率（百分比，保留一位小数，带%符号）
+    """
+    try:
+        # 获取功率和心率数据
+        power_data = stream_data.get('power', [])
+        heart_rate_data = stream_data.get('heart_rate', [])
+        
+        if not power_data or not heart_rate_data:
+            return "0.0%"
+        
+        # 过滤有效数据
+        valid_powers = [p for p in power_data if p is not None and p > 0]
+        valid_hr = [hr for hr in heart_rate_data if hr is not None and hr > 0]
+        
+        if not valid_powers or not valid_hr:
+            return "0.0%"
+        
+        # 确保数据长度一致，取较短的长度
+        min_length = min(len(valid_powers), len(valid_hr))
+        if min_length < 10:  # 至少需要10个数据点
+            return "0.0%"
+        
+        # 截取相同长度的数据
+        powers = valid_powers[:min_length]
+        heart_rates = valid_hr[:min_length]
+        
+        # 将数据分为前半部分和后半部分
+        mid_point = min_length // 2
+        
+        first_half_powers = powers[:mid_point]
+        first_half_hr = heart_rates[:mid_point]
+        second_half_powers = powers[mid_point:]
+        second_half_hr = heart_rates[mid_point:]
+        
+        # 计算前半部分的功率/心率比
+        first_half_ratio = 0.0
+        if first_half_hr and any(hr > 0 for hr in first_half_hr):
+            first_half_avg_power = sum(first_half_powers) / len(first_half_powers)
+            first_half_avg_hr = sum(first_half_hr) / len(first_half_hr)
+            if first_half_avg_hr > 0:
+                first_half_ratio = first_half_avg_power / first_half_avg_hr
+        
+        # 计算后半部分的功率/心率比
+        second_half_ratio = 0.0
+        if second_half_hr and any(hr > 0 for hr in second_half_hr):
+            second_half_avg_power = sum(second_half_powers) / len(second_half_powers)
+            second_half_avg_hr = sum(second_half_hr) / len(second_half_hr)
+            if second_half_avg_hr > 0:
+                second_half_ratio = second_half_avg_power / second_half_avg_hr
+        
+        # 计算解耦率：前半部分功率/心率 - 后半部分功率/心率
+        if first_half_ratio > 0 and second_half_ratio > 0:
+            decoupling_rate = first_half_ratio - second_half_ratio
+            # 转换为百分比
+            decoupling_percentage = (decoupling_rate / first_half_ratio) * 100
+            return f"{round(decoupling_percentage, 1)}%"
+        
+        return "0.0%"
+        
+    except Exception as e:
+        return "0.0%" 
+
+def get_activity_cadence_info(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    """
+    获取活动的踏频相关信息
+    
+    Args:
+        db: 数据库会话
+        activity_id: 活动ID
+        
+    Returns:
+        Dict[str, Any]: 踏频相关信息，如果不存在则返回None
+    """
+    try:
+        # 获取活动和运动员信息
+        activity_athlete = get_activity_athlete(db, activity_id)
+        if not activity_athlete:
+            return None
+        
+        activity, athlete = activity_athlete
+        
+        # 获取流数据
+        stream_data = get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        
+        # 获取session段数据
+        session_data = get_session_data(activity.upload_fit_url)
+        
+        # 获取踏频数据
+        cadence_data = stream_data.get('cadence', [])
+        if not cadence_data:
+            return None
+        
+        # 过滤有效的踏频数据（大于0）
+        valid_cadences = [c for c in cadence_data if c is not None and c > 0]
+        if not valid_cadences:
+            return None
+        
+        result = {}
+        
+        # 1. 平均踏频（整数）- 优先从session中获取
+        if session_data and 'avg_cadence' in session_data:
+            result['average_cadence'] = int(session_data['avg_cadence'])
+        else:
+            result['average_cadence'] = int(sum(valid_cadences) / len(valid_cadences))
+        
+        # 2. 最大踏频（整数）- 优先从session中获取
+        if session_data and 'max_cadence' in session_data:
+            result['max_cadence'] = int(session_data['max_cadence'])
+        else:
+            result['max_cadence'] = int(max(valid_cadences))
+        
+        # 3. 左右平衡（优先从session中获取，没有则从records中计算）
+        result['left_right_balance'] = get_left_right_balance(session_data, stream_data, activity.upload_fit_url)
+        
+        # 4. 左右扭矩效率
+        result['left_torque_effectiveness'] = get_torque_effectiveness(session_data, stream_data, 'left', activity.upload_fit_url)
+        result['right_torque_effectiveness'] = get_torque_effectiveness(session_data, stream_data, 'right', activity.upload_fit_url)
+        
+        # 5. 左右踏板平顺度
+        result['left_pedal_smoothness'] = get_pedal_smoothness(session_data, stream_data, 'left', activity.upload_fit_url)
+        result['right_pedal_smoothness'] = get_pedal_smoothness(session_data, stream_data, 'right', activity.upload_fit_url)
+        
+        # 6. 踏板总行程数（计算总踩踏次数）
+        result['total_strokes'] = calculate_total_strokes(valid_cadences)
+        
+        return result
+        
+    except Exception as e:
+        return None
+
+def get_left_right_balance(session_data: Optional[Dict[str, Any]], stream_data: Dict[str, Any], fit_url: str) -> Optional[Dict[str, int]]:
+    """
+    获取左右平衡数据
+    
+    Args:
+        session_data: session段数据
+        stream_data: 流数据
+        fit_url: FIT文件URL
+        
+    Returns:
+        Optional[Dict[str, int]]: 左右平衡值，格式为{"left": 49, "right": 51}，如果没有则返回None
+    """
+    def parse_left_right(value: int) -> Optional[Tuple[int, int]]:
+        """解析左右平衡值"""
+        try:
+            # 正常的record值解析
+            side_flag = value & 0x01
+            percent = value >> 1
+            if side_flag == 1:
+                right = percent
+                left = 100 - percent
+            else:
+                left = percent
+                right = 100 - percent
+            return (left, right)
+        except (ValueError, TypeError):
+            return None
+    
+    # 直接从records中获取
+    all_values = get_all_left_right_balance_values(fit_url)
+    if all_values:
+        parsed_values = []
+        for value in all_values:
+            parsed = parse_left_right(value)
+            if parsed:
+                parsed_values.append(parsed)
+        
+        if parsed_values:
+            left_values = [lr[0] for lr in parsed_values]
+            right_values = [lr[1] for lr in parsed_values]
+            
+            avg_left = int(round(sum(left_values) / len(left_values)))
+            avg_right = int(round(sum(right_values) / len(right_values)))
+            
+            return {"left": avg_left, "right": avg_right}
+    
+    return None
+
+def get_torque_effectiveness(session_data: Optional[Dict[str, Any]], stream_data: Dict[str, Any], side: str, fit_url: str) -> Optional[float]:
+    """
+    获取扭矩效率数据
+    
+    Args:
+        session_data: session段数据
+        stream_data: 流数据
+        side: 左右侧（'left'或'right'）
+        fit_url: FIT文件URL
+        
+    Returns:
+        Optional[float]: 扭矩效率值，如果没有则返回None
+    """
+    # 优先从session中获取
+    if session_data:
+        field_name = f'{side}_torque_effectiveness'
+        if field_name in session_data:
+            return float(session_data[field_name])
+    
+    # 从records中获取
+    records_data = get_cadence_fields_from_records(fit_url)
+    if records_data:
+        field_name = f'{side}_torque_effectiveness'
+        if field_name in records_data:
+            return records_data[field_name]
+    
+    return None
+
+def get_pedal_smoothness(session_data: Optional[Dict[str, Any]], stream_data: Dict[str, Any], side: str, fit_url: str) -> Optional[float]:
+    """
+    获取踏板平顺度数据
+    
+    Args:
+        session_data: session段数据
+        stream_data: 流数据
+        side: 左右侧（'left'或'right'）
+        fit_url: FIT文件URL
+        
+    Returns:
+        Optional[float]: 踏板平顺度值，如果没有则返回None
+    """
+    # 优先从session中获取
+    if session_data:
+        field_name = f'{side}_pedal_smoothness'
+        if field_name in session_data:
+            return float(session_data[field_name])
+    
+    # 从records中获取
+    records_data = get_cadence_fields_from_records(fit_url)
+    if records_data:
+        field_name = f'{side}_pedal_smoothness'
+        if field_name in records_data:
+            return records_data[field_name]
+    
+    return None
+
+def calculate_total_strokes(cadence_data: List[int]) -> int:
+    """
+    计算踏板总行程数
+    
+    Args:
+        cadence_data: 踏频数据列表（RPM）
+        
+    Returns:
+        int: 总踩踏次数
+    """
+    if not cadence_data:
+        return 0
+    
+    # 假设每秒一个数据点，踏频是每分钟的转数
+    # 总踩踏次数 = 所有踏频数据点之和 * (1/60) 分钟
+    total_revolutions = sum(cadence_data) / 60.0
+    
+    return int(total_revolutions)
+
+def get_activity_speed_info(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    """
+    获取活动的速度相关信息
+    
+    Args:
+        db: 数据库会话
+        activity_id: 活动ID
+        
+    Returns:
+        Dict[str, Any]: 速度相关信息，如果不存在则返回None
+    """
+    try:
+        # 获取活动和运动员信息
+        activity_athlete = get_activity_athlete(db, activity_id)
+        if not activity_athlete:
+            return None
+        
+        activity, athlete = activity_athlete
+        
+        # 获取流数据
+        stream_data = get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        
+        # 获取session段数据
+        session_data = get_session_data(activity.upload_fit_url)
+        
+        # 获取速度数据
+        speed_data = stream_data.get('speed', [])
+        power_data = stream_data.get('power', [])
+        elapsed_time_data = stream_data.get('elapsed_time', [])
+        
+        if not speed_data:
+            return None
+        
+        # 过滤有效的速度数据（大于0）
+        valid_speeds = [s for s in speed_data if s is not None and s > 0]
+        if not valid_speeds:
+            return None
+        
+        result = {}
+        
+        # 1. 平均速度（千米每小时，保留一位小数）
+        if session_data and 'avg_speed' in session_data:
+            # 如果session中有速度数据，需要转换为km/h
+            session_speed = session_data['avg_speed']
+            if session_speed:
+                # 假设session中的速度是m/s，转换为km/h
+                result['average_speed'] = round(float(session_speed) * 3.6, 1)
+            else:
+                result['average_speed'] = round(sum(valid_speeds) / len(valid_speeds), 1)
+        else:
+            result['average_speed'] = round(sum(valid_speeds) / len(valid_speeds), 1)
+        
+        # 2. 最大速度（千米每小时，保留一位小数）
+        if session_data and 'max_speed' in session_data:
+            # 如果session中有最大速度数据，需要转换为km/h
+            session_max_speed = session_data['max_speed']
+            if session_max_speed:
+                # 假设session中的速度是m/s，转换为km/h
+                result['max_speed'] = round(float(session_max_speed) * 3.6, 1)
+            else:
+                result['max_speed'] = round(max(valid_speeds), 1)
+        else:
+            result['max_speed'] = round(max(valid_speeds), 1)
+        
+        # 3. 移动时间（格式化字符串）
+        if session_data and 'total_timer_time' in session_data:
+            result['moving_time'] = format_time(session_data['total_timer_time'])
+        elif session_data and 'total_elapsed_time' in session_data:
+            result['moving_time'] = format_time(session_data['total_elapsed_time'])
+        elif elapsed_time_data:
+            max_elapsed = max(elapsed_time_data)
+            result['moving_time'] = format_time(max_elapsed)
+        else:
+            result['moving_time'] = "00:00:00"
+        
+        # 4. 全程耗时（总时间，格式化字符串）
+        if session_data and 'total_elapsed_time' in session_data:
+            result['total_time'] = format_time(session_data['total_elapsed_time'])
+        elif elapsed_time_data:
+            # 从elapsed_time数据计算总时间
+            total_seconds = calculate_total_time_from_elapsed(elapsed_time_data)
+            result['total_time'] = format_time(total_seconds)
+        else:
+            result['total_time'] = "00:00:00"
+        
+        # 5. 暂停时间（全程耗时减去移动时间）
+        total_seconds = parse_time_to_seconds(result['total_time'])
+        moving_seconds = parse_time_to_seconds(result['moving_time'])
+        pause_seconds = total_seconds - moving_seconds
+        result['pause_time'] = format_time(pause_seconds)
+        
+        # 6. 滑行时间（速度低于1km/h或功率低于10w的时间，暂停时间点不算在内）
+        result['coasting_time'] = calculate_coasting_time(speed_data, power_data, elapsed_time_data)
+        
+        return result
+        
+    except Exception as e:
+        return None
+
+def calculate_total_time_from_elapsed(elapsed_time_data: List[int]) -> int:
+    """
+    从elapsed_time数据计算总时间
+    
+    Args:
+        elapsed_time_data: elapsed_time数据列表
+        
+    Returns:
+        int: 总时间（秒）
+    """
+    if not elapsed_time_data:
+        return 0
+    
+    # 找到最大的elapsed_time，这通常是总时间
+    max_elapsed = max(elapsed_time_data)
+    
+    # 但是elapsed_time可能不包括暂停时间，所以需要估算
+    # 假设数据点之间的间隔是1秒，如果有大的间隔，说明有暂停
+    total_time = max_elapsed
+    
+    # 检查数据点之间的间隔
+    if len(elapsed_time_data) > 1:
+        # 计算实际的数据点数量，这应该等于总时间（包括暂停）
+        total_time = len(elapsed_time_data)
+    
+    return total_time
+
+def calculate_coasting_time(speed_data: List[float], power_data: List[int], elapsed_time_data: List[int]) -> str:
+    """
+    计算滑行时间（速度低于1km/h或功率低于10w的时间，暂停时间点不算在内）
+    
+    Args:
+        speed_data: 速度数据列表（km/h）
+        power_data: 功率数据列表（W）
+        elapsed_time_data: elapsed_time数据列表
+        
+    Returns:
+        str: 滑行时间（格式化字符串）
+    """
+    if not speed_data or not elapsed_time_data:
+        return "00:00:00"
+    
+    coasting_seconds = 0
+    
+    # 遍历所有数据点
+    for i in range(len(speed_data)):
+        if i >= len(elapsed_time_data):
+            break
+        
+        # 检查是否为滑行状态
+        is_coasting = False
+        
+        # 检查速度是否低于1km/h
+        if i < len(speed_data) and speed_data[i] is not None:
+            if speed_data[i] < 1.0:
+                is_coasting = True
+        
+        # 检查功率是否低于10W
+        if not is_coasting and i < len(power_data) and power_data[i] is not None:
+            if power_data[i] < 10:
+                is_coasting = True
+        
+        # 如果是滑行状态，计算这个时间段的持续时间
+        if is_coasting:
+            if i == 0:
+                # 第一个数据点，假设持续1秒
+                coasting_seconds += 1
+            else:
+                # 计算与前一个数据点的时间差
+                current_elapsed = elapsed_time_data[i]
+                prev_elapsed = elapsed_time_data[i-1]
+                time_diff = current_elapsed - prev_elapsed
+                
+                # 如果时间差合理（不超过5秒），认为是连续滑行
+                if time_diff <= 5:
+                    coasting_seconds += time_diff
+                else:
+                    # 时间差过大，可能是有暂停，只计算1秒
+                    coasting_seconds += 1
+    
+    return format_time(coasting_seconds) 
+
+def get_activity_altitude_info(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    """
+    获取活动的海拔相关信息
+    
+    Args:
+        db: 数据库会话
+        activity_id: 活动ID
+        
+    Returns:
+        Dict[str, Any]: 海拔相关信息，如果不存在则返回None
+    """
+    try:
+        # 获取活动和运动员信息
+        activity_athlete = get_activity_athlete(db, activity_id)
+        if not activity_athlete:
+            return None
+        
+        activity, athlete = activity_athlete
+        
+        # 获取流数据
+        stream_data = get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        
+        # 获取session段数据
+        session_data = get_session_data(activity.upload_fit_url)
+        
+        # 获取海拔和距离数据
+        altitude_data = stream_data.get('altitude', [])
+        distance_data = stream_data.get('distance', [])
+        
+        if not altitude_data:
+            return None
+        
+        # 过滤有效的海拔数据
+        valid_altitudes = [alt for alt in altitude_data if alt is not None]
+        if not valid_altitudes:
+            return None
+        
+        result = {}
+        
+        # 1. 爬升海拔（米，保留整数）- 优先使用session中的total_ascent
+        if session_data and 'total_ascent' in session_data and session_data['total_ascent']:
+            result['elevation_gain'] = int(session_data['total_ascent'])
+        else:
+            result['elevation_gain'] = int(calculate_elevation_gain(valid_altitudes))
+        
+        # 2. 最高海拔（米，保留整数）
+        result['max_altitude'] = int(max(valid_altitudes))
+        
+        # 3. 最大坡度（百分比，保留两位小数）
+        result['max_grade'] = calculate_max_grade(altitude_data, distance_data)
+        
+        # 4. 累计下降（米，保留整数）- 优先使用session中的total_descent
+        if session_data and 'total_descent' in session_data and session_data['total_descent']:
+            result['total_descent'] = int(session_data['total_descent'])
+        else:
+            result['total_descent'] = int(calculate_total_descent(valid_altitudes))
+        
+        # 5. 最低海拔（米，保留整数）
+        result['min_altitude'] = int(min(valid_altitudes))
+        
+        # 6. 上坡距离（千米，保留两位小数）
+        result['uphill_distance'] = calculate_uphill_distance(altitude_data, distance_data)
+        
+        # 7. 下坡距离（千米，保留两位小数）
+        result['downhill_distance'] = calculate_downhill_distance(altitude_data, distance_data)
+        
+        return result
+        
+    except Exception as e:
+        return None
+
+# !待优化
+def calculate_max_grade(altitude_data: List[int], distance_data: List[float]) -> float:
+    """
+    计算最大坡度
+    
+    Args:
+        altitude_data: 海拔数据列表（米）
+        distance_data: 距离数据列表（米）
+        
+    Returns:
+        float: 最大坡度（百分比，保留两位小数）
+    """
+    if not altitude_data or not distance_data or len(altitude_data) < 2 or len(distance_data) < 2:
+        return 0.0
+    
+    max_grade = 0.0
+    
+    # 计算相邻点之间的坡度
+    for i in range(1, min(len(altitude_data), len(distance_data))):
+        if (altitude_data[i] is not None and altitude_data[i-1] is not None and 
+            distance_data[i] is not None and distance_data[i-1] is not None):
+            
+            # 计算海拔差和距离差
+            altitude_diff = altitude_data[i] - altitude_data[i-1]
+            distance_diff = distance_data[i] - distance_data[i-1]
+            
+            # 避免除零错误
+            if distance_diff > 0:
+                # 坡度 = 海拔差 / 距离差 * 100%
+                grade = (altitude_diff / distance_diff) * 100
+                max_grade = max(max_grade, grade)
+    
+    return round(max_grade, 2)
+
+def calculate_total_descent(altitudes: List[int]) -> float:
+    """
+    计算累计下降
+    
+    Args:
+        altitudes: 海拔数据列表（米）
+        
+    Returns:
+        float: 累计下降（米）
+    """
+    if not altitudes or len(altitudes) < 2:
+        return 0.0
+    
+    # 过滤异常值（参考VAM计算中的过滤方法）
+    filtered_altitudes = []
+    for i, alt in enumerate(altitudes):
+        if alt is None:
+            continue
+        
+        # 过滤异常值：超过5000米或低于-500米的设为None
+        if alt > 5000 or alt < -500:
+            continue
+        
+        # 如果与前一个有效值差异过大（超过100米），可能是异常值
+        if filtered_altitudes and abs(alt - filtered_altitudes[-1]) > 100:
+            continue
+        
+        filtered_altitudes.append(alt)
+    
+    if len(filtered_altitudes) < 2:
+        return 0.0
+    
+    # 计算下降
+    total_descent = 0.0
+    for i in range(1, len(filtered_altitudes)):
+        diff = filtered_altitudes[i] - filtered_altitudes[i-1]
+        if diff < 0:  # 只计算下降
+            total_descent += abs(diff)
+    
+    return total_descent
+
+def calculate_uphill_distance(altitude_data: List[int], distance_data: List[float]) -> float:
+    """
+    计算上坡距离
+    
+    Args:
+        altitude_data: 海拔数据列表（米）
+        distance_data: 距离数据列表（米）
+        
+    Returns:
+        float: 上坡距离（千米，保留两位小数）
+    """
+    if not altitude_data or not distance_data or len(altitude_data) < 2 or len(distance_data) < 2:
+        return 0.0
+    
+    uphill_distance = 0.0
+    
+    # 计算相邻点之间的上坡距离
+    for i in range(1, min(len(altitude_data), len(distance_data))):
+        if (altitude_data[i] is not None and altitude_data[i-1] is not None and 
+            distance_data[i] is not None and distance_data[i-1] is not None):
+            
+            # 计算海拔差和距离差
+            altitude_diff = altitude_data[i] - altitude_data[i-1]
+            distance_diff = distance_data[i] - distance_data[i-1]
+            
+            # 如果是上坡（海拔增加），累加上坡距离
+            if altitude_diff > 0 and distance_diff > 0:
+                uphill_distance += distance_diff
+    
+    # 转换为千米并保留两位小数
+    return round(uphill_distance / 1000, 2)
+
+def calculate_downhill_distance(altitude_data: List[int], distance_data: List[float]) -> float:
+    """
+    计算下坡距离
+    
+    Args:
+        altitude_data: 海拔数据列表（米）
+        distance_data: 距离数据列表（米）
+        
+    Returns:
+        float: 下坡距离（千米，保留两位小数）
+    """
+    if not altitude_data or not distance_data or len(altitude_data) < 2 or len(distance_data) < 2:
+        return 0.0
+    
+    downhill_distance = 0.0
+    
+    # 计算相邻点之间的下坡距离
+    for i in range(1, min(len(altitude_data), len(distance_data))):
+        if (altitude_data[i] is not None and altitude_data[i-1] is not None and 
+            distance_data[i] is not None and distance_data[i-1] is not None):
+            
+            # 计算海拔差和距离差
+            altitude_diff = altitude_data[i] - altitude_data[i-1]
+            distance_diff = distance_data[i] - distance_data[i-1]
+            
+            # 如果是下坡（海拔减少），累加下坡距离
+            if altitude_diff < 0 and distance_diff > 0:
+                downhill_distance += distance_diff
+    
+    # 转换为千米并保留两位小数
+    return round(downhill_distance / 1000, 2) 
