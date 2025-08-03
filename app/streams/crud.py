@@ -66,7 +66,6 @@ class StreamCRUD:
             return stream_obj.data
             
         except Exception as e:
-            print(f"获取流数据 {key} 时发生错误: {e}")
             return None
     
     def get_activity_streams(
@@ -234,67 +233,22 @@ class StreamCRUD:
             athlete_info = None
             # 从tb_athlete表获取运动员信息
             try:
-                print(f"\n🔍 开始查询活动 {activity.id} 对应的运动员信息...")
-                print(f"   活动ID: {activity.id}")
-                print(f"   活动对象类型: {type(activity)}")
-                print(f"   活动对象属性: {dir(activity)}")
-                
                 # 首先检查活动是否有 athlete_id
-                if not hasattr(activity, 'athlete_id'):
-                    print(f"❌ 活动 {activity.id} 没有 athlete_id 字段")
-                elif activity.athlete_id is None:
-                    print(f"❌ 活动 {activity.id} 的 athlete_id 为空")
-                else:
-                    print(f"✅ 活动 {activity.id} 的 athlete_id: {activity.athlete_id}")
-                    print(f"   athlete_id 类型: {type(activity.athlete_id)}")
-                    
+                if hasattr(activity, 'athlete_id') and activity.athlete_id is not None:
                     # 通过 athlete_id 查找对应的运动员
-                    print(f"🔍 执行数据库查询: SELECT * FROM tb_athlete WHERE id = {activity.athlete_id}")
                     athlete = db.query(models.TbAthlete).filter(models.TbAthlete.id == activity.athlete_id).first()
                     
-                    if athlete is None:
-                        print(f"❌ 在 tb_athlete 表中未找到 ID 为 {activity.athlete_id} 的运动员")
-                    else:
-                        print(f"✅ 找到运动员:")
-                        print(f"   运动员ID: {athlete.id}")
-                        print(f"   最大心率: {athlete.max_heartrate}")
-                        print(f"   FTP: {athlete.ftp}")
-                        print(f"   W'平衡: {athlete.w_balance}")
-                        print(f"   体重: {athlete.weight} kg")
-                        print(f"   运动员对象所有属性: {dir(athlete)}")
-                        print(f"   运动员对象字典: {athlete.__dict__}")
-                        
-                        if athlete.ftp is None:
-                            print(f"⚠️  运动员 {athlete.id} 的 FTP 为空")
-                        elif athlete.w_balance is None:
-                            print(f"⚠️  运动员 {athlete.id} 的 W' 为空")
-                        else:
-                            athlete_info = {
-                                'ftp': athlete.ftp,
-                                'wj': athlete.w_balance  # 假设w_balance字段存储的是wj值
-                            }
-                            print(f"✅ 成功获取运动员信息:")
-                            print(f"   FTP: {athlete.ftp} W")
-                            print(f"   W': {athlete.w_balance} J ({athlete.w_balance/1000:.1f} kJ)")
-                            print(f"   这些数据将用于w_balance计算:")
-                            print(f"     - FTP ({athlete.ftp} W) 用作功能阈值功率")
-                            print(f"     - W' ({athlete.w_balance/1000:.1f} kJ) 用作无氧储备")
+                    if athlete is not None and athlete.ftp is not None and athlete.w_balance is not None:
+                        athlete_info = {
+                            'ftp': athlete.ftp,
+                            'wj': athlete.w_balance  # 假设w_balance字段存储的是wj值
+                        }
                 
-                # 如果没有找到运动员信息，使用合理的默认值
-                if not athlete_info:
-                    print("使用默认运动员信息")
-                    athlete_info = {
-                        'ftp': 250.0,  # 默认 FTP 250瓦特
-                        'wj': 20000.0  # 默认 W' 20kJ
-                    }
             except Exception as e:
-                print(f"获取运动员信息失败: {e}")
-                # 使用默认值
-                athlete_info = {
-                    'ftp': 250.0,  # 默认 FTP 250瓦特
-                    'wj': 20000.0  # 默认 W' 20kJ
-                }
-            
+                return None
+
+        
+            # ! 这里有问题
             # 解析FIT文件
             stream_data = self.fit_parser.parse_fit_file(file_data, athlete_info)
             
@@ -304,7 +258,6 @@ class StreamCRUD:
             return stream_data
             
         except Exception as e:
-            print(f"解析活动 {activity.id} 的流数据时发生错误: {e}")
             return None
     
     def clear_cache(self, activity_id: Optional[int] = None):

@@ -4,7 +4,7 @@ Activities模块的请求和响应模式
 定义API接口的输入输出数据结构。
 """
 
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel, Field
 from enum import Enum
 
@@ -31,4 +31,30 @@ class ZoneData(BaseModel):
 
 class ZoneResponse(BaseModel):
     """区间响应数据"""
-    zones: List[ZoneData] = Field(..., description="区间数据列表") 
+    zones: List[ZoneData] = Field(..., description="区间数据列表")
+
+class OverallResponse(BaseModel):
+    """活动总体信息响应"""
+    distance: float = Field(..., description="距离（千米，保留两位小数）")
+    moving_time: str = Field(..., description="移动时间（格式化字符串）")
+    average_speed: float = Field(..., description="平均速度（千米每小时，保留一位小数）")
+    elevation_gain: int = Field(..., description="爬升海拔（米，保留整数）")
+    average_power: Optional[int] = Field(None, description="平均功率（瓦特，保留整数）")
+    calories: int = Field(..., description="卡路里（估算值，保留整数）")
+    training_load: int = Field(..., description="训练负荷（无单位，保留整数）")
+    status: Optional[str] = Field(None, description="状态值")
+    average_heart_rate: Optional[int] = Field(None, description="平均心率（保留整数）")
+    max_altitude: Optional[int] = Field(None, description="最高海拔（米，保留整数）") 
+
+class PowerResponse(BaseModel):
+    """活动功率信息响应"""
+    average_power: int = Field(..., description="平均功率（瓦特，保留整数）")
+    max_power: int = Field(..., description="最大功率（瓦特，保留整数）")
+    normalized_power: int = Field(..., description="标准化功率（瓦特，保留整数）")
+    intensity_factor: Optional[float] = Field(None, description="强度因子（标准化功率除以FTP，保留两位小数）")
+    total_work: int = Field(..., description="总做功（千焦，保留整数）")
+    variability_index: Optional[float] = Field(None, description="变异性指数（保留两位小数）")
+    weighted_average_power: Optional[int] = Field(None, description="加权平均功率")
+    work_above_ftp: Optional[int] = Field(None, description="高于FTP做功（千焦，保留整数）")
+    eftp: Optional[int] = Field(None, description="本次骑行的eFTP")
+    w_balance_decline: Optional[float] = Field(None, description="W平衡下降（保留一位小数）") 

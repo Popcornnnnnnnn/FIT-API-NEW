@@ -12,7 +12,7 @@ from typing import List, Optional, Union, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
 import sys
-from sqlalchemy import Column, Integer, String, Float, Text, DateTime
+from sqlalchemy import BIGINT, VARCHAR, Column, Integer, String, Float, Text, DateTime
 from ..db_base import Base
 
 class Resolution(str, Enum):
@@ -27,24 +27,24 @@ class SeriesType(str, Enum):
     TIME = "time"
     NONE = "none"
 
-# 数据库模型
 class TbActivity(Base):
     """活动表模型"""
     __tablename__ = "tb_activity"
     
-    id = Column(Integer, primary_key=True, index=True, comment="活动ID")
-    athlete_id = Column(Integer, comment="运动员ID")
-    upload_fit_url = Column(String(500), comment="FIT文件下载URL")
+    id = Column(BIGINT, primary_key=True, index=True)
+    athlete_id = Column(BIGINT)
+    upload_fit_url = Column(VARCHAR(255))
+    name = Column(VARCHAR(255))
 
 class TbAthlete(Base):
     """运动员表模型"""
     __tablename__ = "tb_athlete"
     
-    id = Column(Integer, primary_key=True, index=True, comment="运动员ID")
-    max_heartrate = Column(Integer, comment="最大心率")
-    ftp = Column(Float, comment="功能阈值功率")
-    w_balance = Column(Float, comment="W'平衡")
-    weight = Column(Float, comment="体重(kg)")
+    id = Column(BIGINT, primary_key=True, index=True)
+    max_heartrate = Column(Integer)
+    ftp = Column(VARCHAR(255))
+    w_balance = Column(Integer)
+    weight = Column(Integer)
 
 # 流数据模型
 class BaseStream(BaseModel):

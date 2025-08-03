@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List
 from ..utils import get_db
-from .schemas import ZoneRequest, ZoneResponse, ZoneData, DistributionBucket, ZoneType
-from .crud import get_activity_athlete, get_activity_stream_data
+from .schemas import ZoneRequest, ZoneResponse, ZoneData, DistributionBucket, ZoneType, OverallResponse, PowerResponse
+from .crud import get_activity_athlete, get_activity_stream_data, get_activity_overall_info, get_activity_power_info
 from .zone_analyzer import ZoneAnalyzer
 
 router = APIRouter(prefix="/activities", tags=["活动"])
@@ -69,6 +69,56 @@ async def get_activity_zones(
         )
         
         return ZoneResponse(zones=[zone_data])
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+
+@router.get("/{activity_id}/overall", response_model=OverallResponse)
+async def get_activity_overall(
+    activity_id: int,
+    db: Session = Depends(get_db)  # @ db 是通过 FastAPI 的 Depends 依赖注入机制，从 get_db 函数获取的数据库会话（Session）对象
+):
+    """
+    获取活动的总体信息
+    
+    返回活动的关键指标，包括距离、时间、速度、功率、心率等。
+    优先使用FIT文件session段中的数据，如果没有则从流数据中计算。
+    """
+    try:
+        # 获取活动总体信息
+        overall_info = get_activity_overall_info(db, activity_id)
+        if not overall_info:
+            raise HTTPException(status_code=404, detail="活动信息不存在或无法解析")
+        
+        # 构建响应
+        return OverallResponse(**overall_info)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+
+@router.get("/{activity_id}/power", response_model=PowerResponse)
+async def get_activity_power(
+    activity_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    获取活动的功率相关信息
+    
+    返回活动的功率相关指标，包括平均功率、最大功率、标准化功率、强度因子等。
+    优先使用FIT文件session段中的数据，如果没有则从流数据中计算。
+    """
+    try:
+        # 获取活动功率信息
+        power_info = get_activity_power_info(db, activity_id)
+        if not power_info:
+            raise HTTPException(status_code=404, detail="活动功率信息不存在或无法解析")
+        
+        # 构建响应
+        return PowerResponse(**power_info)
         
     except HTTPException:
         raise

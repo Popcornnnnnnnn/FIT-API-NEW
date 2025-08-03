@@ -41,7 +41,6 @@ class FitParser:
             return self._parse_real_fit_data(file_data, athlete_info)
         except Exception as e:
             # 如果解析失败，返回空的StreamData
-            print(f"FIT文件解析失败: {e}")
             return StreamData()
     
     def _parse_real_fit_data(self, file_data: bytes, athlete_info: Optional[Dict[str, Any]] = None) -> StreamData:
@@ -70,6 +69,16 @@ class FitParser:
         elapsed_time = []
         total_elapsed = 0
         expected_interval = 1  # 采样间隔秒数，默认1秒，可根据实际情况调整
+
+        # region DEBUG
+        # 打印record字段中的名称
+        # for record in fitfile.get_messages('record'):
+        #     field_names = [field.name for field in record.fields]
+        #     print("record字段名称:", field_names)
+        #     break  # 只打印第一个record的字段名称即可
+        # endregion
+ 
+
         for record in fitfile.get_messages('record'):
             record_count += 1
             
@@ -148,6 +157,7 @@ class FitParser:
             if temp is not None:
                 temperatures.append(float(temp))
 
+
         # 计算最佳功率曲线
         def calculate_best_power_curve(powers: list) -> list:
             """
@@ -170,7 +180,7 @@ class FitParser:
             return best_powers
 
         best_powers = calculate_best_power_curve(powers)
-        
+    
         # ! 计算功率/心率比（只有 power 和 heart_rate 都有值且长度一致时才计算，否则为空）
         # 计算功率/心率比，通过时间戳对齐，不要求长度一致
         power_hr_ratio = []
@@ -231,7 +241,7 @@ class FitParser:
         w_balance = []
         if athlete_info and powers and athlete_info.get('ftp') and athlete_info.get('wj'):
             W_prime = athlete_info['wj']  # 无氧储备
-            CP = athlete_info['ftp']      # 功能阈值功率
+            CP = int(athlete_info['ftp'])      # 功能阈值功率
             
             dt = 1.0  # 时间间隔（秒）
             # 使用标准的 Skiba 模型参数
@@ -306,13 +316,13 @@ class FitParser:
                     
                     vam.append(int(round(vam_value * 1.4)))  # 保留到整数，乘以1.4是经验值
                 except Exception as e:
-                    print(f"VAM计算第{i+1}个点时出错: {e}")
                     vam.append(0)
         else:
             # 如果没有海拔数据，填充为0
             vam = [0 for _ in timestamps]
 
         # 过滤VAM异常值，超过5000或低于-5000的设为0
+        # !过滤突变值
         vam = [v if -5000 <= v <= 5000 else 0 for v in vam]
         
         # 不再补零，保持原始数据长度

@@ -110,7 +110,56 @@ curl -X GET "http://localhost:8000/activities/106/streams?key=cadence&resolution
 - `latitude`: 纬度数据
 - `longitude`: 经度数据
 
-### 3. 获取活动的区间分析数据
+### 3. 获取活动的总体信息
+
+**接口**: `GET /activities/{activity_id}/overall`
+
+**参数**:
+- `activity_id` (int): 活动ID
+
+**响应格式**:
+```json
+{
+  "distance": 25.67,
+  "moving_time": "01:23:45",
+  "average_speed": 18.5,
+  "elevation_gain": 450.2,
+  "average_power": 180,
+  "calories": 850,
+  "training_load": 45.2,
+  "status": null,
+  "average_heart_rate": 145,
+  "max_altitude": 1250
+}
+```
+
+**字段说明**:
+- `distance`: 距离（千米，保留两位小数）
+- `moving_time`: 移动时间（格式化字符串，HH:MM:SS）
+- `average_speed`: 平均速度（千米每小时，保留一位小数）
+- `elevation_gain`: 爬升海拔（米，保留一位小数）
+- `average_power`: 平均功率（瓦特，保留整数）
+- `calories`: 卡路里（估算值，保留整数）
+- `training_load`: 训练负荷（无单位，基于FTP计算）
+- `status`: 状态值（始终为null）
+- `average_heart_rate`: 平均心率（保留整数）
+- `max_altitude`: 最高海拔（米，保留整数）
+
+**数据来源优先级**:
+1. 优先使用FIT文件session段中的数据
+2. 如果session段数据不存在，则从流数据中计算
+
+**响应示例**:
+```bash
+# 获取活动总体信息
+curl -X GET "http://localhost:8000/activities/106/overall"
+```
+
+**错误处理**:
+- **404 Not Found**: 活动信息不存在或无法解析
+- **500 Internal Server Error**: 服务器内部错误
+
+### 4. 获取活动的区间分析数据
 
 **接口**: `GET /activities/{activity_id}/zones`
 
@@ -313,10 +362,14 @@ curl -X GET "http://localhost:8000/activities/106/streams?key=cadence&resolution
 运行测试脚本验证接口功能：
 
 ```bash
+# 测试流数据接口
 python3 test_api_simulation.py
+
+# 测试活动总体信息接口
+python3 test_overall_api.py
 ```
 
-该脚本会测试所有字段和分辨率组合，并验证数据格式的正确性。
+这些脚本会测试所有字段和分辨率组合，并验证数据格式的正确性。
 
 ## 开发说明
 
