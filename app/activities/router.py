@@ -233,7 +233,7 @@ async def get_activity_altitude(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}") 
 
-@router.get("/{activity_id}/temperature", response_model=TemperatureResponse)
+@router.get("/{activity_id}/temp", response_model=TemperatureResponse)
 async def get_activity_temperature(
     activity_id: int,
     db: Session = Depends(get_db)
@@ -369,7 +369,7 @@ async def get_activity_all_data(
     """
     获取活动的所有数据
     
-    按照 overall、power、heartrate、cadence、speed、training_effect、altitude、temperature、zones、best_power 的顺序返回所有子字段。
+    按照 overall、power、heartrate、cadence、speed、training_effect、altitude、temp、zones、best_powers 的顺序返回所有子字段。
     如果某一个大的字段有缺失就在相应位置返回 None。
     """
     try:
@@ -450,11 +450,11 @@ async def get_activity_all_data(
         try:
             temperature_info = get_activity_temperature_info(db, activity_id)
             if temperature_info:
-                response_data["temperature"] = TemperatureResponse(**temperature_info)
+                response_data["temp"] = TemperatureResponse(**temperature_info)
             else:
-                response_data["temperature"] = None
+                response_data["temp"] = None
         except Exception:
-            response_data["temperature"] = None
+            response_data["temp"] = None
         
         # 获取区间分析信息（功率和心率区间）
         try:

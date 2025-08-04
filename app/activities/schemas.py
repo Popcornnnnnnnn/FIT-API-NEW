@@ -101,9 +101,9 @@ class AltitudeResponse(BaseModel):
 
 class TemperatureResponse(BaseModel):
     """活动温度信息响应"""
-    min_temperature: int = Field(..., description="最低温度（摄氏度，保留整数）")
-    avg_temperature: int = Field(..., description="平均温度（摄氏度，保留整数）")
-    max_temperature: int = Field(..., description="最大温度（摄氏度，保留整数）") 
+    min_temp: int = Field(..., description="最低温度（摄氏度，保留整数）")
+    avg_temp: int = Field(..., description="平均温度（摄氏度，保留整数）")
+    max_temp: int = Field(..., description="最大温度（摄氏度，保留整数）") 
 
 class BestPowerResponse(BaseModel):
     """活动最佳功率信息响应"""
@@ -140,6 +140,6 @@ class AllActivityDataResponse(BaseModel):
     speed: Optional[SpeedResponse] = Field(None, description="速度信息")
     training_effect: Optional[TrainingEffectResponse] = Field(None, description="训练效果信息")
     altitude: Optional[AltitudeResponse] = Field(None, description="海拔信息")
-    temperature: Optional[TemperatureResponse] = Field(None, description="温度信息")
+    temp: Optional[TemperatureResponse] = Field(None, description="温度信息")
     zones: Optional[List[ZoneData]] = Field(None, description="区间分析信息")
     best_powers: Optional[Dict[str, int]] = Field(None, description="最佳功率信息")

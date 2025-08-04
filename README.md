@@ -101,7 +101,7 @@ curl -X GET "http://localhost:8000/activities/106/streams?key=cadence&resolution
 - `altitude`: 海拔数据（米，整数）
 - `distance`: 距离数据（米）
 - `speed`: 速度数据（千米/小时，保留一位小数）
-- `temperature`: 温度数据（摄氏度）
+- `temp`: 温度数据（摄氏度）
 - `best_power`: 最佳功率曲线（每秒区间最大均值，整数，忽略 resolution 参数，始终使用 high 分辨率）
 - `power_hr_ratio`: 功率心率比
 - `torque`: 扭矩数据（牛·米，整数）
@@ -255,7 +255,7 @@ curl -X GET "http://localhost:8000/activities/106/overall"
 - `speed`: 速度信息（同 `/speed` 接口）
 - `training_effect`: 训练效果信息（同 `/training_effect` 接口）
 - `altitude`: 海拔信息（同 `/altitude` 接口）
-- `temperature`: 温度信息（同 `/temperature` 接口）
+- `temp`: 温度信息（同 `/temp` 接口）
 - `zones`: 区间分析信息（包含功率和心率区间数据）
 - `best_powers`: 最佳功率信息（同 `/best_power` 接口）
 

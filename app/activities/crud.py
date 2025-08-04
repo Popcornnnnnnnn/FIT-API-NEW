@@ -1483,7 +1483,7 @@ def get_activity_temperature_info(db: Session, activity_id: int) -> Optional[Dic
         session_data = get_session_data(activity.upload_fit_url)
         
         # 获取温度数据
-        temperature_data = stream_data.get('temperature', [])
+        temperature_data = stream_data.get('temp', [])
         if not temperature_data:
             return None
         
@@ -1496,21 +1496,21 @@ def get_activity_temperature_info(db: Session, activity_id: int) -> Optional[Dic
         
         # 1. 最低温度（保留整数）- 优先使用session中的数据
         if session_data and 'min_temperature' in session_data:
-            result['min_temperature'] = int(round(session_data['min_temperature']))
+            result['min_temp'] = int(round(session_data['min_temperature']))
         else:
-            result['min_temperature'] = int(round(min(valid_temperatures)))
+            result['min_temp'] = int(round(min(valid_temperatures)))
         
         # 2. 平均温度（保留整数）- 优先使用session中的数据
         if session_data and 'avg_temperature' in session_data:
-            result['avg_temperature'] = int(round(session_data['avg_temperature']))
+            result['avg_temp'] = int(round(session_data['avg_temperature']))
         else:
-            result['avg_temperature'] = int(round(sum(valid_temperatures) / len(valid_temperatures)))
+            result['avg_temp'] = int(round(sum(valid_temperatures) / len(valid_temperatures)))
         
         # 3. 最大温度（保留整数）- 优先使用session中的数据
         if session_data and 'max_temperature' in session_data:
-            result['max_temperature'] = int(round(session_data['max_temperature']))
+            result['max_temp'] = int(round(session_data['max_temperature']))
         else:
-            result['max_temperature'] = int(round(max(valid_temperatures)))
+            result['max_temp'] = int(round(max(valid_temperatures)))
         
         return result
         

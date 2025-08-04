@@ -136,7 +136,7 @@ class StreamData(BaseModel):
     latitude: List[float] = Field(default_factory=list, description="纬度数据点")
     longitude: List[float] = Field(default_factory=list, description="经度数据点")
     power: List[int] = Field(default_factory=list, description="功率数据点")
-    temperature: List[float] = Field(default_factory=list, description="温度数据点")
+    temp: List[float] = Field(default_factory=list, description="温度数据点")
     best_power: List[int] = Field(default_factory=list, description="最佳功率曲线（每秒区间最大均值，整数）")
     power_hr_ratio: List[float] = Field(default_factory=list, description="功率/心率比数据点")
     elapsed_time: List[int] = Field(default_factory=list, description="去除暂停后的累计运动时间（秒）")
@@ -187,7 +187,7 @@ class StreamData(BaseModel):
             'latitude': LatitudeStream,
             'longitude': LongitudeStream,
             'power': PowerStream,
-            'temperature': TemperatureStream,
+            'temp': TemperatureStream,
             'best_power': BestPowerStream,
             'power_hr_ratio': PowerHrRatioStream,
             'torque': TorqueStream,

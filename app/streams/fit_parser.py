@@ -21,7 +21,7 @@ class FitParser:
         self.supported_fields = {
             'timestamp', 'distance', 'altitude', 'cadence', 
             'heartrate', 'speed', 'latitude', 'longitude', 
-            'power', 'temperature', 'best_power', 'power_hr_ratio',
+            'power', 'temp', 'best_power', 'power_hr_ratio',
             'torque', 'spi', 'w_balance', 'vam'
         }
     
@@ -61,7 +61,7 @@ class FitParser:
         latitudes = []
         longitudes = []
         powers = []
-        temperatures = []
+        temps = []
         
         # 解析所有记录
         record_count = 0
@@ -161,7 +161,7 @@ class FitParser:
             # 提取温度（摄氏度）
             temp = record.get_value('temperature')
             if temp is not None:
-                temperatures.append(float(temp))
+                temps.append(float(temp))
 
 
         # 计算最佳功率曲线
@@ -342,7 +342,7 @@ class FitParser:
             latitude=latitudes,
             longitude=longitudes,
             power=powers,
-            temperature=temperatures,
+            temp=temps,
             best_power=best_powers,
             power_hr_ratio=power_hr_ratio,
             elapsed_time=elapsed_time,
