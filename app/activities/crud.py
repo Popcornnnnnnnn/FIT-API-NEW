@@ -1502,9 +1502,9 @@ def get_activity_temperature_info(db: Session, activity_id: int) -> Optional[Dic
         
         # 2. 平均温度（保留整数）- 优先使用session中的数据
         if session_data and 'avg_temperature' in session_data:
-            result['average_temperature'] = int(round(session_data['avg_temperature']))
+            result['avg_temperature'] = int(round(session_data['avg_temperature']))
         else:
-            result['average_temperature'] = int(round(sum(valid_temperatures) / len(valid_temperatures)))
+            result['avg_temperature'] = int(round(sum(valid_temperatures) / len(valid_temperatures)))
         
         # 3. 最大温度（保留整数）- 优先使用session中的数据
         if session_data and 'max_temperature' in session_data:

@@ -102,7 +102,7 @@ class AltitudeResponse(BaseModel):
 class TemperatureResponse(BaseModel):
     """活动温度信息响应"""
     min_temperature: int = Field(..., description="最低温度（摄氏度，保留整数）")
-    average_temperature: int = Field(..., description="平均温度（摄氏度，保留整数）")
+    avg_temperature: int = Field(..., description="平均温度（摄氏度，保留整数）")
     max_temperature: int = Field(..., description="最大温度（摄氏度，保留整数）") 
 
 class BestPowerResponse(BaseModel):
@@ -130,3 +130,14 @@ class MultiStreamRequest(BaseModel):
 class MultiStreamResponse(RootModel[List[StreamDataItem]]):
     """多字段流数据响应"""
     pass
+
+class AllActivityDataResponse(BaseModel):
+    """活动所有数据响应"""
+    overall: Optional[OverallResponse] = Field(None, description="总体信息")
+    power: Optional[PowerResponse] = Field(None, description="功率信息")
+    heartrate: Optional[HeartrateResponse] = Field(None, description="心率信息")
+    cadence: Optional[CadenceResponse] = Field(None, description="踏频信息")
+    speed: Optional[SpeedResponse] = Field(None, description="速度信息")
+    training_effect: Optional[TrainingEffectResponse] = Field(None, description="训练效果信息")
+    altitude: Optional[AltitudeResponse] = Field(None, description="海拔信息")
+    else_data: Optional[TemperatureResponse] = Field(None, description="其他信息（温度等）")

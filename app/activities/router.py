@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List
 from ..utils import get_db
-from .schemas import ZoneRequest, ZoneResponse, ZoneData, DistributionBucket, ZoneType, OverallResponse, PowerResponse, HeartrateResponse, CadenceResponse, SpeedResponse, AltitudeResponse, TemperatureResponse, BestPowerResponse, TrainingEffectResponse, MultiStreamRequest, MultiStreamResponse, StreamDataItem
+from .schemas import ZoneRequest, ZoneResponse, ZoneData, DistributionBucket, ZoneType, OverallResponse, PowerResponse, HeartrateResponse, CadenceResponse, SpeedResponse, AltitudeResponse, TemperatureResponse, BestPowerResponse, TrainingEffectResponse, MultiStreamRequest, MultiStreamResponse, StreamDataItem, AllActivityDataResponse
 from .crud import get_activity_athlete, get_activity_stream_data, get_activity_overall_info, get_activity_power_info, get_activity_heartrate_info, get_activity_cadence_info, get_activity_speed_info, get_activity_altitude_info, get_activity_temperature_info, get_activity_best_power_info, get_activity_training_effect_info
 from .zone_analyzer import ZoneAnalyzer
 from ..streams.models import Resolution
@@ -358,6 +358,107 @@ async def get_activity_multi_streams(
         
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+
+@router.get("/{activity_id}/all", response_model=AllActivityDataResponse)
+async def get_activity_all_data(
+    activity_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    获取活动的所有数据
+    
+    按照 overall、power、heartrate、cadence、speed、training_effect、altitude、else 的顺序返回所有子字段。
+    如果某一个大的字段有缺失就在相应位置返回 None。
+    """
+    try:
+        # 初始化响应数据
+        response_data = {}
+        
+        # 获取总体信息
+        try:
+            overall_info = get_activity_overall_info(db, activity_id)
+            if overall_info:
+                response_data["overall"] = OverallResponse(**overall_info)
+            else:
+                response_data["overall"] = None
+        except Exception:
+            response_data["overall"] = None
+        
+        # 获取功率信息
+        try:
+            power_info = get_activity_power_info(db, activity_id)
+            if power_info:
+                response_data["power"] = PowerResponse(**power_info)
+            else:
+                response_data["power"] = None
+        except Exception:
+            response_data["power"] = None
+        
+        # 获取心率信息
+        try:
+            heartrate_info = get_activity_heartrate_info(db, activity_id)
+            if heartrate_info:
+                response_data["heartrate"] = HeartrateResponse(**heartrate_info)
+            else:
+                response_data["heartrate"] = None
+        except Exception:
+            response_data["heartrate"] = None
+        
+        # 获取踏频信息
+        try:
+            cadence_info = get_activity_cadence_info(db, activity_id)
+            if cadence_info:
+                response_data["cadence"] = CadenceResponse(**cadence_info)
+            else:
+                response_data["cadence"] = None
+        except Exception:
+            response_data["cadence"] = None
+        
+        # 获取速度信息
+        try:
+            speed_info = get_activity_speed_info(db, activity_id)
+            if speed_info:
+                response_data["speed"] = SpeedResponse(**speed_info)
+            else:
+                response_data["speed"] = None
+        except Exception:
+            response_data["speed"] = None
+        
+        # 获取训练效果信息
+        try:
+            training_effect_info = get_activity_training_effect_info(db, activity_id)
+            if training_effect_info:
+                response_data["training_effect"] = TrainingEffectResponse(**training_effect_info)
+            else:
+                response_data["training_effect"] = None
+        except Exception:
+            response_data["training_effect"] = None
+        
+        # 获取海拔信息
+        try:
+            altitude_info = get_activity_altitude_info(db, activity_id)
+            if altitude_info:
+                response_data["altitude"] = AltitudeResponse(**altitude_info)
+            else:
+                response_data["altitude"] = None
+        except Exception:
+            response_data["altitude"] = None
+        
+        # 获取其他信息（温度等）
+        try:
+            temperature_info = get_activity_temperature_info(db, activity_id)
+            if temperature_info:
+                response_data["else_data"] = TemperatureResponse(**temperature_info)
+            else:
+                response_data["else_data"] = None
+        except Exception:
+            response_data["else_data"] = None
+        
+        # 构建响应
+        return AllActivityDataResponse(**response_data)
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
 
