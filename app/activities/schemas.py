@@ -98,3 +98,9 @@ class AltitudeResponse(BaseModel):
     min_altitude: int = Field(..., description="最低海拔（米，保留整数）")
     uphill_distance: float = Field(..., description="上坡距离（千米，保留两位小数）")
     downhill_distance: float = Field(..., description="下坡距离（千米，保留两位小数）") 
+
+class TemperatureResponse(BaseModel):
+    """活动温度信息响应"""
+    min_temperature: int = Field(..., description="最低温度（摄氏度，保留整数）")
+    average_temperature: int = Field(..., description="平均温度（摄氏度，保留整数）")
+    max_temperature: int = Field(..., description="最大温度（摄氏度，保留整数）") 

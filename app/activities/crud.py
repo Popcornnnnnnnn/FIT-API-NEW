@@ -217,7 +217,7 @@ def get_activity_overall_info(db: Session, activity_id: int) -> Optional[Dict[st
     except Exception as e:
         return None
 
-def get_session_data(fit_url: str) -> Optional[Dict[str, Any]]:
+def get_session_data(fit_url: str) -> Optional[Dict[str, Any]]: # ! 重要函数
     """
     从FIT文件中解析session段数据
     
@@ -250,7 +250,9 @@ def get_session_data(fit_url: str) -> Optional[Dict[str, Any]]:
                 'avg_cadence', 'max_cadence', 'left_right_balance',
                 'left_torque_effectiveness', 'right_torque_effectiveness',
                 'left_pedal_smoothness', 'right_pedal_smoothness',
-                'avg_speed', 'max_speed'
+                'avg_speed', 'max_speed', 'avg_temperature', 'max_temperature', 'min_temperature',
+                'normalized_power', "training_stress_score","avg_speed", "max_speed"
+                "intensity_factor"
             ]
             
             for field in fields:
@@ -545,13 +547,19 @@ def get_activity_power_info(db: Session, activity_id: int) -> Optional[Dict[str,
             result['max_power'] = int(max(valid_powers))
         
         # 3. 标准化功率（保留整数）
-        result['normalized_power'] = calculate_normalized_power(valid_powers)
+        if session_data and 'normalized_power' in session_data:
+            result['normalized_power'] = int(session_data['normalized_power'])
+        else:
+            result['normalized_power'] = calculate_normalized_power(valid_powers)
         
         # 4. 强度因子（保留两位小数）
-        if ftp and ftp > 0:
-            result['intensity_factor'] = round(result['normalized_power'] / ftp, 2)
+        if session_data and 'intensity_factor' in session_data:
+            result['intensity_factor'] = round(session_data['intensity_factor'], 2)
         else:
-            result['intensity_factor'] = None
+            if ftp and ftp > 0:
+                result['intensity_factor'] = round(result['normalized_power'] / ftp, 2)
+            else:
+                result['intensity_factor'] = None
         
         # 5. 总做功（保留整数）
         result['total_work'] = calculate_total_work(valid_powers)
@@ -1447,3 +1455,65 @@ def calculate_downhill_distance(altitude_data: List[int], distance_data: List[fl
     
     # 转换为千米并保留两位小数
     return round(downhill_distance / 1000, 2) 
+
+def get_activity_temperature_info(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    """
+    获取活动的温度相关信息
+    
+    Args:
+        db: 数据库会话
+        activity_id: 活动ID
+        
+    Returns:
+        Dict[str, Any]: 温度相关信息，如果不存在则返回None
+    """
+    try:
+        # 获取活动和运动员信息
+        activity_athlete = get_activity_athlete(db, activity_id)
+        if not activity_athlete:
+            return None
+        
+        activity, athlete = activity_athlete
+        
+        # 获取流数据
+        stream_data = get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        
+        # 获取session段数据
+        session_data = get_session_data(activity.upload_fit_url)
+        
+        # 获取温度数据
+        temperature_data = stream_data.get('temperature', [])
+        if not temperature_data:
+            return None
+        
+        # 过滤有效的温度数据（排除None值）
+        valid_temperatures = [t for t in temperature_data if t is not None]
+        if not valid_temperatures:
+            return None
+        
+        result = {}
+        
+        # 1. 最低温度（保留整数）- 优先使用session中的数据
+        if session_data and 'min_temperature' in session_data:
+            result['min_temperature'] = int(round(session_data['min_temperature']))
+        else:
+            result['min_temperature'] = int(round(min(valid_temperatures)))
+        
+        # 2. 平均温度（保留整数）- 优先使用session中的数据
+        if session_data and 'avg_temperature' in session_data:
+            result['average_temperature'] = int(round(session_data['avg_temperature']))
+        else:
+            result['average_temperature'] = int(round(sum(valid_temperatures) / len(valid_temperatures)))
+        
+        # 3. 最大温度（保留整数）- 优先使用session中的数据
+        if session_data and 'max_temperature' in session_data:
+            result['max_temperature'] = int(round(session_data['max_temperature']))
+        else:
+            result['max_temperature'] = int(round(max(valid_temperatures)))
+        
+        return result
+        
+    except Exception as e:
+        return None 

@@ -79,6 +79,12 @@ class FitParser:
         # endregion
 
 
+        # 打印 session（record）中的所有字段名称及其值，便于调试
+        # for record in fitfile.get_messages('session'):
+        #     print("session字段：")
+        #     for field in record.fields:
+        #         print(f"  {field.name}: {field.value}")
+
         for record in fitfile.get_messages('record'):
             record_count += 1
             

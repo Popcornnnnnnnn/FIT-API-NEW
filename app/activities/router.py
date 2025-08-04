@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List
 from ..utils import get_db
-from .schemas import ZoneRequest, ZoneResponse, ZoneData, DistributionBucket, ZoneType, OverallResponse, PowerResponse, HeartrateResponse, CadenceResponse, SpeedResponse, AltitudeResponse
-from .crud import get_activity_athlete, get_activity_stream_data, get_activity_overall_info, get_activity_power_info, get_activity_heartrate_info, get_activity_cadence_info, get_activity_speed_info, get_activity_altitude_info
+from .schemas import ZoneRequest, ZoneResponse, ZoneData, DistributionBucket, ZoneType, OverallResponse, PowerResponse, HeartrateResponse, CadenceResponse, SpeedResponse, AltitudeResponse, TemperatureResponse
+from .crud import get_activity_athlete, get_activity_stream_data, get_activity_overall_info, get_activity_power_info, get_activity_heartrate_info, get_activity_cadence_info, get_activity_speed_info, get_activity_altitude_info, get_activity_temperature_info
 from .zone_analyzer import ZoneAnalyzer
 
 router = APIRouter(prefix="/activities", tags=["活动"])
@@ -38,14 +38,19 @@ async def get_activity_zones(
         
         # 根据区间类型进行分析
         if key == ZoneType.POWER:
-            if not athlete.ftp or athlete.ftp <= 0:
+            # athlete.ftp 可能为字符串，需要转为 int
+            try:
+                ftp = int(athlete.ftp)
+            except (TypeError, ValueError):
+                ftp = None
+            if not ftp or ftp <= 0:
                 raise HTTPException(status_code=400, detail="运动员FTP数据不存在或无效")
             
             power_data = stream_data.get('power', [])
             if not power_data:
                 raise HTTPException(status_code=400, detail="活动功率数据不存在")
             
-            distribution_buckets = ZoneAnalyzer.analyze_power_zones(power_data, athlete.ftp)
+            distribution_buckets = ZoneAnalyzer.analyze_power_zones(power_data, ftp)
             zone_type = "power"
             
         elif key == ZoneType.HEARTRATE:
@@ -219,6 +224,31 @@ async def get_activity_altitude(
         
         # 构建响应
         return AltitudeResponse(**altitude_info)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}") 
+
+@router.get("/{activity_id}/else", response_model=TemperatureResponse)
+async def get_activity_temperature(
+    activity_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    获取活动的温度相关信息
+    
+    返回活动的温度相关指标，包括最低温度、平均温度、最大温度。
+    优先使用FIT文件session段中的数据，如果没有则从流数据中计算。
+    """
+    try:
+        # 获取活动温度信息
+        temperature_info = get_activity_temperature_info(db, activity_id)
+        if not temperature_info:
+            raise HTTPException(status_code=404, detail="活动温度信息不存在或无法解析")
+        
+        # 构建响应
+        return TemperatureResponse(**temperature_info)
         
     except HTTPException:
         raise
