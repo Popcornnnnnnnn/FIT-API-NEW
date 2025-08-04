@@ -4,8 +4,8 @@ Activities模块的请求和响应模式
 定义API接口的输入输出数据结构。
 """
 
-from typing import List, Optional
-from pydantic import BaseModel, Field
+from typing import List, Optional, Union
+from pydantic import BaseModel, Field, RootModel
 from enum import Enum
 from typing import Dict
 
@@ -104,3 +104,29 @@ class TemperatureResponse(BaseModel):
     min_temperature: int = Field(..., description="最低温度（摄氏度，保留整数）")
     average_temperature: int = Field(..., description="平均温度（摄氏度，保留整数）")
     max_temperature: int = Field(..., description="最大温度（摄氏度，保留整数）") 
+
+class BestPowerResponse(BaseModel):
+    """活动最佳功率信息响应"""
+    best_powers: Dict[str, int] = Field(..., description="最佳功率数据，键为时间区间（如'5s', '30s', '1min', '5min', '8min', '20min', '30min', '1h'），值为对应的最佳功率（瓦特）")
+
+class TrainingEffectResponse(BaseModel):
+    """活动训练效果信息响应"""
+    primary_training_benefit: str = Field(..., description="主要训练益处")
+    aerobic_effect: str = Field(..., description="有氧效果")
+    anaerobic_effect: str = Field(..., description="无氧效果")
+    training_load: int = Field(..., description="训练负荷（无单位，保留整数）")
+    carbohydrate_consumption: str = Field(..., description="碳水化合物消耗量")
+
+class StreamDataItem(BaseModel):
+    """流数据项"""
+    type: str = Field(..., description="流数据类型")
+    data: Optional[List[Union[float, int]]] = Field(None, description="流数据数组，如果字段不存在则为None")
+
+class MultiStreamRequest(BaseModel):
+    """多字段流数据请求"""
+    keys: List[str] = Field(..., description="请求的流数据类型列表")
+    resolution: str = Field(..., description="数据分辨率：low, medium, high")
+
+class MultiStreamResponse(RootModel[List[StreamDataItem]]):
+    """多字段流数据响应"""
+    pass

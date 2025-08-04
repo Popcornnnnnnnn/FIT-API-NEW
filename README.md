@@ -110,7 +110,71 @@ curl -X GET "http://localhost:8000/activities/106/streams?key=cadence&resolution
 - `latitude`: 纬度数据
 - `longitude`: 经度数据
 
-### 3. 获取活动的总体信息
+### 3. 获取活动的多个流数据
+
+**接口**: `POST /activities/{activity_id}/streams`
+
+**参数**:
+- `activity_id` (int): 活动ID
+- `keys` (array[string], 必需): 请求的流数据类型数组
+- `resolution` (string, 必需): 数据分辨率
+
+**支持的分辨率**:
+- `low`: 低分辨率（5% 的数据点）
+- `medium`: 中分辨率（25% 的数据点）
+- `high`: 高分辨率（100% 的数据点）
+
+**请求格式**:
+```json
+{
+  "keys": ["heart_rate", "distance", "altitude"],
+  "resolution": "high"
+}
+```
+
+**响应格式**:
+```json
+{
+  "data": [
+    {
+      "type": "heart_rate",
+      "data": [120, 125, 130, ...]
+    },
+    {
+      "type": "distance",
+      "data": [0, 16.8, 33.6, ...]
+    },
+    {
+      "type": "altitude",
+      "data": [92.4, 93.4, 94.2, ...]
+    }
+  ]
+}
+```
+
+**字段说明**:
+- `type`: 流数据类型
+- `data`: 流数据数组，如果请求的字段不存在则为 `null`
+
+**响应示例**:
+```bash
+# 获取多个流数据（高分辨率）
+curl -X POST "http://localhost:8000/activities/106/streams" \
+  -H "Content-Type: application/json" \
+  -d '{"keys": ["heart_rate", "power", "speed"], "resolution": "high"}'
+
+# 获取多个流数据（中分辨率）
+curl -X POST "http://localhost:8000/activities/106/streams" \
+  -H "Content-Type: application/json" \
+  -d '{"keys": ["altitude", "cadence"], "resolution": "medium"}'
+```
+
+**错误处理**:
+- **400 Bad Request**: 无效的分辨率参数
+- **404 Not Found**: 活动不存在
+- **500 Internal Server Error**: 服务器内部错误
+
+### 4. 获取活动的总体信息
 
 **接口**: `GET /activities/{activity_id}/overall`
 
@@ -159,7 +223,7 @@ curl -X GET "http://localhost:8000/activities/106/overall"
 - **404 Not Found**: 活动信息不存在或无法解析
 - **500 Internal Server Error**: 服务器内部错误
 
-### 4. 获取活动的区间分析数据
+### 5. 获取活动的区间分析数据
 
 **接口**: `GET /activities/{activity_id}/zones`
 
@@ -231,66 +295,6 @@ curl -X GET "http://localhost:8000/activities/106/zones?key=heartrate"
 - **404 Not Found**: 活动或运动员信息不存在
 - **400 Bad Request**: FTP或最大心率数据不存在或无效，或活动数据不存在
 - **500 Internal Server Error**: 服务器内部错误
-
-**参数**:
-- `activity_id` (int): 活动ID
-- `key` (string, 必需): 请求的流数据类型
-- `resolution` (string, 可选): 数据分辨率，默认为 "high"
-
-**支持的分辨率**:
-- `low`: 低分辨率（5% 的数据点）
-- `medium`: 中分辨率（25% 的数据点）
-- `high`: 高分辨率（100% 的数据点）
-
-**响应格式**:
-接口返回一个数组，每个元素包含以下字段：
-
-```json
-[
-  {
-    "type": "power",
-    "data": [5, 0, 25, 25, 100, ...],
-    "series_type": "none",
-    "original_size": 10879,
-    "resolution": "high"
-  }
-]
-```
-
-**字段说明**:
-- `type`: 流数据类型，与请求的 key 参数一致
-- `data`: 数据数组，大小取决于 resolution 参数
-- `series_type`: 系列类型，统一为 "none"
-- `original_size`: 原始数据的总长度（不采样前的数据点数量）
-- `resolution`: 实际使用的分辨率
-
-**响应示例**:
-```bash
-# 获取功率数据（高分辨率）
-curl -X GET "http://localhost:8000/activities/106/streams?key=power&resolution=high"
-
-# 获取心率数据（中分辨率）
-curl -X GET "http://localhost:8000/activities/106/streams?key=heart_rate&resolution=medium"
-
-# 获取踏频数据（低分辨率）
-curl -X GET "http://localhost:8000/activities/106/streams?key=cadence&resolution=low"
-```
-
-**支持的流数据类型**:
-- `power`: 功率数据（瓦特）
-- `heart_rate`: 心率数据（BPM）
-- `cadence`: 踏频数据（RPM）
-- `altitude`: 海拔数据（米，整数）
-- `speed`: 速度数据（千米/小时，保留一位小数）
-- `temperature`: 温度数据（摄氏度）
-- `best_power`: 最佳功率曲线（每秒区间最大均值，整数，忽略 resolution 参数，始终使用 high 分辨率）
-- `power_hr_ratio`: 功率心率比
-- `torque`: 扭矩数据（牛·米，整数）
-- `spi`: SPI数据（瓦特/转，保留两位小数）
-- `w_balance`: W'平衡数据（千焦，保留一位小数）
-- `vam`: VAM数据（米/小时，整数）
-- `latitude`: 纬度数据
-- `longitude`: 经度数据
 
 ## 数据格式说明
 

@@ -42,7 +42,6 @@ def get_activity_athlete(db: Session, activity_id: int) -> Optional[Tuple[TbActi
         return None
     return activity, athlete
 
-
 def get_activity_stream_data(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
     """
     获取活动的流数据
@@ -1512,6 +1511,138 @@ def get_activity_temperature_info(db: Session, activity_id: int) -> Optional[Dic
             result['max_temperature'] = int(round(session_data['max_temperature']))
         else:
             result['max_temperature'] = int(round(max(valid_temperatures)))
+        
+        return result
+        
+    except Exception as e:
+        return None 
+
+def get_activity_best_power_info(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    """
+    获取活动的最佳功率信息
+    
+    Args:
+        db: 数据库会话
+        activity_id: 活动ID
+        
+    Returns:
+        Dict[str, Any]: 活动最佳功率信息，如果不存在则返回None
+    """
+    try:
+        # 获取活动总体信息
+        activity_athlete = get_activity_athlete(db, activity_id)
+        if not activity_athlete:
+            return None
+        
+        activity, athlete = activity_athlete
+        
+        # 获取流数据
+        stream_data = get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        
+        # 获取最佳功率数据
+        best_powers_data = stream_data.get('best_power', [])
+        if not best_powers_data:
+            return None
+        
+        # 定义时间区间映射（秒）
+        time_intervals = {
+            '5s': 5,
+            '30s': 30,
+            '1min': 60,
+            '5min': 300,
+            '8min': 480,
+            '20min': 1200,
+            '30min': 1800,
+            '1h': 3600
+        }
+        
+        # 构建最佳功率响应
+        best_powers = {}
+        for interval_name, interval_seconds in time_intervals.items():
+            # 检查是否有足够的数据点
+            if len(best_powers_data) >= interval_seconds:
+                best_powers[interval_name] = best_powers_data[interval_seconds - 1]  # 数组索引从0开始
+        
+        return {
+            'best_powers': best_powers
+        }
+        
+    except Exception as e:
+        return None 
+
+def get_activity_training_effect_info(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    """
+    获取活动的训练效果信息
+    
+    Args:
+        db: 数据库会话
+        activity_id: 活动ID
+        
+    Returns:
+        Dict[str, Any]: 训练效果信息，如果不存在则返回None
+    """
+    try:
+        # 获取活动和运动员信息
+        activity_athlete = get_activity_athlete(db, activity_id)
+        if not activity_athlete:
+            return None
+        
+        activity, athlete = activity_athlete
+        
+        # 获取流数据
+        stream_data = get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        
+        # 获取session段数据
+        session_data = get_session_data(activity.upload_fit_url)
+        
+        result = {}
+        
+        # 1. 主要训练益处 - 返回"none"
+        result['primary_training_benefit'] = "none"
+        
+        # 2. 有氧效果 - 返回"none"
+        result['aerobic_effect'] = "none"
+        
+        # 3. 无氧效果 - 返回"none"
+        result['anaerobic_effect'] = "none"
+        
+        # 4. 训练负荷 - 和power中的训练负荷一样，保留到整数
+        if float(athlete.ftp) and float(athlete.ftp) > 0:
+            # 获取平均功率
+            avg_power = None
+            if session_data and 'avg_power' in session_data:
+                avg_power = int(session_data['avg_power'])
+            elif 'power' in stream_data and stream_data['power']:
+                valid_powers = [p for p in stream_data['power'] if p is not None and p > 0]
+                if valid_powers:
+                    avg_power = int(sum(valid_powers) / len(valid_powers))
+            
+            # 获取运动时长
+            duration_seconds = 0
+            if session_data and 'total_timer_time' in session_data:
+                duration_seconds = session_data['total_timer_time']
+            elif session_data and 'total_elapsed_time' in session_data:
+                duration_seconds = session_data['total_elapsed_time']
+            elif 'elapsed_time' in stream_data and stream_data['elapsed_time']:
+                duration_seconds = max(stream_data['elapsed_time'])
+            
+            if avg_power and avg_power > 0 and duration_seconds > 0:
+                result['training_load'] = calculate_training_load(
+                    avg_power, 
+                    float(athlete.ftp), 
+                    duration_seconds
+                )
+            else:
+                result['training_load'] = 0
+        else:
+            result['training_load'] = 0
+        
+        # 5. 碳水化合物消耗量 - 返回"none"
+        result['carbohydrate_consumption'] = "none"
         
         return result
         

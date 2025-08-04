@@ -8,9 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List
 from ..utils import get_db
-from .schemas import ZoneRequest, ZoneResponse, ZoneData, DistributionBucket, ZoneType, OverallResponse, PowerResponse, HeartrateResponse, CadenceResponse, SpeedResponse, AltitudeResponse, TemperatureResponse
-from .crud import get_activity_athlete, get_activity_stream_data, get_activity_overall_info, get_activity_power_info, get_activity_heartrate_info, get_activity_cadence_info, get_activity_speed_info, get_activity_altitude_info, get_activity_temperature_info
+from .schemas import ZoneRequest, ZoneResponse, ZoneData, DistributionBucket, ZoneType, OverallResponse, PowerResponse, HeartrateResponse, CadenceResponse, SpeedResponse, AltitudeResponse, TemperatureResponse, BestPowerResponse, TrainingEffectResponse, MultiStreamRequest, MultiStreamResponse, StreamDataItem
+from .crud import get_activity_athlete, get_activity_stream_data, get_activity_overall_info, get_activity_power_info, get_activity_heartrate_info, get_activity_cadence_info, get_activity_speed_info, get_activity_altitude_info, get_activity_temperature_info, get_activity_best_power_info, get_activity_training_effect_info
 from .zone_analyzer import ZoneAnalyzer
+from ..streams.models import Resolution
+from ..streams.crud import stream_crud
+import logging
 
 router = APIRouter(prefix="/activities", tags=["活动"])
 
@@ -254,3 +257,108 @@ async def get_activity_temperature(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}") 
+
+@router.get("/{activity_id}/bestpower", response_model=BestPowerResponse)
+async def get_activity_best_power(
+    activity_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    获取活动的最佳功率信息
+    
+    返回活动在不同时间区间的最佳功率数据，包括5秒、30秒、1分钟、5分钟、8分钟、20分钟、30分钟、1小时的最佳功率。
+    如果活动时长不足某个时间区间，则不返回该区间的数据。
+    """
+    try:
+        # 获取活动最佳功率信息
+        best_power_info = get_activity_best_power_info(db, activity_id)
+        if not best_power_info:
+            raise HTTPException(status_code=404, detail="活动最佳功率信息不存在或无法解析")
+        
+        # 构建响应
+        return BestPowerResponse(**best_power_info)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+
+@router.get("/{activity_id}/training_effect", response_model=TrainingEffectResponse)
+async def get_activity_training_effect(
+    activity_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    获取活动的训练效果信息
+    
+    返回活动的训练效果相关指标，包括主要训练益处、有氧效果、无氧效果、训练负荷、碳水化合物消耗量等。
+    优先使用FIT文件session段中的数据，如果没有则从流数据中计算。
+    """
+    try:
+        # 获取活动训练效果信息
+        training_effect_info = get_activity_training_effect_info(db, activity_id)
+        if not training_effect_info:
+            raise HTTPException(status_code=404, detail="活动训练效果信息不存在或无法解析")
+        
+        # 构建响应
+        return TrainingEffectResponse(**training_effect_info)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+
+@router.get("/{activity_id}/multi-streams", response_model=MultiStreamResponse)
+async def get_activity_multi_streams(
+    activity_id: int,
+    request: MultiStreamRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    获取活动的多个流数据
+    
+    接收一个字段数组和分辨率参数，返回指定格式的流数据。
+    如果请求的字段不存在，则在data处返回None。
+    """
+    try:
+        # 验证分辨率参数
+        try:
+            resolution = Resolution(request.resolution)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="无效的分辨率参数，必须是 low、medium 或 high")
+        
+        
+
+
+        # 获取流数据
+        streams_data = stream_crud.get_activity_streams(db, activity_id, request.keys, resolution)
+        
+        # 构建响应数据
+        response_data = []
+        
+        # 为每个请求的字段创建响应项
+        for field in request.keys:
+            # 查找对应的流数据
+            stream_item = next((item for item in streams_data if item["type"] == field), None)
+            
+            if stream_item and stream_item["data"]:
+                # 字段存在且有数据
+                response_data.append(StreamDataItem(
+                    type=field,
+                    data=stream_item["data"]
+                ))
+            else:
+                # 字段不存在或没有数据
+                response_data.append(StreamDataItem(
+                    type=field,
+                    data=None
+                ))
+        
+        return MultiStreamResponse(response_data)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+
+
