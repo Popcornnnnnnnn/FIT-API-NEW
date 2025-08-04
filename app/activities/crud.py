@@ -42,7 +42,7 @@ def get_activity_athlete(db: Session, activity_id: int) -> Optional[Tuple[TbActi
         return None
     return activity, athlete
 
-def get_activity_stream_data(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+def get_activity_stream_data(db: Session, activity_id: int) -> Optional[Dict[str, Any]]: # ! 重要函数
     """
     获取活动的流数据
     
@@ -157,15 +157,15 @@ def get_activity_overall_info(db: Session, activity_id: int) -> Optional[Dict[st
         
         # 5. 平均功率（瓦特，保留整数）
         if session_data and 'avg_power' in session_data:
-            result['average_power'] = int(session_data['avg_power'])
+            result['avg_power'] = int(session_data['avg_power'])
         elif 'power' in stream_data and stream_data['power']:
             valid_powers = [p for p in stream_data['power'] if p is not None and p > 0]
             if valid_powers:
-                result['average_power'] = int(sum(valid_powers) / len(valid_powers))
+                result['avg_power'] = int(sum(valid_powers) / len(valid_powers))
             else:
-                result['average_power'] = None
+                result['avg_power'] = None
         else:
-            result['average_power'] = None
+            result['avg_power'] = None
         
         # 6. 卡路里（估算，保留整数）
         # ! 这里有问题
@@ -173,7 +173,7 @@ def get_activity_overall_info(db: Session, activity_id: int) -> Optional[Dict[st
             result['calories'] = int(session_data['total_calories'])
         else:
             # 估算卡路里：基于功率、时间和体重
-            avg_power = result['average_power'] if result['average_power'] is not None else 0
+            avg_power = result['avg_power'] if result['avg_power'] is not None else 0
             result['calories'] = estimate_calories(
                 avg_power, 
                 parse_time_to_seconds(result['moving_time']), 
@@ -181,9 +181,9 @@ def get_activity_overall_info(db: Session, activity_id: int) -> Optional[Dict[st
             )
         
         # 7. 训练负荷（无单位）
-        if float(athlete.ftp) and float(athlete.ftp) > 0 and result['average_power'] is not None and result['average_power'] > 0:
+        if float(athlete.ftp) and float(athlete.ftp) > 0 and result['avg_power'] is not None and result['avg_power'] > 0:
             result['training_load'] = calculate_training_load(
-                result['average_power'], 
+                result['avg_power'], 
                 float(athlete.ftp), 
                 parse_time_to_seconds(result['moving_time'])
             )
@@ -195,15 +195,15 @@ def get_activity_overall_info(db: Session, activity_id: int) -> Optional[Dict[st
         
         # 9. 平均心率（保留整数）
         if session_data and 'avg_heart_rate' in session_data:
-            result['average_heart_rate'] = int(session_data['avg_heart_rate'])
-        elif 'heart_rate' in stream_data and stream_data['heart_rate']:
-            valid_hr = [hr for hr in stream_data['heart_rate'] if hr is not None and hr > 0]
+            result['avg_heartrate'] = int(session_data['avg_heart_rate'])
+        elif 'heartrate' in stream_data and stream_data['heartrate']:
+            valid_hr = [hr for hr in stream_data['heartrate'] if hr is not None and hr > 0]
             if valid_hr:
-                result['average_heart_rate'] = int(sum(valid_hr) / len(valid_hr))
+                result['avg_heartrate'] = int(sum(valid_hr) / len(valid_hr))
             else:
-                result['average_heart_rate'] = None
+                result['avg_heartrate'] = None
         else:
-            result['average_heart_rate'] = None
+            result['avg_heartrate'] = None
         
         # 10. 最高海拔（米，保留整数）
         if 'altitude' in stream_data and stream_data['altitude']:
@@ -535,9 +535,9 @@ def get_activity_power_info(db: Session, activity_id: int) -> Optional[Dict[str,
         
         # 1. 平均功率（保留整数）
         if session_data and 'avg_power' in session_data:
-            result['average_power'] = int(session_data['avg_power'])
+            result['avg_power'] = int(session_data['avg_power'])
         else:
-            result['average_power'] = int(sum(valid_powers) / len(valid_powers))
+            result['avg_power'] = int(sum(valid_powers) / len(valid_powers))
         
         # 2. 最大功率（保留整数）
         if session_data and 'max_power' in session_data:
@@ -564,8 +564,8 @@ def get_activity_power_info(db: Session, activity_id: int) -> Optional[Dict[str,
         result['total_work'] = calculate_total_work(valid_powers)
         
         # 6. 变异性指数（保留两位小数）
-        if result['average_power'] > 0:
-            result['variability_index'] = round(result['normalized_power'] / result['average_power'], 2)
+        if result['avg_power'] > 0:
+            result['variability_index'] = round(result['normalized_power'] / result['avg_power'], 2)
         else:
             result['variability_index'] = None
         
@@ -717,12 +717,12 @@ def get_activity_heartrate_info(db: Session, activity_id: int) -> Optional[Dict[
         session_data = get_session_data(activity.upload_fit_url)
         
         # 获取心率数据
-        heart_rate_data = stream_data.get('heart_rate', [])
-        if not heart_rate_data:
+        heartrate_data = stream_data.get('heartrate', [])
+        if not heartrate_data:
             return None
         
         # 过滤有效的心率数据（大于0）
-        valid_hr = [hr for hr in heart_rate_data if hr is not None and hr > 0]
+        valid_hr = [hr for hr in heartrate_data if hr is not None and hr > 0]
         if not valid_hr:
             return None
         
@@ -730,21 +730,21 @@ def get_activity_heartrate_info(db: Session, activity_id: int) -> Optional[Dict[
         
         # 1. 平均心率（保留整数）
         if session_data and 'avg_heart_rate' in session_data:
-            result['average_heart_rate'] = int(session_data['avg_heart_rate'])
+            result['avg_heartrate'] = int(session_data['avg_heart_rate'])
         else:
-            result['average_heart_rate'] = int(sum(valid_hr) / len(valid_hr))
+            result['avg_heartrate'] = int(sum(valid_hr) / len(valid_hr))
         
         # 2. 最大心率（保留整数）
         if session_data and 'max_heart_rate' in session_data:
-            result['max_heart_rate'] = int(session_data['max_heart_rate'])
+            result['max_heartrate'] = int(session_data['max_heart_rate'])
         else:
-            result['max_heart_rate'] = int(max(valid_hr))
+            result['max_heartrate'] = int(max(valid_hr))
         
         # 3. 心率恢复速率（返回None）
-        result['heart_rate_recovery_rate'] = None
+        result['heartrate_recovery_rate'] = None
         
         # 4. 心率滞后（返回None）
-        result['heart_rate_lag'] = None
+        result['heartrate_lag'] = None
         
         # 5. 效率指数（保留两位小数）
         result['efficiency_index'] = calculate_efficiency_index(stream_data, athlete.ftp)
@@ -771,14 +771,14 @@ def calculate_efficiency_index(stream_data: Dict[str, Any], ftp: str) -> float:
     try:
         # 获取功率和心率数据
         power_data = stream_data.get('power', [])
-        heart_rate_data = stream_data.get('heart_rate', [])
+        heartrate_data = stream_data.get('heartrate', [])
         
-        if not power_data or not heart_rate_data:
+        if not power_data or not heartrate_data:
             return 0.0
         
         # 过滤有效数据
         valid_powers = [p for p in power_data if p is not None and p > 0]
-        valid_hr = [hr for hr in heart_rate_data if hr is not None and hr > 0]
+        valid_hr = [hr for hr in heartrate_data if hr is not None and hr > 0]
         
         if not valid_powers or not valid_hr:
             return 0.0
@@ -810,14 +810,14 @@ def calculate_decoupling_rate(stream_data: Dict[str, Any]) -> str:
     try:
         # 获取功率和心率数据
         power_data = stream_data.get('power', [])
-        heart_rate_data = stream_data.get('heart_rate', [])
+        heartrate_data = stream_data.get('heartrate', [])
         
-        if not power_data or not heart_rate_data:
+        if not power_data or not heartrate_data:
             return "0.0%"
         
         # 过滤有效数据
         valid_powers = [p for p in power_data if p is not None and p > 0]
-        valid_hr = [hr for hr in heart_rate_data if hr is not None and hr > 0]
+        valid_hr = [hr for hr in heartrate_data if hr is not None and hr > 0]
         
         if not valid_powers or not valid_hr:
             return "0.0%"
@@ -908,9 +908,9 @@ def get_activity_cadence_info(db: Session, activity_id: int) -> Optional[Dict[st
         
         # 1. 平均踏频（整数）- 优先从session中获取
         if session_data and 'avg_cadence' in session_data:
-            result['average_cadence'] = int(session_data['avg_cadence'])
+            result['avg_cadence'] = int(session_data['avg_cadence'])
         else:
-            result['average_cadence'] = int(sum(valid_cadences) / len(valid_cadences))
+            result['avg_cadence'] = int(sum(valid_cadences) / len(valid_cadences))
         
         # 2. 最大踏频（整数）- 优先从session中获取
         if session_data and 'max_cadence' in session_data:
@@ -1645,6 +1645,100 @@ def get_activity_training_effect_info(db: Session, activity_id: int) -> Optional
         result['carbohydrate_consumption'] = "none"
         
         return result
+        
+    except Exception as e:
+        return None 
+
+def get_activity_power_zones(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    """
+    获取活动的功率区间数据
+    
+    Args:
+        db: 数据库会话
+        activity_id: 活动ID
+        
+    Returns:
+        Dict[str, Any]: 功率区间数据，如果不存在则返回None
+    """
+    try:
+        # 获取活动和运动员信息
+        activity_athlete = get_activity_athlete(db, activity_id)
+        if not activity_athlete:
+            return None
+        
+        activity, athlete = activity_athlete
+        
+        # 检查FTP数据
+        try:
+            ftp = int(athlete.ftp)
+        except (TypeError, ValueError):
+            ftp = None
+        if not ftp or ftp <= 0:
+            return None
+        
+        # 获取流数据
+        stream_data = get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        
+        # 获取功率数据
+        power_data = stream_data.get('power', [])
+        if not power_data:
+            return None
+        
+        # 分析功率区间
+        from .zone_analyzer import ZoneAnalyzer
+        distribution_buckets = ZoneAnalyzer.analyze_power_zones(power_data, ftp)
+        
+        return {
+            "distribution_buckets": distribution_buckets,
+            "type": "power"
+        }
+        
+    except Exception as e:
+        return None
+
+def get_activity_heartrate_zones(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    """
+    获取活动的心率区间数据
+    
+    Args:
+        db: 数据库会话
+        activity_id: 活动ID
+        
+    Returns:
+        Dict[str, Any]: 心率区间数据，如果不存在则返回None
+    """
+    try:
+        # 获取活动和运动员信息
+        activity_athlete = get_activity_athlete(db, activity_id)
+        if not activity_athlete:
+            return None
+        
+        activity, athlete = activity_athlete
+        
+        # 检查最大心率数据
+        if not athlete.max_heartrate or athlete.max_heartrate <= 0:
+            return None
+        
+        # 获取流数据
+        stream_data = get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        
+        # 获取心率数据
+        heartrate_data = stream_data.get('heartrate', [])
+        if not heartrate_data:
+            return None
+        
+        # 分析心率区间
+        from .zone_analyzer import ZoneAnalyzer
+        distribution_buckets = ZoneAnalyzer.analyze_heartrate_zones(heartrate_data, athlete.max_heartrate)
+        
+        return {
+            "distribution_buckets": distribution_buckets,
+            "type": "heartrate"
+        }
         
     except Exception as e:
         return None 

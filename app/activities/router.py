@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from ..utils import get_db
 from .schemas import ZoneRequest, ZoneResponse, ZoneData, DistributionBucket, ZoneType, OverallResponse, PowerResponse, HeartrateResponse, CadenceResponse, SpeedResponse, AltitudeResponse, TemperatureResponse, BestPowerResponse, TrainingEffectResponse, MultiStreamRequest, MultiStreamResponse, StreamDataItem, AllActivityDataResponse
-from .crud import get_activity_athlete, get_activity_stream_data, get_activity_overall_info, get_activity_power_info, get_activity_heartrate_info, get_activity_cadence_info, get_activity_speed_info, get_activity_altitude_info, get_activity_temperature_info, get_activity_best_power_info, get_activity_training_effect_info
+from .crud import get_activity_athlete, get_activity_stream_data, get_activity_overall_info, get_activity_power_info, get_activity_heartrate_info, get_activity_cadence_info, get_activity_speed_info, get_activity_altitude_info, get_activity_temperature_info, get_activity_best_power_info, get_activity_training_effect_info, get_activity_power_zones, get_activity_heartrate_zones
 from .zone_analyzer import ZoneAnalyzer
 from ..streams.models import Resolution
 from ..streams.crud import stream_crud
@@ -60,7 +60,7 @@ async def get_activity_zones(
             if not athlete.max_heartrate or athlete.max_heartrate <= 0:
                 raise HTTPException(status_code=400, detail="运动员最大心率数据不存在或无效")
             
-            hr_data = stream_data.get('heart_rate', [])
+            hr_data = stream_data.get('heartrate', [])
             if not hr_data:
                 raise HTTPException(status_code=400, detail="活动心率数据不存在")
             
@@ -233,7 +233,7 @@ async def get_activity_altitude(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}") 
 
-@router.get("/{activity_id}/else", response_model=TemperatureResponse)
+@router.get("/{activity_id}/temperature", response_model=TemperatureResponse)
 async def get_activity_temperature(
     activity_id: int,
     db: Session = Depends(get_db)
@@ -258,7 +258,7 @@ async def get_activity_temperature(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}") 
 
-@router.get("/{activity_id}/bestpower", response_model=BestPowerResponse)
+@router.get("/{activity_id}/best_power", response_model=BestPowerResponse)
 async def get_activity_best_power(
     activity_id: int,
     db: Session = Depends(get_db)
@@ -369,7 +369,7 @@ async def get_activity_all_data(
     """
     获取活动的所有数据
     
-    按照 overall、power、heartrate、cadence、speed、training_effect、altitude、else 的顺序返回所有子字段。
+    按照 overall、power、heartrate、cadence、speed、training_effect、altitude、temperature、zones、best_power 的顺序返回所有子字段。
     如果某一个大的字段有缺失就在相应位置返回 None。
     """
     try:
@@ -446,15 +446,52 @@ async def get_activity_all_data(
         except Exception:
             response_data["altitude"] = None
         
-        # 获取其他信息（温度等）
+        # 获取温度信息
         try:
             temperature_info = get_activity_temperature_info(db, activity_id)
             if temperature_info:
-                response_data["else_data"] = TemperatureResponse(**temperature_info)
+                response_data["temperature"] = TemperatureResponse(**temperature_info)
             else:
-                response_data["else_data"] = None
+                response_data["temperature"] = None
         except Exception:
-            response_data["else_data"] = None
+            response_data["temperature"] = None
+        
+        # 获取区间分析信息（功率和心率区间）
+        try:
+            zones_data = []
+            
+            # 获取功率区间数据
+            try:
+                power_zones = get_activity_power_zones(db, activity_id)
+                if power_zones:
+                    zones_data.append(ZoneData(**power_zones))
+            except Exception:
+                pass
+            
+            # 获取心率区间数据
+            try:
+                heartrate_zones = get_activity_heartrate_zones(db, activity_id)
+                if heartrate_zones:
+                    zones_data.append(ZoneData(**heartrate_zones))
+            except Exception:
+                pass
+            
+            if zones_data:
+                response_data["zones"] = zones_data
+            else:
+                response_data["zones"] = None
+        except Exception:
+            response_data["zones"] = None
+        
+        # 获取最佳功率信息
+        try:
+            best_power_info = get_activity_best_power_info(db, activity_id)
+            if best_power_info:
+                response_data["best_powers"] = best_power_info["best_powers"]
+            else:
+                response_data["best_powers"] = None
+        except Exception:
+            response_data["best_powers"] = None
         
         # 构建响应
         return AllActivityDataResponse(**response_data)

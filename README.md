@@ -40,7 +40,7 @@ python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```json
 {
   "activity_id": 106,
-  "available_streams": ["power", "heart_rate", "cadence", "altitude"],
+  "available_streams": ["power", "heartrate", "cadence", "altitude", "distance"],
   "total_streams": 4,
   "message": "获取成功"
 }
@@ -88,7 +88,7 @@ python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 curl -X GET "http://localhost:8000/activities/106/streams?key=power&resolution=high"
 
 # 获取心率数据（中分辨率）
-curl -X GET "http://localhost:8000/activities/106/streams?key=heart_rate&resolution=medium"
+curl -X GET "http://localhost:8000/activities/106/streams?key=heartrate&resolution=medium"
 
 # 获取踏频数据（低分辨率）
 curl -X GET "http://localhost:8000/activities/106/streams?key=cadence&resolution=low"
@@ -96,9 +96,10 @@ curl -X GET "http://localhost:8000/activities/106/streams?key=cadence&resolution
 
 **支持的流数据类型**:
 - `power`: 功率数据（瓦特）
-- `heart_rate`: 心率数据（BPM）
+- `heartrate`: 心率数据（BPM）
 - `cadence`: 踏频数据（RPM）
 - `altitude`: 海拔数据（米，整数）
+- `distance`: 距离数据（米）
 - `speed`: 速度数据（千米/小时，保留一位小数）
 - `temperature`: 温度数据（摄氏度）
 - `best_power`: 最佳功率曲线（每秒区间最大均值，整数，忽略 resolution 参数，始终使用 high 分辨率）
@@ -127,7 +128,7 @@ curl -X GET "http://localhost:8000/activities/106/streams?key=cadence&resolution
 **请求格式**:
 ```json
 {
-  "keys": ["heart_rate", "distance", "altitude"],
+  "keys": ["heartrate", "distance", "altitude"],
   "resolution": "high"
 }
 ```
@@ -137,7 +138,7 @@ curl -X GET "http://localhost:8000/activities/106/streams?key=cadence&resolution
 {
   "data": [
     {
-      "type": "heart_rate",
+      "type": "heartrate",
       "data": [120, 125, 130, ...]
     },
     {
@@ -161,7 +162,7 @@ curl -X GET "http://localhost:8000/activities/106/streams?key=cadence&resolution
 # 获取多个流数据（高分辨率）
 curl -X POST "http://localhost:8000/activities/106/streams" \
   -H "Content-Type: application/json" \
-  -d '{"keys": ["heart_rate", "power", "speed"], "resolution": "high"}'
+  -d '{"keys": ["heartrate", "power", "speed"], "resolution": "high"}'
 
 # 获取多个流数据（中分辨率）
 curl -X POST "http://localhost:8000/activities/106/streams" \
@@ -188,11 +189,11 @@ curl -X POST "http://localhost:8000/activities/106/streams" \
   "moving_time": "01:23:45",
   "average_speed": 18.5,
   "elevation_gain": 450.2,
-  "average_power": 180,
+  "avg_power": 180,
   "calories": 850,
   "training_load": 45.2,
   "status": null,
-  "average_heart_rate": 145,
+  "avg_heartrate": 145,
   "max_altitude": 1250
 }
 ```
@@ -202,11 +203,11 @@ curl -X POST "http://localhost:8000/activities/106/streams" \
 - `moving_time`: 移动时间（格式化字符串，HH:MM:SS）
 - `average_speed`: 平均速度（千米每小时，保留一位小数）
 - `elevation_gain`: 爬升海拔（米，保留一位小数）
-- `average_power`: 平均功率（瓦特，保留整数）
+- `avg_power`: 平均功率（瓦特，保留整数）
 - `calories`: 卡路里（估算值，保留整数）
 - `training_load`: 训练负荷（无单位，基于FTP计算）
 - `status`: 状态值（始终为null）
-- `average_heart_rate`: 平均心率（保留整数）
+- `avg_heartrate`: 平均心率（保留整数）
 - `max_altitude`: 最高海拔（米，保留整数）
 
 **数据来源优先级**:
@@ -223,7 +224,57 @@ curl -X GET "http://localhost:8000/activities/106/overall"
 - **404 Not Found**: 活动信息不存在或无法解析
 - **500 Internal Server Error**: 服务器内部错误
 
-### 5. 获取活动的区间分析数据
+### 5. 获取活动的所有数据
+
+**接口**: `GET /activities/{activity_id}/all`
+
+**参数**:
+- `activity_id` (int): 活动ID
+
+**响应格式**:
+```json
+{
+  "overall": { /* 总体信息 */ },
+  "power": { /* 功率信息 */ },
+  "heartrate": { /* 心率信息 */ },
+  "cadence": { /* 踏频信息 */ },
+  "speed": { /* 速度信息 */ },
+  "training_effect": { /* 训练效果信息 */ },
+  "altitude": { /* 海拔信息 */ },
+  "temperature": { /* 温度信息 */ },
+  "zones": { /* 区间分析信息 */ },
+  "best_power": { /* 最佳功率信息 */ }
+}
+```
+
+**字段说明**:
+- `overall`: 总体信息（同 `/overall` 接口）
+- `power`: 功率信息（同 `/power` 接口）
+- `heartrate`: 心率信息（同 `/heartrate` 接口）
+- `cadence`: 踏频信息（同 `/cadence` 接口）
+- `speed`: 速度信息（同 `/speed` 接口）
+- `training_effect`: 训练效果信息（同 `/training_effect` 接口）
+- `altitude`: 海拔信息（同 `/altitude` 接口）
+- `temperature`: 温度信息（同 `/temperature` 接口）
+- `zones`: 区间分析信息（包含功率和心率区间数据）
+- `best_powers`: 最佳功率信息（同 `/best_power` 接口）
+
+**特点**:
+- 一次性获取活动的所有数据
+- 如果某个字段数据不存在，则返回 `null`
+- 按照固定顺序返回字段：overall、power、heartrate、cadence、speed、training_effect、altitude、temperature、zones、best_powers
+
+**响应示例**:
+```bash
+# 获取活动所有数据
+curl -X GET "http://localhost:8000/activities/106/all"
+```
+
+**错误处理**:
+- **404 Not Found**: 活动不存在
+- **500 Internal Server Error**: 服务器内部错误
+
+### 6. 获取活动的区间分析数据
 
 **接口**: `GET /activities/{activity_id}/zones`
 

@@ -20,7 +20,7 @@ class FitParser:
         """初始化解析器"""
         self.supported_fields = {
             'timestamp', 'distance', 'altitude', 'cadence', 
-            'heart_rate', 'speed', 'latitude', 'longitude', 
+            'heartrate', 'speed', 'latitude', 'longitude', 
             'power', 'temperature', 'best_power', 'power_hr_ratio',
             'torque', 'spi', 'w_balance', 'vam'
         }
@@ -56,7 +56,7 @@ class FitParser:
         distances = []
         altitudes = []
         cadences = []
-        heart_rates = []
+        heartrates = []
         speeds = []
         latitudes = []
         longitudes = []
@@ -134,7 +134,7 @@ class FitParser:
             # 提取心率（BPM）
             hr = record.get_value('heart_rate')
             if hr is not None:
-                heart_rates.append(int(hr))
+                heartrates.append(int(hr))
             
             # 提取速度（米/秒）- 优先使用enhanced_speed，转换为千米/小时并保留一位小数
             speed = record.get_value('enhanced_speed')
@@ -187,18 +187,18 @@ class FitParser:
 
         best_powers = calculate_best_power_curve(powers)
     
-        # ! 计算功率/心率比（只有 power 和 heart_rate 都有值且长度一致时才计算，否则为空）
+        # ! 计算功率/心率比（只有 power 和 heartrate 都有值且长度一致时才计算，否则为空）
         # 计算功率/心率比，通过时间戳对齐，不要求长度一致
         power_hr_ratio = []
-        if timestamps and powers and heart_rates:
+        if timestamps and powers and heartrates:
             # 构建时间戳到功率和心率的映射
             power_map = {}
             hr_map = {}
             for idx, ts in enumerate(timestamps):
                 if idx < len(powers):
                     power_map[ts] = powers[idx]
-                if idx < len(heart_rates):
-                    hr_map[ts] = heart_rates[idx]
+                if idx < len(heartrates):
+                    hr_map[ts] = heartrates[idx]
             # 以所有时间戳为基准，计算比值
             for ts in timestamps:
                 p = power_map.get(ts)
@@ -337,7 +337,7 @@ class FitParser:
             distance=distances,
             altitude=altitudes,
             cadence=cadences,
-            heart_rate=heart_rates,
+            heartrate=heartrates,
             speed=speeds,
             latitude=latitudes,
             longitude=longitudes,

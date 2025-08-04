@@ -131,7 +131,7 @@ class StreamData(BaseModel):
     distance: List[float] = Field(default_factory=list, description="距离数据点")
     altitude: List[int] = Field(default_factory=list, description="海拔数据点（整数）")
     cadence: List[int] = Field(default_factory=list, description="踏频数据点")
-    heart_rate: List[int] = Field(default_factory=list, description="心率数据点")
+    heartrate: List[int] = Field(default_factory=list, description="心率数据点")
     speed: List[float] = Field(default_factory=list, description="速度数据点（千米/小时，保留一位小数）")
     latitude: List[float] = Field(default_factory=list, description="纬度数据点")
     longitude: List[float] = Field(default_factory=list, description="经度数据点")
@@ -182,7 +182,7 @@ class StreamData(BaseModel):
             'time': TimeStream,
             'altitude': AltitudeStream,
             'cadence': CadenceStream,
-            'heart_rate': HeartRateStream,
+            'heartrate': HeartRateStream,
             'speed': SpeedStream,
             'latitude': LatitudeStream,
             'longitude': LongitudeStream,
@@ -230,18 +230,18 @@ class StreamData(BaseModel):
     def get_available_streams(self) -> List[str]:
         """
         只返回当前活动实际有数据且非全 None/空的字段。
-        power_hr_ratio 只有在 power 和 heart_rate 都有数据且 power_hr_ratio 至少有一个非 None 时才返回。
+        power_hr_ratio 只有在 power 和 heartrate 都有数据且 power_hr_ratio 至少有一个非 None 时才返回。
         """
         available = []
         for field_name in StreamData.model_fields:
-            if field_name in ('timestamp', 'distance', 'elapsed_time'):
+            if field_name in ('timestamp', 'elapsed_time'):
                 continue
             data = getattr(self, field_name)
             # power_hr_ratio 需要特殊判断
             if field_name == 'power_hr_ratio':
                 if (
                     getattr(self, 'power') and any(getattr(self, 'power')) and
-                    getattr(self, 'heart_rate') and any(getattr(self, 'heart_rate')) and
+                    getattr(self, 'heartrate') and any(getattr(self, 'heartrate')) and
                     data and any(x is not None for x in data)
                 ):
                     available.append(field_name)

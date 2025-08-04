@@ -40,16 +40,16 @@ class OverallResponse(BaseModel):
     moving_time: str = Field(..., description="移动时间（格式化字符串）")
     average_speed: float = Field(..., description="平均速度（千米每小时，保留一位小数）")
     elevation_gain: int = Field(..., description="爬升海拔（米，保留整数）")
-    average_power: Optional[int] = Field(None, description="平均功率（瓦特，保留整数）")
+    avg_power: Optional[int] = Field(None, description="平均功率（瓦特，保留整数）")
     calories: int = Field(..., description="卡路里（估算值，保留整数）")
     training_load: int = Field(..., description="训练负荷（无单位，保留整数）")
     status: Optional[str] = Field(None, description="状态值")
-    average_heart_rate: Optional[int] = Field(None, description="平均心率（保留整数）")
+    avg_heartrate: Optional[int] = Field(None, description="平均心率（保留整数）")
     max_altitude: Optional[int] = Field(None, description="最高海拔（米，保留整数）") 
 
 class PowerResponse(BaseModel):
     """活动功率信息响应"""
-    average_power: int = Field(..., description="平均功率（瓦特，保留整数）")
+    avg_power: int = Field(..., description="平均功率（瓦特，保留整数）")
     max_power: int = Field(..., description="最大功率（瓦特，保留整数）")
     normalized_power: int = Field(..., description="标准化功率（瓦特，保留整数）")
     intensity_factor: Optional[float] = Field(None, description="强度因子（标准化功率除以FTP，保留两位小数）")
@@ -62,16 +62,16 @@ class PowerResponse(BaseModel):
 
 class HeartrateResponse(BaseModel):
     """活动心率信息响应"""
-    average_heart_rate: int = Field(..., description="平均心率（保留整数）")
-    max_heart_rate: int = Field(..., description="最大心率（保留整数）")
-    heart_rate_recovery_rate: Optional[float] = Field(None, description="心率恢复速率")
-    heart_rate_lag: Optional[float] = Field(None, description="心率滞后")
+    avg_heartrate: int = Field(..., description="平均心率（保留整数）")
+    max_heartrate: int = Field(..., description="最大心率（保留整数）")
+    heartrate_recovery_rate: Optional[float] = Field(None, description="心率恢复速率")
+    heartrate_lag: Optional[float] = Field(None, description="心率滞后")
     efficiency_index: float = Field(..., description="效率指数（保留两位小数）")
     decoupling_rate: str = Field(..., description="解耦率（百分比，保留一位小数，带%符号）") 
 
 class CadenceResponse(BaseModel):
     """活动踏频信息响应"""
-    average_cadence: int = Field(..., description="平均踏频（整数）")
+    avg_cadence: int = Field(..., description="平均踏频（整数）")
     max_cadence: int = Field(..., description="最大踏频（整数）")
     left_right_balance: Optional[Dict[str, int]] = Field(None, description="左右平衡，格式为{'left': 49, 'right': 51}")
     left_torque_effectiveness: Optional[float] = Field(None, description="左扭矩效率")
@@ -140,4 +140,6 @@ class AllActivityDataResponse(BaseModel):
     speed: Optional[SpeedResponse] = Field(None, description="速度信息")
     training_effect: Optional[TrainingEffectResponse] = Field(None, description="训练效果信息")
     altitude: Optional[AltitudeResponse] = Field(None, description="海拔信息")
-    else_data: Optional[TemperatureResponse] = Field(None, description="其他信息（温度等）")
+    temperature: Optional[TemperatureResponse] = Field(None, description="温度信息")
+    zones: Optional[List[ZoneData]] = Field(None, description="区间分析信息")
+    best_powers: Optional[Dict[str, int]] = Field(None, description="最佳功率信息")
