@@ -256,9 +256,9 @@ class FitParser:
             # 如果没有运动员信息或功率数据，填充为0
             w_balance = [0.0 for _ in timestamps]
         
-        # 计算VAM（垂直海拔爬升，米/小时）- 保留到整数
+        # ! 计算VAM（垂直海拔爬升，米/小时）- 不确定滑动窗口大小
         vam = []
-        window_seconds = 5  # 5秒滑动窗口
+        window_seconds = 50  # 50秒滑动窗口
         
         for i in range(len(timestamps)):
             try:
@@ -302,6 +302,8 @@ class FitParser:
         # 过滤VAM异常值，超过5000或低于-5000的设为0
         # !过滤突变值
         vam = [v if -5000 <= v <= 5000 else 0 for v in vam]
+
+        print(f"VAM最大值: {max(vam) if vam else None}, 最小值: {min(vam) if vam else None}")
         
         # 不再补零，保持原始数据长度
         return StreamData(
