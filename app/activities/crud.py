@@ -15,6 +15,42 @@ from fitparse import FitFile
 from io import BytesIO
 import requests
 
+def update_database_field(db: Session, table_class, record_id: int, field_name: str, value: Any) -> bool:
+    """
+    通用的数据库字段更新函数
+    
+    Args:
+        db: 数据库会话
+        table_class: 表模型类（如TbActivity, TbAthlete等）
+        record_id: 记录ID
+        field_name: 要更新的字段名
+        value: 要更新的值
+        
+    Returns:
+        bool: 更新是否成功
+    """
+    try:
+        # 查询记录
+        record = db.query(table_class).filter(table_class.id == record_id).first()
+        if not record:
+            return False
+        
+        # 检查字段是否存在
+        if not hasattr(record, field_name):
+            return False
+        
+        # 更新字段值
+        setattr(record, field_name, value)
+        
+        # 提交更改
+        db.commit()
+        return True
+        
+    except Exception as e:
+        # 回滚事务
+        db.rollback()
+        return False
+
 # @ 这里没问题
 def get_activity_athlete(db: Session, activity_id: int) -> Optional[Tuple[TbActivity, TbAthlete]]:
     """
@@ -182,7 +218,9 @@ def get_activity_overall_info(db: Session, activity_id: int) -> Optional[Dict[st
         
         # 7. 训练负荷（无单位）
         if float(athlete.ftp) and float(athlete.ftp) > 0 and result['avg_power'] is not None and result['avg_power'] > 0:
-            result['training_load'] = calculate_training_load(
+            result['training_load'] = calculate_and_save_training_load(
+                db,
+                activity_id,
                 result['avg_power'], 
                 float(athlete.ftp), 
                 parse_time_to_seconds(result['moving_time'])
@@ -472,10 +510,10 @@ def calculate_training_load(avg_power: int, ftp: float, duration_seconds: int) -
         duration_seconds: 运动时长（秒）
         
     Returns:
-        float: 训练负荷
+        int: 训练负荷
     """
     if avg_power <= 0 or ftp <= 0 or duration_seconds <= 0:
-        return 0.0
+        return 0
     
     # 计算强度因子（IF）
     intensity_factor = avg_power / ftp
@@ -485,6 +523,32 @@ def calculate_training_load(avg_power: int, ftp: float, duration_seconds: int) -
     training_load = (intensity_factor ** 2) * duration_hours
     
     return int(training_load * 100)
+
+def calculate_and_save_training_load(db: Session, activity_id: int, avg_power: int, ftp: float, duration_seconds: int) -> int:
+    """
+    计算训练负荷并保存到数据库
+    
+    Args:
+        db: 数据库会话
+        activity_id: 活动ID
+        avg_power: 平均功率（瓦特）
+        ftp: 功能阈值功率（瓦特）
+        duration_seconds: 运动时长（秒）
+        
+    Returns:
+        int: 训练负荷值
+    """
+    # 计算训练负荷
+    training_load = calculate_training_load(avg_power, ftp, duration_seconds)
+    
+    # 保存到数据库
+    update_success = update_database_field(db, TbActivity, activity_id, 'training_stress_score', training_load)
+    
+    if not update_success:
+        # 如果更新失败，记录错误但不影响返回值
+        print(f"警告：无法将训练负荷值 {training_load} 保存到活动 {activity_id} 的数据库")
+    
+    return training_load
 
 def get_activity_power_info(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
     """
@@ -1631,7 +1695,9 @@ def get_activity_training_effect_info(db: Session, activity_id: int) -> Optional
                 duration_seconds = max(stream_data['elapsed_time'])
             
             if avg_power and avg_power > 0 and duration_seconds > 0:
-                result['training_load'] = calculate_training_load(
+                result['training_load'] = calculate_and_save_training_load(
+                    db,
+                    activity_id,
                     avg_power, 
                     float(athlete.ftp), 
                     duration_seconds

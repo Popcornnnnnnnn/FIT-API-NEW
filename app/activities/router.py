@@ -4,16 +4,20 @@ Activities模块的路由
 包含活动相关的API端点。
 """
 
+from tarfile import data_filter
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
+import requests
+import logging
 from ..utils import get_db
 from .schemas import ZoneRequest, ZoneResponse, ZoneData, DistributionBucket, ZoneType, OverallResponse, PowerResponse, HeartrateResponse, CadenceResponse, SpeedResponse, AltitudeResponse, TemperatureResponse, BestPowerResponse, TrainingEffectResponse, MultiStreamRequest, MultiStreamResponse, StreamDataItem, AllActivityDataResponse
 from .crud import get_activity_athlete, get_activity_stream_data, get_activity_overall_info, get_activity_power_info, get_activity_heartrate_info, get_activity_cadence_info, get_activity_speed_info, get_activity_altitude_info, get_activity_temperature_info, get_activity_best_power_info, get_activity_training_effect_info, get_activity_power_zones, get_activity_heartrate_zones
 from .zone_analyzer import ZoneAnalyzer
+from .strava_analyzer import StravaAnalyzer
 from ..streams.models import Resolution
 from ..streams.crud import stream_crud
-import logging
+import json
 
 router = APIRouter(prefix="/activities", tags=["活动"])
 
@@ -86,7 +90,7 @@ async def get_activity_zones(
 @router.get("/{activity_id}/overall", response_model=OverallResponse)
 async def get_activity_overall(
     activity_id: int,
-    db: Session = Depends(get_db)  # @ db 是通过 FastAPI 的 Depends 依赖注入机制，从 get_db 函数获取的数据库会话（Session）对象
+    db: Session = Depends(get_db),  # @ db 是通过 FastAPI 的 Depends 依赖注入机制，从 get_db 函数获取的数据库会话（Session）对象  
 ):
     """
     获取活动的总体信息
@@ -364,6 +368,7 @@ async def get_activity_multi_streams(
 @router.get("/{activity_id}/all", response_model=AllActivityDataResponse)
 async def get_activity_all_data(
     activity_id: int,
+    access_token: Optional[str] = Query(None, description="Strava API访问令牌"),
     db: Session = Depends(get_db)
 ):
     """
@@ -371,8 +376,60 @@ async def get_activity_all_data(
     
     按照 overall、power、heartrate、cadence、speed、training_effect、altitude、temp、zones、best_powers 的顺序返回所有子字段。
     如果某一个大的字段有缺失就在相应位置返回 None。
+    
+    参数说明：
+    - 如果没有传入 access_token，将 activity_id 作为本地数据库ID进行查询
+    - 如果传入了 access_token，将 activity_id 作为 Strava 的 external_id 调用 API
     """
     try:
+        # 如果传入了 access_token，调用 Strava API
+        if access_token:
+            try:
+                # 调用 Strava API，使用 activity_id 作为 external_id
+                headers = {
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json"
+                }
+                activity_response = requests.get(
+                    f"https://www.strava.com/api/v3/activities/{activity_id}", 
+                    headers=headers, 
+                    timeout=10)
+                stream_response = requests.get(
+                    f"https://www.strava.com/api/v3/activities/{activity_id}/streams?keys=time,distance,lating,altitude,velocity_smooth,heartrate,cadence,watts,temp,moving,grade_smooth&key_by_type=true&resolution=high", 
+                    headers=headers, 
+                    timeout=10)
+                athlete_response = requests.get( 
+                    "https://www.strava.com/api/v3/athlete",
+                    headers=headers,
+                    timeout=10
+                )
+                if athlete_response.status_code != 200:
+                    raise HTTPException(
+                        status_code=athlete_response.status_code,
+                        detail=f"Strava API 运动员信息获取失败: {athlete_response.text}"
+                    )
+                if activity_response.status_code != 200:
+                    raise HTTPException(
+                        status_code=activity_response.status_code,
+                        detail=f"Strava API 活动信息获取失败: {activity_response.text}"
+                    )
+                if stream_response.status_code != 200:
+                    raise HTTPException(
+                        status_code=stream_response.status_code,
+                        detail=f"Strava API 流数据获取失败: {stream_response.text}"
+                    )
+                activity_data = activity_response.json()
+                stream_data = stream_response.json()
+                athlete_data = athlete_response.json()
+                # print(athlete_data["ftp"])
+
+                return StravaAnalyzer.analyze_activity_data(activity_data, stream_data, athlete_data, activity_id, db)
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"调用 Strava API 时发生错误: {str(e)}")
+        
+        # 如果没有传入 access_token，进行本地数据库查询
         # 初始化响应数据
         response_data = {}
         

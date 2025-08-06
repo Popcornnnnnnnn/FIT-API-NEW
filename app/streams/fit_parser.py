@@ -303,7 +303,7 @@ class FitParser:
         # !过滤突变值
         vam = [v if -5000 <= v <= 5000 else 0 for v in vam]
 
-        print(f"VAM最大值: {max(vam) if vam else None}, 最小值: {min(vam) if vam else None}")
+        # print(f"VAM最大值: {max(vam) if vam else None}, 最小值: {min(vam) if vam else None}")
         
         # 不再补零，保持原始数据长度
         return StreamData(
