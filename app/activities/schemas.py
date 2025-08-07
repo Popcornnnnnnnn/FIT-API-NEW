@@ -82,7 +82,7 @@ class CadenceResponse(BaseModel):
 
 class SpeedResponse(BaseModel):
     """活动速度信息响应"""
-    average_speed: float = Field(..., description="平均速度（千米每小时，保留一位小数）")
+    avg_speed: float = Field(..., description="平均速度（千米每小时，保留一位小数）")
     max_speed: float = Field(..., description="最大速度（千米每小时，保留一位小数）")
     moving_time: str = Field(..., description="移动时间（格式化字符串）")
     total_time: str = Field(..., description="全程耗时（格式化字符串）")
@@ -93,7 +93,7 @@ class AltitudeResponse(BaseModel):
     """活动海拔信息响应"""
     elevation_gain: int = Field(..., description="爬升海拔（米，保留整数）")
     max_altitude: int = Field(..., description="最高海拔（米，保留整数）")
-    max_grade: float = Field(..., description="最大坡度（百分比，保留两位小数）")
+    max_grade: float = Field(..., description="最大坡度（百分比，保留一 位小数）")
     total_descent: int = Field(..., description="累计下降（米，保留整数）")
     min_altitude: int = Field(..., description="最低海拔（米，保留整数）")
     uphill_distance: float = Field(..., description="上坡距离（千米，保留两位小数）")
