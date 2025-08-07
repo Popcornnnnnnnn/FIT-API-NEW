@@ -25,7 +25,6 @@ from ..streams.models import TbActivity, TbAthlete
 
 
 class StravaAnalyzer:
-    """Strava 数据分析器"""
 
     @staticmethod
     def analyze_activity_data(
@@ -126,7 +125,7 @@ class StravaAnalyzer:
             return HeartrateResponse(
                 avg_heartrate           = int(activity_data.get("average_heartrate")),
                 max_heartrate           = int(activity_data.get("max_heartrate")),
-                heartrate_recovery_rate = None,                                                    # 需要特殊算法
+                heartrate_recovery_rate = StravaAnalyzer._calculate_heartrate_recovery_rate(stream_data),                                                    
                 heartrate_lag           = None,                                                    # 需要特殊算法
                 efficiency_index        = EF,
                 decoupling_rate         = StravaAnalyzer._calculate_decoupling_rate(stream_data),  # ! 没有严格比对
@@ -353,6 +352,26 @@ class StravaAnalyzer:
             return None
  
     # 辅助方法（复用 activities/crud.py 中的算法）
+
+    @staticmethod
+    def _calculate_heartrate_recovery_rate(
+        stream_data: Dict[str, Any]
+    ) -> Optional[int]:
+        heartrate_stream = stream_data.get("heartrate", {})
+        heartrate_data = heartrate_stream.get("data", []) if heartrate_stream else []
+        if not heartrate_data or len(heartrate_data) < 60:
+            return None
+        max_drop = 0
+        window = 60  # 60秒窗口
+        n = len(heartrate_data)
+        for i in range(n - window):
+            start_hr = heartrate_data[i]
+            end_hr = heartrate_data[i + window]
+            if start_hr is not None and end_hr is not None:
+                drop = start_hr - end_hr
+                if drop > max_drop:
+                    max_drop = drop
+        return int(max_drop) if max_drop > 0 else 0
 
     @staticmethod
     def _calculate_coasting_time(stream_data: Dict[str, Any]) -> int:

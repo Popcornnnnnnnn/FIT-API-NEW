@@ -64,7 +64,7 @@ class HeartrateResponse(BaseModel):
     """活动心率信息响应"""
     avg_heartrate: int = Field(..., description="平均心率（保留整数）")
     max_heartrate: int = Field(..., description="最大心率（保留整数）")
-    heartrate_recovery_rate: Optional[float] = Field(None, description="心率恢复速率")
+    heartrate_recovery_rate: Optional[int] = Field(None, description="心率恢复速率")
     heartrate_lag: Optional[float] = Field(None, description="心率滞后")
     efficiency_index: float = Field(..., description="效率指数（保留两位小数）")
     decoupling_rate: str = Field(..., description="解耦率（百分比，保留一位小数，带%符号）") 
