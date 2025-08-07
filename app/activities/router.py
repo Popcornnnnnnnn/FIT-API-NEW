@@ -369,7 +369,7 @@ async def get_activity_multi_streams(
 async def get_activity_all_data(
     activity_id: int,
     access_token: Optional[str] = Query(None, description="Strava API访问令牌"),
-    keys: Optional[List[str]] = Query(None, description="需要返回的流数据字段"),
+    keys: Optional[str] = Query(None, description="需要返回的流数据字段，用逗号分隔，如：time,distance,watts,heartrate。如果为空则返回所有字段"),
     resolution: Optional[str] = Query("high", description="数据分辨率：low, medium, high"),
     db: Session = Depends(get_db)
 ):
@@ -382,16 +382,19 @@ async def get_activity_all_data(
     参数说明：
     - 如果没有传入 access_token，将 activity_id 作为本地数据库ID进行查询
     - 如果传入了 access_token，将 activity_id 作为 Strava 的 external_id 调用 API
-    - keys 参数只有在 access_token 存在且有效时才会被解析，支持以下字段：
-      * 直接使用 Strava API 字段名：distance, altitude, cadence, heartrate, velocity_smooth, latlng, watts, temp, time, moving, grade_smooth 等
-      * 特殊字段：
-        - latitude/longitude: 从 latlng 中提取的经纬度数据
-        - best_power: 最佳功率数据（计算得出）
-        - power_hr_ratio: 功率心率比（功率/心率，计算得出）
-        - torque: 扭矩数据（功率/踏频，计算得出）
-        - spi: 速度功率指数（功率/速度，计算得出）
-        - w_balance: W平衡数据（基于功率的平衡计算）
-        - vam: 垂直爬升速度（海拔变化率，计算得出）
+    - keys 参数只有在 access_token 存在且有效时才会被解析：
+      * 格式：用逗号分隔的字符串，如：time,distance,watts,heartrate
+      * 如果为空，则返回所有可用的流数据字段
+      * 支持的字段：
+        - 直接使用 Strava API 字段名：distance, altitude, cadence, heartrate, velocity_smooth, latlng, watts, temp, time, moving, grade_smooth 等
+        - 特殊字段：
+          * latitude/longitude: 从 latlng 中提取的经纬度数据
+          * best_power: 最佳功率数据（计算得出）
+          * power_hr_ratio: 功率心率比（功率/心率，计算得出）
+          * torque: 扭矩数据（功率/踏频，计算得出）
+          * spi: 速度功率指数（功率/踏频，计算得出）
+          * w_balance: W平衡数据（基于功率的平衡计算）
+          * vam: 垂直爬升速度（海拔变化率，计算得出）
     - resolution 参数控制数据分辨率：low, medium, high（默认：high）
     """
     try:
@@ -436,7 +439,14 @@ async def get_activity_all_data(
                 athlete_data = athlete_response.json()
                 # print(athlete_data["ftp"])
 
-                return StravaAnalyzer.analyze_activity_data(activity_data, stream_data, athlete_data, activity_id, db, keys, resolution)
+                # 处理 keys 参数：如果为空则返回所有字段，否则按逗号分割
+                if keys:
+                    keys_list = [key.strip() for key in keys.split(',') if key.strip()]
+                else:
+                    # 如果 keys 为空，返回所有可用的字段
+                    keys_list = ['time', 'distance', 'latlng', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp', 'moving', 'grade_smooth', 'best_power', 'torque', 'spi', 'power_hr_ratio', 'w_balance', 'vam']
+                
+                return StravaAnalyzer.analyze_activity_data(activity_data, stream_data, athlete_data, activity_id, db, keys_list, resolution)
             except HTTPException:
                 raise
             except Exception as e:
