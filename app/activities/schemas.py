@@ -4,7 +4,7 @@ Activities模块的请求和响应模式
 定义API接口的输入输出数据结构。
 """
 
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Any
 from pydantic import BaseModel, Field, RootModel
 from enum import Enum
 from typing import Dict
@@ -146,3 +146,4 @@ class AllActivityDataResponse(BaseModel):
     temp: Optional[TemperatureResponse] = Field(None, description="温度信息")
     zones: Optional[List[ZoneData]] = Field(None, description="区间分析信息")
     best_powers: Optional[Dict[str, int]] = Field(None, description="最佳功率信息")
+    streams: Optional[Dict[str, Dict[str, Any]]] = Field(None, description="流数据，键为字段名，值为完整的 Strava 流数据格式")

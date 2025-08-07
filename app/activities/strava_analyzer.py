@@ -4,7 +4,8 @@ Strava 数据分析器
 处理从 Strava API 获取的活动数据和流数据，转换为应用内部的数据结构。
 """
 
-from typing import Dict, Any, Optional, List, Tuple
+from cgi import print_arguments
+from typing import Dict, Any, Optional, List, Tuple, Union
 from .schemas import (
     AllActivityDataResponse,
     OverallResponse,
@@ -30,10 +31,17 @@ class StravaAnalyzer:
     def analyze_activity_data(
         activity_data: Dict[str, Any],
         stream_data: Dict[str, Any],
-        athlete_data: Dict[str, Any],
+        athlete_data: Dict[str, Any], # ! 暂时没有用到
         external_id: int,
         db: Session,
+        keys: Optional[List[str]] = None,
+        resolution: str = "high",
     ) -> AllActivityDataResponse:
+
+        # 处理流数据
+        streams = None
+        if keys and stream_data:
+            streams = StravaAnalyzer._extract_stream_data(stream_data, keys, external_id, db, resolution) 
 
         return AllActivityDataResponse(
             overall         = StravaAnalyzer.analyze_overall(activity_data, stream_data, external_id, db),
@@ -46,8 +54,8 @@ class StravaAnalyzer:
             temp            = StravaAnalyzer.analyze_temperature(activity_data, stream_data),
             zones           = StravaAnalyzer.analyze_zones(activity_data, stream_data, external_id, db),
             best_powers     = StravaAnalyzer.analyze_best_powers(activity_data, stream_data),
+            streams         = streams,
         )
-
 
     @staticmethod
     def analyze_overall(
@@ -87,10 +95,11 @@ class StravaAnalyzer:
             power_data = power_stream.get("data", [])
             power_data = [p if p is not None else 0 for p in power_data]
 
-            activity, athlete = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
+            _, athlete        = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
+            w_balance_data    = StravaAnalyzer._calculate_w_balance_array(power_data, athlete)
+            w_balance_decline = StravaAnalyzer._calculate_w_balance_decline(w_balance_data)
 
             ftp               = int(athlete.ftp)
-            # w_balance_decline = StravaAnalyzer._calculate_w_balance_decline_from_strava(stream_data, external_id, db)
             NP                = StravaAnalyzer._calculate_normalized_power(power_data)
 
             return PowerResponse(
@@ -103,7 +112,7 @@ class StravaAnalyzer:
                 weighted_average_power = int(activity_data.get("weighted_average_watts")),
                 work_above_ftp         = StravaAnalyzer._calculate_work_above_ftp(power_data, ftp),
                 eftp                   = None,                                                      
-                w_balance_decline      = None,                                        # ! 这个接口还没有测试过
+                w_balance_decline      = w_balance_decline,                                        # ! 这个接口还没有测试过
             )
         except Exception as e:
             print(f"分析功率信息时出错: {str(e)}")
@@ -356,7 +365,7 @@ class StravaAnalyzer:
     @staticmethod
     def _calculate_heartrate_recovery_rate(
         stream_data: Dict[str, Any]
-    ) -> Optional[int]:
+    ) -> int:
         heartrate_stream = stream_data.get("heartrate", {})
         heartrate_data = heartrate_stream.get("data", []) if heartrate_stream else []
         if not heartrate_data or len(heartrate_data) < 60:
@@ -592,16 +601,9 @@ class StravaAnalyzer:
             return None
 
     @staticmethod
-    def _calculate_w_balance_decline(w_balance_data: list) -> Optional[float]:
-        """
-        计算W平衡下降（复用 activities/crud.py 中的算法）
-
-        Args:
-            w_balance_data: W平衡数据列表
-
-        Returns:
-            Optional[float]: W平衡下降值（保留一位小数）
-        """
+    def _calculate_w_balance_decline(
+        w_balance_data: list
+    ) -> Optional[float]:
         if not w_balance_data:
             return None
 
@@ -619,62 +621,35 @@ class StravaAnalyzer:
 
     @staticmethod
     def _calculate_w_balance_array(
-        power_data: list, athlete_info: Dict[str, Any]
+        power_data: list, athlete_info: TbAthlete
     ) -> list:
-        """
-        计算 W' 平衡数组（复用 fit_parser.py 中的算法）
-
-        Args:
-            power_data: 功率数据列表
-            athlete_info: 运动员信息，包含 ftp 和 wj 字段
-
-        Returns:
-            list: W' 平衡数组（千焦，保留一位小数）
-        """
         try:
-            if (
-                not power_data
-                or not athlete_info.get("ftp")
-                or not athlete_info.get("wj")
-            ):
-                return []
+            W_prime = athlete_info.w_balance
+            CP = int(athlete_info.ftp)
 
-            W_prime = athlete_info["wj"]  # 无氧储备（焦耳）
-            CP = int(athlete_info["ftp"])  # 功能阈值功率
-
-            dt = 1.0  # 时间间隔（秒）
-            # 使用标准的 Skiba 模型参数
+            dt = 1.0  
             tau = 546.0  # 恢复时间常数（秒），约9分钟
-
             balance = W_prime  # 初始储备
             w_balance = []
-
             for p in power_data:
                 if p is None:
                     p = 0
-
-                # 简化计算：只有当功率明显高于 FTP 时才消耗 W'
-                # 当功率低于 FTP 时，W' 会缓慢恢复
-                if p > CP * 1.05:  # 功率超过 FTP 的 105% 时才消耗
-                    # 消耗：线性损耗
+                if p > CP * 1.05:  
                     balance -= (p - CP) * dt
-                elif p < CP * 0.95:  # 功率低于 FTP 的 95% 时恢复
-                    # 恢复：缓慢恢复
+                elif p < CP * 0.95:  
                     recovery = (W_prime - balance) * (dt / tau)
                     balance += recovery
-                # 在 FTP 附近时，W' 基本保持不变
-
                 balance = max(0.0, min(W_prime, balance))  # 限定范围
                 w_balance.append(round(balance / 1000, 1))  # 转换为千焦，保留一位小数
-
             return w_balance
-
         except Exception as e:
             print(f"计算 W' 平衡数组时出错: {str(e)}")
             return []
 
     @staticmethod
-    def _calculate_decoupling_rate(stream_data: Dict[str, Any]) -> Optional[str]:
+    def _calculate_decoupling_rate(
+        stream_data: Dict[str, Any]
+    ) -> Optional[str]:
         if "watts" not in stream_data:
             return None
         try:
@@ -961,3 +936,246 @@ class StravaAnalyzer:
             secondary_type = matched_types[1:]
 
         return primary_type, secondary_type
+
+    @staticmethod
+    def _extract_stream_data(
+        stream_data: Dict[str, Any],
+        keys: List[str],
+        external_id: int,
+        db: Session,
+        resolution: str = "high",
+    ) -> Optional[Dict[str, Dict[str, Any]]]:
+        if not stream_data or not keys:
+            return None
+        result = {}
+        
+        # 直接使用 Strava API 字段名
+        for field in keys:
+            if field in stream_data:
+                stream_item = stream_data[field]
+                if isinstance(stream_item, dict) and 'data' in stream_item:
+                    # 返回完整的 Strava 格式
+                    result[field] = {
+                        'data': stream_item['data'],
+                        'series_type': stream_item.get('series_type', 'time'),
+                        'original_size': stream_item.get('original_size', len(stream_item['data'])),
+                        'resolution': resolution
+                    }
+                else:
+                    result[field] = None
+            elif field in ['latitude', 'longitude'] and 'latlng' in stream_data:
+                # 对于经纬度，需要从 latlng 数组中提取对应的值
+                stream_item = stream_data['latlng']
+                if isinstance(stream_item, dict) and 'data' in stream_item:
+                    latlng_data = stream_item['data']
+                    if field == 'latitude':
+                        extracted_data = [point[0] if point and len(point) >= 2 else None for point in latlng_data]
+                    else:  # longitude
+                        extracted_data = [point[1] if point and len(point) >= 2 else None for point in latlng_data]
+                    
+                    result[field] = {
+                        'data': extracted_data,
+                        'series_type': stream_item.get('series_type', 'time'),
+                        'original_size': stream_item.get('original_size', len(extracted_data)),
+                        'resolution': resolution
+                    }
+                else:
+                    result[field] = None
+            elif field == 'best_power':
+                # 计算最佳功率数据
+                if 'watts' in stream_data:
+                    watts_data = stream_data['watts'].get('data', [])
+                    if watts_data:
+                        best_powers = StravaAnalyzer._calculate_best_powers_from_stream(watts_data)
+                        result[field] = {
+                            'data': best_powers,
+                            'series_type': 'time',
+                            'original_size': len(best_powers),
+                            'resolution': resolution
+                        }
+                    else:
+                        result[field] = None
+                else:
+                    result[field] = None
+            elif field == 'torque':
+                # 计算扭矩数据（功率/踏频）
+                if 'watts' in stream_data and 'cadence' in stream_data:
+                    watts_data = stream_data['watts'].get('data', [])
+                    cadence_data = stream_data['cadence'].get('data', [])
+                    if watts_data and cadence_data:
+                        torque_data = []
+                        for i in range(min(len(watts_data), len(cadence_data))):
+                            if watts_data[i] is not None and cadence_data[i] is not None and cadence_data[i] > 0:
+                                torque = watts_data[i] / (cadence_data[i] * 2 * 3.1415926 / 60)
+                                torque_data.append(round(torque, 2))
+                            else:
+                                torque_data.append(None)
+                        result[field] = {
+                            'data': torque_data,
+                            'series_type': 'distance',
+                            'original_size': len(torque_data),
+                            'resolution': resolution
+                        }
+                    else:
+                        result[field] = None
+                else:
+                    result[field] = None
+            elif field == 'spi':
+                # 计算 SPI (Speed Power Index) - 速度功率指数（功率/踏频）
+                if 'watts' in stream_data and 'cadence' in stream_data:
+                    watts_data = stream_data['watts'].get('data', [])
+                    cadence_data = stream_data['cadence'].get('data', [])
+                    if watts_data and cadence_data:
+                        spi_data = []
+                        for i in range(min(len(watts_data), len(cadence_data))):
+                            if watts_data[i] is not None and cadence_data[i] is not None and cadence_data[i] > 0:
+                                spi = watts_data[i] / cadence_data[i]
+                                spi_data.append(round(spi, 2))
+                            else:
+                                spi_data.append(None)
+                        result[field] = {
+                            'data': spi_data,
+                            'series_type': 'distance',
+                            'original_size': len(spi_data),
+                            'resolution': resolution
+                        }
+                    else:
+                        result[field] = None
+                else:
+                    result[field] = None
+            elif field == 'power_hr_ratio':
+                # 计算功率心率比
+                if 'watts' in stream_data and 'heartrate' in stream_data:
+                    watts_data = stream_data['watts'].get('data', [])
+                    hr_data = stream_data['heartrate'].get('data', [])
+                    if watts_data and hr_data:
+                        ratio_data = []
+                        for i in range(min(len(watts_data), len(hr_data))):
+                            if watts_data[i] is not None and hr_data[i] is not None and hr_data[i] > 0:
+                                ratio = watts_data[i] / hr_data[i]
+                                ratio_data.append(round(ratio, 2))
+                            else:
+                                ratio_data.append(None)
+                        result[field] = {
+                            'data': ratio_data,
+                            'series_type': 'time',
+                            'original_size': len(ratio_data),
+                            'resolution': resolution
+                        }
+                    else:
+                        result[field] = None
+                else:
+                    result[field] = None
+            elif field == 'w_balance':
+                # 计算 W平衡数据
+                if 'watts' in stream_data:
+                    watts_data = stream_data['watts'].get('data', [])
+                    if watts_data:
+                        try:
+                            _, athlete_info = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
+                            print(athlete_info)
+                            w_balance_data = StravaAnalyzer._calculate_w_balance_array(watts_data, athlete_info)
+                            result[field] = {
+                                'data': w_balance_data,
+                                'series_type': 'distance',
+                                'original_size': len(w_balance_data),
+                                'resolution': resolution
+                            }
+                        except Exception:
+                            result[field] = None
+                    else:
+                        result[field] = None
+                else:
+                    result[field] = None
+            elif field == 'vam': # ! VAM的计算还是不太准
+                # 计算 VAM (Vertical Ascent in Meters per hour) - 垂直爬升速度
+                if 'altitude' in stream_data and 'time' in stream_data:
+                    altitude_data = stream_data['altitude'].get('data', [])
+                    time_data = stream_data['time'].get('data', [])
+                    if altitude_data and time_data and len(altitude_data) > 1 and len(time_data) > 1:
+                        vam = []
+                        window_seconds = 50  # 50秒滑动窗口
+                        
+                        for i in range(len(time_data)):
+                            try:
+                                # 找到窗口起点
+                                t_end = time_data[i]
+                                t_start = t_end - window_seconds
+                                
+                                # 找到窗口内的起始点
+                                idx_start = None
+                                for j in range(i, -1, -1):
+                                    if time_data[j] <= t_start:
+                                        idx_start = j
+                                        break
+                                
+                                # 计算VAM
+                                if idx_start is None:
+                                    # 对于数据不足的点，使用从开始到当前点的数据
+                                    if i >= window_seconds:
+                                        delta_alt = altitude_data[i] - altitude_data[i-window_seconds]
+                                        delta_time = time_data[i] - time_data[i-window_seconds]
+                                        if delta_time >= window_seconds * 0.7:  # 至少70%的时间窗口
+                                            vam_value = delta_alt / (delta_time / 3600.0)
+                                        else:
+                                            vam_value = 0.0
+                                    else:
+                                        vam_value = 0.0
+                                elif idx_start == i:
+                                    vam_value = 0.0
+                                else:
+                                    delta_alt = altitude_data[i] - altitude_data[idx_start]
+                                    delta_time = time_data[i] - time_data[idx_start]
+                                    if delta_time >= window_seconds * 0.5:  # 至少50%的时间窗口
+                                        vam_value = delta_alt / (delta_time / 3600.0)
+                                    else:
+                                        vam_value = 0.0
+                                
+                                vam.append(int(round(vam_value * 1.4)))  # 保留到整数，乘以1.4是经验值
+                            except Exception as e:
+                                vam.append(0)
+                        
+                        # 过滤VAM异常值，超过5000或低于-5000的设为0
+                        vam = [v if -5000 <= v <= 5000 else 0 for v in vam]
+                        
+                        result[field] = {
+                            'data': vam,
+                            'series_type': 'time',
+                            'original_size': len(vam),
+                            'resolution': resolution
+                        }
+                    else:
+                        result[field] = None
+                else:
+                    result[field] = None
+            else:
+                # 未知字段
+                result[field] = None
+        
+        return result if any(v is not None for v in result.values()) else None
+
+    @staticmethod
+    def _calculate_best_powers_from_stream(watts_data: List[Union[float, int]]) -> List[Union[float, int]]:
+        if not watts_data:
+            return []
+        
+        # 过滤掉 None 值
+        valid_watts = [w for w in watts_data if w is not None]
+        n = len(valid_watts)
+        if n == 0:
+            return []
+        
+        best_powers = []
+        for window in range(1, n + 1):
+            max_avg = 0
+            if n >= window:
+                # 计算第一个窗口的和
+                window_sum = sum(valid_watts[:window])
+                max_avg = window_sum / window
+                for i in range(1, n - window + 1):
+                    window_sum = window_sum - valid_watts[i - 1] + valid_watts[i + window - 1]
+                    avg = window_sum / window
+                    if avg > max_avg:
+                        max_avg = avg
+            best_powers.append(int(round(max_avg)))
+        return best_powers
