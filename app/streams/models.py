@@ -36,6 +36,8 @@ class TbActivity(Base):
     upload_fit_url = Column(VARCHAR(255))
     name = Column(VARCHAR(255))
     training_stress_score = Column(Integer, nullable=True)
+    external_id = Column(VARCHAR(255))
+
 
 class TbAthlete(Base):
     """运动员表模型"""

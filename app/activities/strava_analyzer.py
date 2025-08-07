@@ -27,9 +27,6 @@ from ..streams.models import TbActivity, TbAthlete
 class StravaAnalyzer:
     """Strava 数据分析器"""
 
-    # 类级别变量存储 FTP 信息
-    _ftp: Optional[int] = None
-
     @staticmethod
     def analyze_activity_data(
         activity_data: Dict[str, Any],
@@ -38,26 +35,28 @@ class StravaAnalyzer:
         external_id: int,
         db: Session,
     ) -> AllActivityDataResponse:
-        StravaAnalyzer._set_ftp(athlete_data)
 
         return AllActivityDataResponse(
-            overall         = StravaAnalyzer.analyze_overall(activity_data),
-            power           = StravaAnalyzer.analyze_power(activity_data, stream_data),
+            overall         = StravaAnalyzer.analyze_overall(activity_data, stream_data, external_id, db),
+            power           = StravaAnalyzer.analyze_power(activity_data, stream_data, external_id, db),
             heartrate       = StravaAnalyzer.analyze_heartrate(activity_data, stream_data),
             cadence         = StravaAnalyzer.analyze_cadence(activity_data, stream_data),
             speed           = StravaAnalyzer.analyze_speed(activity_data, stream_data),
-            training_effect = StravaAnalyzer.analyze_training_effect(activity_data),
+            training_effect = StravaAnalyzer.analyze_training_effect(activity_data, stream_data, external_id, db),
             altitude        = StravaAnalyzer.analyze_altitude(activity_data, stream_data),
             temp            = StravaAnalyzer.analyze_temperature(activity_data, stream_data),
-            zones           = StravaAnalyzer.analyze_zones(activity_data, stream_data),
+            zones           = StravaAnalyzer.analyze_zones(activity_data, stream_data, external_id, db),
             best_powers     = StravaAnalyzer.analyze_best_powers(activity_data, stream_data),
         )
 
 
     @staticmethod
     def analyze_overall(
-        activity_data: Dict[str, Any]
-        ) -> Optional[OverallResponse]:
+        activity_data: Dict[str, Any],
+        stream_data: Dict[str, Any],
+        external_id: int,
+        db: Session
+    ) -> Optional[OverallResponse]:
         try:
             return OverallResponse(
                 distance       = round(activity_data.get("distance") / 1000, 2),
@@ -66,7 +65,7 @@ class StravaAnalyzer:
                 elevation_gain = int(activity_data.get("total_elevation_gain")),
                 avg_power      = int(activity_data.get("average_watts", 0)),
                 calories       = int(activity_data.get("calories", 0)),
-                training_load  = 0,
+                training_load  = StravaAnalyzer._calculate_training_load(stream_data, external_id, db),
                 status         = None,
                 avg_heartrate  = int(activity_data.get("average_heartrate", 0)),
                 max_altitude   = int(activity_data.get("elev_high", 0)),
@@ -78,8 +77,10 @@ class StravaAnalyzer:
     @staticmethod
     def analyze_power(
         activity_data: Dict[str, Any], 
-        stream_data: Dict[str, Any]
-        ) -> Optional[PowerResponse]:
+        stream_data: Dict[str, Any],
+        external_id: int,
+        db: Session
+    ) -> Optional[PowerResponse]:
         if not stream_data or "watts" not in stream_data:
             return None
         try:
@@ -87,21 +88,23 @@ class StravaAnalyzer:
             power_data = power_stream.get("data", [])
             power_data = [p if p is not None else 0 for p in power_data]
 
-            ftp               = StravaAnalyzer._get_ftp()
+            activity, athlete = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
+
+            ftp               = int(athlete.ftp)
             # w_balance_decline = StravaAnalyzer._calculate_w_balance_decline_from_strava(stream_data, external_id, db)
             NP                = StravaAnalyzer._calculate_normalized_power(power_data)
-            
+
             return PowerResponse(
                 avg_power              = int(activity_data.get("average_watts")),
                 max_power              = int(activity_data.get("max_watts")),
                 normalized_power       = NP,
                 total_work             = round(activity_data.get("kilojoules"), 0),
                 intensity_factor       = round(NP / ftp, 2),
-                variability_index      = round((NP / activity_data.get("average_watts")), 2),
+                variability_index      = round((NP / int(activity_data.get("average_watts"))), 2),
                 weighted_average_power = int(activity_data.get("weighted_average_watts")),
                 work_above_ftp         = StravaAnalyzer._calculate_work_above_ftp(power_data, ftp),
                 eftp                   = None,                                                      
-                w_balance_decline      = None,                                         # ! 这个接口还没有测试过
+                w_balance_decline      = None,                                        # ! 这个接口还没有测试过
             )
         except Exception as e:
             print(f"分析功率信息时出错: {str(e)}")
@@ -111,7 +114,7 @@ class StravaAnalyzer:
     def analyze_heartrate(
         activity_data: Dict[str, Any], 
         stream_data: Dict[str, Any]
-        ) -> Optional[HeartrateResponse]:
+    ) -> Optional[HeartrateResponse]:
         if not stream_data or "heartrate" not in stream_data:
             return None
         try:
@@ -175,19 +178,42 @@ class StravaAnalyzer:
 
     @staticmethod
     def analyze_training_effect(
-        activity_data: Dict[str, Any]
+        activity_data: Dict[str, Any], stream_data: Dict[str, Any], external_id: int, db: Session
     ) -> Optional[TrainingEffectResponse]:
-        """
-        分析训练效果信息
+        if "watts" not in stream_data:
+            return None
+        try:
+            power_stream = stream_data.get("watts", {})
+            power_data = power_stream.get("data", [])
+            power_data = [p if p is not None else 0 for p in power_data]
+            
+            activity, athlete = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
 
-        Args:
-            activity_data: Strava API 返回的活动数据
+            aerobic_effect = StravaAnalyzer._calculate_aerobic_effect(power_data, int(athlete.ftp))
+            anaerobic_effect = StravaAnalyzer._calculate_anaerobic_effect(power_data, int(athlete.ftp))
+            power_zone_percentages = StravaAnalyzer._get_power_zone_percentages(power_data, int(athlete.ftp))
+            power_zone_times = StravaAnalyzer._get_power_zone_time(power_data, int(athlete.ftp))
 
-        Returns:
-            Optional[TrainingEffectResponse]: 训练效果信息响应
-        """
-        # TODO: 实现训练效果信息分析逻辑
-        return None
+            primary_training_benefit, secondary_training_benefit = StravaAnalyzer._get_primary_training_benefit(
+                power_zone_percentages,
+                power_zone_times,
+                round(len(power_data) / 60, 0),
+                aerobic_effect, 
+                anaerobic_effect, 
+                int(athlete.ftp), 
+                int(activity_data.get("max_watts"))
+            )
+
+            return TrainingEffectResponse(
+                primary_training_benefit = primary_training_benefit,
+                aerobic_effect = aerobic_effect,
+                anaerobic_effect = anaerobic_effect,
+                training_load = StravaAnalyzer._calculate_training_load(stream_data, external_id, db),
+                carbohydrate_consumption = 0.0,
+            )
+        except Exception as e:
+            print(f"分析训练效果信息时出错: {str(e)}")
+            return None
 
     @staticmethod
     def analyze_altitude(
@@ -213,7 +239,6 @@ class StravaAnalyzer:
             print(f"分析海拔信息时出错: {str(e)}")
             return None
         
-
     @staticmethod
     def analyze_temperature(
         activity_data: Dict[str, Any], stream_data: Dict[str, Any]
@@ -234,21 +259,62 @@ class StravaAnalyzer:
             return None
 
     @staticmethod
-    def analyze_zones(
-        activity_data: Dict[str, Any], stream_data: Dict[str, Any]
+    def analyze_zones( 
+        activity_data: Dict[str, Any], stream_data: Dict[str, Any], external_id: int, db: Session
     ) -> Optional[List[ZoneData]]:
-        """
-        分析区间信息
+        try:
+            activity_athlete = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
+            if not activity_athlete:
+                return None
+            
+            activity, athlete = activity_athlete
+            zones_data = []
 
-        Args:
-            activity_data: Strava API 返回的活动数据
-            stream_data: Strava API 返回的流数据
-
-        Returns:
-            Optional[List[ZoneData]]: 区间信息响应
-        """
-        # TODO: 实现区间信息分析逻辑
-        return None
+            if "watts" in stream_data and int(athlete.ftp) > 0:
+                try:
+                    ftp = int(athlete.ftp)
+                    if ftp > 0:
+                        power_stream = stream_data.get("watts", {})
+                        power_data = power_stream.get("data", [])
+                        power_data = [p if p is not None else 0 for p in power_data]
+                        
+                        if power_data:
+                            from .zone_analyzer import ZoneAnalyzer
+                            distribution_buckets = ZoneAnalyzer.analyze_power_zones(power_data, ftp)
+                            
+                            if distribution_buckets:
+                                zones_data.append(ZoneData(
+                                    distribution_buckets=distribution_buckets,
+                                    type="power"
+                                ))
+                except (ValueError, TypeError) as e:
+                    print(f"分析功率区间时出错: {str(e)}")
+            
+            # 分析心率区间（如果有心率数据和最大心率）
+            if "heartrate" in stream_data and athlete.max_heartrate:
+                try:
+                    max_heartrate = int(athlete.max_heartrate)
+                    if max_heartrate > 0:
+                        heartrate_stream = stream_data.get("heartrate", {})
+                        heartrate_data = heartrate_stream.get("data", [])
+                        heartrate_data = [hr if hr is not None else 0 for hr in heartrate_data]
+                        
+                        if heartrate_data:
+                            from .zone_analyzer import ZoneAnalyzer
+                            distribution_buckets = ZoneAnalyzer.analyze_heartrate_zones(heartrate_data, max_heartrate)
+                            
+                            if distribution_buckets:
+                                zones_data.append(ZoneData(
+                                    distribution_buckets=distribution_buckets,
+                                    type="heartrate"
+                                ))
+                except (ValueError, TypeError) as e:
+                    print(f"分析心率区间时出错: {str(e)}")
+            
+            return zones_data if zones_data else None           
+        except Exception as e:
+            print(f"分析区间信息时出错: {str(e)}")
+            return None
 
     @staticmethod
     def analyze_best_powers(
@@ -285,7 +351,7 @@ class StravaAnalyzer:
         except Exception as e:
             print(f"分析最佳功率信息时出错: {str(e)}")
             return None
-
+ 
     # 辅助方法（复用 activities/crud.py 中的算法）
 
     @staticmethod
@@ -449,10 +515,6 @@ class StravaAnalyzer:
             print(f"计算上坡/下坡距离时出错: {str(e)}")
             return 0.0, 0.0
         
-
-
-
-
     @staticmethod
     def _calculate_w_balance_decline_from_strava(
         stream_data: Dict[str, Any], external_id: int, db: Session
@@ -487,7 +549,7 @@ class StravaAnalyzer:
                 return None
 
             activity, athlete = activity_athlete
-            if not athlete or not athlete.ftp or not athlete.w_balance:
+            if not athlete or not int(athlete.ftp) > 0 or not athlete.w_balance:
                 return None
 
             # 准备运动员信息
@@ -642,54 +704,15 @@ class StravaAnalyzer:
         except Exception as e:
             return "0.0%"
 
-    # FTP 相关方法
-
-    @classmethod
-    def _set_ftp(cls, athlete_data: Dict[str, Any]) -> None:
-        """
-        从运动员数据中设置 FTP 值
-
-        Args:
-            athlete_data: Strava API 返回的运动员数据
-        """
-        try:
-            ftp = athlete_data.get("ftp")
-            if ftp is not None:
-                cls._ftp = int(ftp)
-            else:
-                cls._ftp = None
-        except Exception as e:
-            print(f"设置 FTP 时出错: {str(e)}")
-            cls._ftp = None
-
-    @classmethod
-    def _get_ftp(cls) -> Optional[int]:
-        return cls._ftp
-
     @staticmethod
     def _get_activity_athlete_by_external_id(
         db: Session, external_id: int
     ) -> Optional[Tuple[TbActivity, TbAthlete]]:
-        """
-        根据 external_id 获取活动和运动员信息
-
-        Args:
-            db: 数据库会话
-            external_id: Strava 的 external_id
-
-        Returns:
-            Tuple[TbActivity, TbAthlete]: 活动和运动员的完整数据库行对象，如果不存在则返回None
-        """
         try:
-            # 根据 external_id 查询活动信息
-            # 注意：这里假设 TbActivity 有一个存储 Strava ID 的字段
-            # 可能字段名是 external_id, strava_id, 或者就是 id 本身存储的是 Strava ID
-            activity = db.query(TbActivity).filter(TbActivity.id == external_id).first()
+            activity = db.query(TbActivity).filter(TbActivity.external_id == external_id).first()
             if not activity:
                 print(f"未找到 external_id 为 {external_id} 的活动")
                 return None
-
-            # 查询运动员信息
             athlete = (
                 db.query(TbAthlete).filter(TbAthlete.id == activity.athlete_id).first()
             )
@@ -698,7 +721,224 @@ class StravaAnalyzer:
                 return None
 
             return activity, athlete
-
         except Exception as e:
             print(f"根据 external_id 查询活动和运动员信息时出错: {str(e)}")
             return None
+
+    @staticmethod
+    def _calculate_training_load(
+        stream_data: Dict[str, Any], external_id: int, db: Session
+    ) -> int:
+        power_stream = stream_data.get("watts", {})
+        if not power_stream:
+            return 0
+        try:
+            power_data = power_stream.get("data", [])
+            power_data = [p if p is not None else 0 for p in power_data]
+            activity, athlete = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
+            ftp = int(athlete.ftp)
+
+            np = StravaAnalyzer._calculate_normalized_power(power_data)
+            intensity_factor = np / ftp
+            tss = (len(power_data) * np * intensity_factor) / (ftp * 3600) * 100
+            return int(round(tss, 0))
+        except Exception as e:
+            print(f"计算训练负荷时出错: {str(e)}")
+            return 0
+
+    @staticmethod
+    def _calculate_aerobic_effect(
+        power_data: list,
+        ftp: int
+    ) -> float:
+        try:
+            np = StravaAnalyzer._calculate_normalized_power(power_data)
+            intensity_factor = np / ftp
+            return round(min(5.0, intensity_factor * len(power_data) / 3600 + 0.5), 1)
+        except Exception as e:
+            print(f"计算有氧效果时出错: {str(e)}")
+            return 0.0
+
+    @staticmethod
+    def _calculate_anaerobic_effect(
+        power_data: list,
+        ftp: int
+    ) -> float:
+        try:
+            peak_power_30s = max([sum(power_data[i:i + 30]) / 30 for i in range(len(power_data) - 30)])
+            anaerobic_capacity = sum([max(0, p - ftp) for p in power_data if p > ftp]) / 1000
+            anaerobic_effect = min(4.0, 0.1 * (peak_power_30s / ftp) + 0.05 * anaerobic_capacity)
+            return round(anaerobic_effect, 1)
+        except Exception as e:
+            print(f"计算无氧效果时出错: {str(e)}")
+            return 0.0
+        
+
+    @staticmethod
+    def _get_power_zone_percentages(
+        power_data: list,
+        ftp: int
+    ) -> list:
+        zones = ZoneAnalyzer.analyze_power_zones(power_data, ftp)
+        percentages = []
+        for zone in zones:
+            # zone['percentage'] 形如 "12.5%"
+            percent_str = zone.get('percentage', '0.0%').replace('%', '')
+            try:
+                percent = float(percent_str)
+            except Exception:
+                percent = 0.0
+            percentages.append(percent)
+        return percentages
+
+    @staticmethod
+    def _get_power_zone_time(
+        power_data: list,
+        ftp: int
+    ) -> list:
+        zones = ZoneAnalyzer.analyze_power_zones(power_data, ftp)
+        times = []
+        for zone in zones:
+            # zone['time'] 形如 "1:23:45" 或 "45s"
+            time_str = zone.get('time', '0s')
+            # 解析时间字符串为秒
+            if 's' in time_str:
+                try:
+                    seconds = int(time_str.replace('s', ''))
+                except Exception:
+                    seconds = 0
+            elif ':' in time_str:
+                parts = time_str.split(':')
+                try:
+                    if len(parts) == 2:
+                        # mm:ss
+                        minutes = int(parts[0])
+                        seconds = int(parts[1])
+                        seconds = minutes * 60 + seconds
+                    elif len(parts) == 3:
+                        # hh:mm:ss
+                        hours = int(parts[0])
+                        minutes = int(parts[1])
+                        seconds = int(parts[2])
+                        seconds = hours * 3600 + minutes * 60 + seconds
+                    else:
+                        seconds = 0
+                except Exception:
+                    seconds = 0
+            else:
+                seconds = 0
+            times.append(seconds)
+        return times
+
+    @staticmethod
+    def _get_primary_training_benefit(
+        zone_distribution: list,
+        zone_times: list,
+        duration_min: int,
+        aerobic_effect: float,
+        anaerobic_effect: float,
+        ftp: int,
+        max_power: int,
+    ) -> Dict[str, Any]:
+        if duration_min < 5:
+            return "时间过短, 无法判断"
+
+        ae_to_ne_ratio = aerobic_effect / (anaerobic_effect + 0.001)
+        zone_distribution = [0.0] + zone_distribution
+        zone_times = [0] + zone_times
+        intensity_ratio = max_power / ftp
+
+        rules = [
+            {
+                "name": "Recovery",
+                "conditions": [
+                    zone_distribution[1] > 85,
+                    aerobic_effect < 1.5,
+                    anaerobic_effect < 0.5,
+                    duration_min < 90,
+                ],
+                "required_matches": 3
+            },
+            {
+                "name": "Endurance (LSD)",
+                "conditions": [
+                    zone_distribution[2] > 60,
+                    aerobic_effect > 2.5,
+                    anaerobic_effect < 1.0,
+                    duration_min >= 90,
+                    ae_to_ne_ratio > 3.0
+                ],
+                "required_matches": 4
+            },
+            {
+                "name": "Tempo",
+                "conditions": [
+                    zone_distribution[3] > 40,
+                    zone_distribution[4] < 30,
+                    aerobic_effect > 2.0,
+                    anaerobic_effect < 1.5,
+                    ae_to_ne_ratio > 1.5
+                ],
+                "required_matches": 4
+            },
+            {
+                "name": "Threshold",
+                "conditions": [
+                    zone_distribution[4] > 35,
+                    zone_distribution[5] < 25,
+                    aerobic_effect > 3.0,
+                    anaerobic_effect > 1.0,
+                    1.0 < ae_to_ne_ratio < 2.5
+                ],
+                "required_matches": 4
+            },
+            {
+                "name": "VO2Max Intervals",
+                "conditions": [
+                    zone_distribution[5] > 25,
+                    zone_times[5] > 8 * 60,  # 至少8分钟在Z5
+                    anaerobic_effect > 2.5,
+                    intensity_ratio > 1.3,
+                    ae_to_ne_ratio < 1.5
+                ],
+                "required_matches": 4
+            },
+            {
+                "name": "Anaerobic Intervals",
+                "conditions": [
+                    zone_distribution[6] > 15,
+                    anaerobic_effect > 3.0,
+                    intensity_ratio > 1.5,
+                    ae_to_ne_ratio < 1.0,
+                    zone_times[6] > 3 * 60  # 至少3分钟在Z6
+                ],
+                "required_matches": 4
+            },
+            {
+                "name": "Sprint Training",
+                "conditions": [
+                    zone_distribution[7] > 8,
+                    anaerobic_effect > 3.5,
+                    intensity_ratio > 1.8,
+                    zone_times[7] > 60,  # 至少1分钟在Z7
+                    ae_to_ne_ratio < 0.5
+                ],
+                "required_matches": 4
+            }
+        ]
+
+        # 评估所有规则
+        matched_types = []
+        for rule in rules:
+            matches = sum(1 for cond in rule["conditions"] if cond)
+            if matches >= rule["required_matches"]:
+                matched_types.append(rule["name"])
+
+        if not matched_types:
+            primary_type = "Mixed"
+            secondary_type = []
+        else:
+            primary_type = matched_types[0]
+            secondary_type = matched_types[1:]
+
+        return primary_type, secondary_type

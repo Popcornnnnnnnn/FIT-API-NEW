@@ -53,16 +53,6 @@ class ZoneAnalyzer:
     
     @staticmethod
     def analyze_power_zones(power_data: List[int], ftp: float) -> List[Dict[str, Any]]:
-        """
-        分析功率区间
-        
-        Args:
-            power_data: 功率数据列表
-            ftp: 功能阈值功率
-            
-        Returns:
-            List[Dict]: 功率区间分布
-        """
         if not power_data or ftp <= 0:
             return []
         
@@ -74,16 +64,18 @@ class ZoneAnalyzer:
             (int(ftp * 0.90), int(ftp * 1.05)),  # Zone 4: 90-105% FTP
             (int(ftp * 1.05), int(ftp * 1.20)),  # Zone 5: 105-120% FTP
             (int(ftp * 1.20), int(ftp * 1.50)),  # Zone 6: 120-150% FTP
-            (int(ftp * 1.50), int(ftp * 2.00)),  # Zone 7: 150-200% FTP
+            (int(ftp * 1.50), int(ftp * 20.00)),  # Zone 7: >150% FTP
         ]
         
         # 统计每个区间的时间
         zone_times = defaultdict(int)
-        total_time = len(power_data)  # 假设每秒一个数据点
+        valid_data_count = 0  # 有效数据点计数
         
         for power in power_data:
             if power is None or power <= 0:
                 continue
+            
+            valid_data_count += 1
             
             # 找到功率所属的区间
             for i, (min_power, max_power) in enumerate(zones):
@@ -103,7 +95,7 @@ class ZoneAnalyzer:
                 "min": min_power,
                 "max": max_power,
                 "time": ZoneAnalyzer.format_time(time_in_zone),
-                "percentage": ZoneAnalyzer.calculate_percentage(time_in_zone, total_time)
+                "percentage": ZoneAnalyzer.calculate_percentage(time_in_zone, valid_data_count)
             })
         
         return result
@@ -134,11 +126,13 @@ class ZoneAnalyzer:
         
         # 统计每个区间的时间
         zone_times = defaultdict(int)
-        total_time = len(hr_data)  # 假设每秒一个数据点
+        valid_data_count = 0  # 有效数据点计数
         
         for hr in hr_data:
             if hr is None or hr <= 0:
                 continue
+            
+            valid_data_count += 1
             
             # 找到心率所属的区间
             for i, (min_hr, max_hr_zone) in enumerate(zones):
@@ -158,7 +152,7 @@ class ZoneAnalyzer:
                 "min": min_hr,
                 "max": max_hr_zone,
                 "time": ZoneAnalyzer.format_time(time_in_zone),
-                "percentage": ZoneAnalyzer.calculate_percentage(time_in_zone, total_time)
+                "percentage": ZoneAnalyzer.calculate_percentage(time_in_zone, valid_data_count)
             })
         
         return result 

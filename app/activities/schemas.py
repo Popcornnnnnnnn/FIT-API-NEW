@@ -112,10 +112,13 @@ class BestPowerResponse(BaseModel):
 class TrainingEffectResponse(BaseModel):
     """活动训练效果信息响应"""
     primary_training_benefit: str = Field(..., description="主要训练益处")
-    aerobic_effect: str = Field(..., description="有氧效果")
-    anaerobic_effect: str = Field(..., description="无氧效果")
+    """
+    RAMP测试
+    """
+    aerobic_effect: float = Field(..., description="有氧效果（保留两位小数）")
+    anaerobic_effect: float = Field(..., description="无氧效果（保留两位小数）")
     training_load: int = Field(..., description="训练负荷（无单位，保留整数）")
-    carbohydrate_consumption: str = Field(..., description="碳水化合物消耗量")
+    carbohydrate_consumption: float = Field(..., description="碳水化合物消耗量（保留两位小数）")
 
 class StreamDataItem(BaseModel):
     """流数据项"""
