@@ -944,25 +944,24 @@ class StravaAnalyzer:
         external_id: int,
         db: Session,
         resolution: str = "high",
-    ) -> Optional[Dict[str, Dict[str, Any]]]:
+    ) -> Optional[List[Dict[str, Any]]]:
         if not stream_data or not keys:
             return None
-        result = {}
+        result = []
         
         # 直接使用 Strava API 字段名
         for field in keys:
             if field in stream_data:
                 stream_item = stream_data[field]
                 if isinstance(stream_item, dict) and 'data' in stream_item:
-                    # 返回完整的 Strava 格式
-                    result[field] = {
+                    # 返回新的数组格式
+                    result.append({
+                        'type': field,
                         'data': stream_item['data'],
                         'series_type': stream_item.get('series_type', 'time'),
                         'original_size': stream_item.get('original_size', len(stream_item['data'])),
                         'resolution': resolution
-                    }
-                else:
-                    result[field] = None
+                    })
             elif field in ['latitude', 'longitude'] and 'latlng' in stream_data:
                 # 对于经纬度，需要从 latlng 数组中提取对应的值
                 stream_item = stream_data['latlng']
@@ -973,30 +972,26 @@ class StravaAnalyzer:
                     else:  # longitude
                         extracted_data = [point[1] if point and len(point) >= 2 else None for point in latlng_data]
                     
-                    result[field] = {
+                    result.append({
+                        'type': field,
                         'data': extracted_data,
                         'series_type': stream_item.get('series_type', 'time'),
                         'original_size': stream_item.get('original_size', len(extracted_data)),
                         'resolution': resolution
-                    }
-                else:
-                    result[field] = None
+                    })
             elif field == 'best_power':
                 # 计算最佳功率数据
                 if 'watts' in stream_data:
                     watts_data = stream_data['watts'].get('data', [])
                     if watts_data:
                         best_powers = StravaAnalyzer._calculate_best_powers_from_stream(watts_data)
-                        result[field] = {
+                        result.append({
+                            'type': field,
                             'data': best_powers,
                             'series_type': 'time',
                             'original_size': len(best_powers),
                             'resolution': resolution
-                        }
-                    else:
-                        result[field] = None
-                else:
-                    result[field] = None
+                        })
             elif field == 'torque':
                 # 计算扭矩数据（功率/踏频）
                 if 'watts' in stream_data and 'cadence' in stream_data:
@@ -1010,16 +1005,13 @@ class StravaAnalyzer:
                                 torque_data.append(round(torque, 2))
                             else:
                                 torque_data.append(None)
-                        result[field] = {
+                        result.append({
+                            'type': field,
                             'data': torque_data,
                             'series_type': 'distance',
                             'original_size': len(torque_data),
                             'resolution': resolution
-                        }
-                    else:
-                        result[field] = None
-                else:
-                    result[field] = None
+                        })
             elif field == 'spi':
                 # 计算 SPI (Speed Power Index) - 速度功率指数（功率/踏频）
                 if 'watts' in stream_data and 'cadence' in stream_data:
@@ -1033,16 +1025,13 @@ class StravaAnalyzer:
                                 spi_data.append(round(spi, 2))
                             else:
                                 spi_data.append(None)
-                        result[field] = {
+                        result.append({
+                            'type': field,
                             'data': spi_data,
                             'series_type': 'distance',
                             'original_size': len(spi_data),
                             'resolution': resolution
-                        }
-                    else:
-                        result[field] = None
-                else:
-                    result[field] = None
+                        })
             elif field == 'power_hr_ratio':
                 # 计算功率心率比
                 if 'watts' in stream_data and 'heartrate' in stream_data:
@@ -1056,16 +1045,13 @@ class StravaAnalyzer:
                                 ratio_data.append(round(ratio, 2))
                             else:
                                 ratio_data.append(None)
-                        result[field] = {
+                        result.append({
+                            'type': field,
                             'data': ratio_data,
                             'series_type': 'time',
                             'original_size': len(ratio_data),
                             'resolution': resolution
-                        }
-                    else:
-                        result[field] = None
-                else:
-                    result[field] = None
+                        })
             elif field == 'w_balance':
                 # 计算 W平衡数据
                 if 'watts' in stream_data:
@@ -1075,18 +1061,15 @@ class StravaAnalyzer:
                             _, athlete_info = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
                             print(athlete_info)
                             w_balance_data = StravaAnalyzer._calculate_w_balance_array(watts_data, athlete_info)
-                            result[field] = {
+                            result.append({
+                                'type': field,
                                 'data': w_balance_data,
                                 'series_type': 'distance',
                                 'original_size': len(w_balance_data),
                                 'resolution': resolution
-                            }
+                            })
                         except Exception:
-                            result[field] = None
-                    else:
-                        result[field] = None
-                else:
-                    result[field] = None
+                            pass
             elif field == 'vam': # ! VAM的计算还是不太准
                 # 计算 VAM (Vertical Ascent in Meters per hour) - 垂直爬升速度
                 if 'altitude' in stream_data and 'time' in stream_data:
@@ -1138,21 +1121,15 @@ class StravaAnalyzer:
                         # 过滤VAM异常值，超过5000或低于-5000的设为0
                         vam = [v if -5000 <= v <= 5000 else 0 for v in vam]
                         
-                        result[field] = {
+                        result.append({
+                            'type': field,
                             'data': vam,
                             'series_type': 'time',
                             'original_size': len(vam),
                             'resolution': resolution
-                        }
-                    else:
-                        result[field] = None
-                else:
-                    result[field] = None
-            else:
-                # 未知字段
-                result[field] = None
+                        })
         
-        return result if any(v is not None for v in result.values()) else None
+        return result if result else None
 
     @staticmethod
     def _calculate_best_powers_from_stream(watts_data: List[Union[float, int]]) -> List[Union[float, int]]:

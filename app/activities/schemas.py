@@ -146,4 +146,4 @@ class AllActivityDataResponse(BaseModel):
     temp: Optional[TemperatureResponse] = Field(None, description="温度信息")
     zones: Optional[List[ZoneData]] = Field(None, description="区间分析信息")
     best_powers: Optional[Dict[str, int]] = Field(None, description="最佳功率信息")
-    streams: Optional[Dict[str, Dict[str, Any]]] = Field(None, description="流数据，键为字段名，值为完整的 Strava 流数据格式")
+    streams: Optional[List[Dict[str, Any]]] = Field(None, description="流数据，数组格式，每个元素包含type、data、series_type、original_size、resolution字段")
