@@ -342,22 +342,105 @@ def get_activity_training_effect_info(
     except Exception as e:
         return None 
 
+def get_activity_heartrate_info(
+    db: Session, 
+    activity_id: int
+) -> Optional[Dict[str, Any]]:
+    try:
+        activity, athlete = get_activity_athlete(db, activity_id)
+        stream_data = get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        
+        session_data = get_session_data(activity.upload_fit_url)
+        
+        heartrate_data = stream_data.get('heartrate', [])
+        if not heartrate_data:
+            return None
+        
+        # 过滤心率异常值
+        valid_hr = filter_heartrate_data(heartrate_data)
+        if not valid_hr:
+            return None
+        
+        result = {}
+        
+        if session_data and 'avg_heart_rate' in session_data:
+            result['avg_heartrate'] = int(session_data['avg_heart_rate'])
+        else:
+            result['avg_heartrate'] = int(sum(valid_hr) / len(valid_hr))
 
+        if session_data and 'max_heart_rate' in session_data:
+            result['max_heartrate'] = int(session_data['max_heart_rate'])
+        else:
+            result['max_heartrate'] = int(max(valid_hr))
+        
+        result['heartrate_recovery_rate'] = calculate_heartrate_recovery_rate(stream_data)
+        result['heartrate_lag'] = None
+        result['efficiency_index'] = calculate_efficiency_index(stream_data, int(athlete.ftp))
+        result['decoupling_rate'] = calculate_decoupling_rate(stream_data)
+        
+        return result
+        
+    except Exception as e:
+        return None
+
+def get_activity_cadence_info(
+    db: Session, 
+    activity_id: int
+) -> Optional[Dict[str, Any]]:
+    try:
+        activity, athlete = get_activity_athlete(db, activity_id)
+        if not activity:
+            return None
+        
+        stream_data = get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        
+        session_data = get_session_data(activity.upload_fit_url)
+        
+        cadence_data = stream_data.get('cadence', [])
+        if not cadence_data:
+            return None
+        
+        valid_cadences = [c for c in cadence_data if c is not None and c > 0]
+        if not valid_cadences:
+            return None
+        
+        result = {}
+        
+        if session_data and 'avg_cadence' in session_data:
+            result['avg_cadence'] = int(session_data['avg_cadence'])
+        else:
+            result['avg_cadence'] = int(sum(valid_cadences) / len(valid_cadences))
+        
+        if session_data and 'max_cadence' in session_data:
+            result['max_cadence'] = int(session_data['max_cadence'])
+        else:
+            result['max_cadence'] = int(max(valid_cadences))
+        
+        
+        result['left_right_balance'] = get_left_right_balance(session_data, stream_data, activity.upload_fit_url)
+        
+        result['left_torque_effectiveness'] = get_torque_effectiveness(session_data, stream_data, 'left', activity.upload_fit_url)
+        result['right_torque_effectiveness'] = get_torque_effectiveness(session_data, stream_data, 'right', activity.upload_fit_url)
+        
+        result['left_pedal_smoothness'] = get_pedal_smoothness(session_data, stream_data, 'left', activity.upload_fit_url)
+        result['right_pedal_smoothness'] = get_pedal_smoothness(session_data, stream_data, 'right', activity.upload_fit_url)
+        
+        result['total_strokes'] = int(sum(cadence_data) / 60.0)
+        return result
+        
+    except Exception as e:
+        return None
 
 # 工具函数
 
+def get_session_data(
+    fit_url: str
+) -> Optional[Dict[str, Any]]: # ! 重要函数
 
-
-def get_session_data(fit_url: str) -> Optional[Dict[str, Any]]: # ! 重要函数
-    """
-    从FIT文件中解析session段数据
-    
-    Args:
-        fit_url: FIT文件URL
-        
-    Returns:
-        Dict[str, Any]: session段数据，如果解析失败则返回None
-    """
     try:
         # 下载FIT文件
         response = requests.get(fit_url)
@@ -394,7 +477,6 @@ def get_session_data(fit_url: str) -> Optional[Dict[str, Any]]: # ! 重要函数
             return session_data
         
         return None
-        
     except Exception as e:
         return None
 
@@ -447,15 +529,6 @@ def get_cadence_fields_from_records(fit_url: str) -> Optional[Dict[str, Any]]:
         return None
 
 def get_all_left_right_balance_values(fit_url: str) -> Optional[List[int]]:
-    """
-    从FIT文件的records中获取所有left_right_balance值
-    
-    Args:
-        fit_url: FIT文件URL
-        
-    Returns:
-        List[int]: 所有left_right_balance值列表，如果解析失败则返回None
-    """
     try:
         # 下载FIT文件
         response = requests.get(fit_url)
@@ -480,7 +553,9 @@ def get_all_left_right_balance_values(fit_url: str) -> Optional[List[int]]:
     except Exception as e:
         return None
 
-def format_time(seconds: int) -> str:
+def format_time(
+    seconds: int
+) -> str:
     try:
         # 确保输入是整数
         if seconds is None:
@@ -593,7 +668,6 @@ def calculate_and_save_training_load(
     return training_load
 
 
-
 def calculate_normalized_power(
     powers: list
 ) -> int:
@@ -636,66 +710,7 @@ def calculate_w_balance_decline(w_balance_data: list) -> float:
     
     return round(decline, 1) 
 
-def get_activity_heartrate_info(
-    db: Session, 
-    activity_id: int
-) -> Optional[Dict[str, Any]]:
-    try:
-        # 获取活动和运动员信息
-        activity_athlete = get_activity_athlete(db, activity_id)
-        if not activity_athlete:
-            return None
-        
-        activity, athlete = activity_athlete
-        
-        # 获取流数据
-        stream_data = get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        
-        # 获取session段数据
-        session_data = get_session_data(activity.upload_fit_url)
-        
-        # 获取心率数据
-        heartrate_data = stream_data.get('heartrate', [])
-        if not heartrate_data:
-            return None
-        
-        # 过滤心率异常值
-        valid_hr = filter_heartrate_data(heartrate_data)
-        if not valid_hr:
-            return None
-        
-        result = {}
-        
-        # 1. 平均心率（保留整数）
-        if session_data and 'avg_heart_rate' in session_data:
-            result['avg_heartrate'] = int(session_data['avg_heart_rate'])
-        else:
-            result['avg_heartrate'] = int(sum(valid_hr) / len(valid_hr))
-        
-        # 2. 最大心率（保留整数）
-        if session_data and 'max_heart_rate' in session_data:
-            result['max_heartrate'] = int(session_data['max_heart_rate'])
-        else:
-            result['max_heartrate'] = int(max(valid_hr))
-        
-        # 3. 心率恢复速率
-        result['heartrate_recovery_rate'] = calculate_heartrate_recovery_rate(stream_data)
-        
-        # 4. 心率滞后（返回None）
-        result['heartrate_lag'] = None
-        
-        # 5. 效率指数（保留两位小数）
-        result['efficiency_index'] = calculate_efficiency_index(stream_data, athlete.ftp)
-        
-        # 6. 解耦率（百分比，保留一位小数）
-        result['decoupling_rate'] = calculate_decoupling_rate(stream_data)
-        
-        return result
-        
-    except Exception as e:
-        return None
+
 
 def filter_heartrate_data(heartrate_data: List[Any]) -> List[int]:
     """
@@ -755,16 +770,9 @@ def filter_heartrate_data_with_smoothing(heartrate_data: List[Any]) -> List[int]
     
     return filtered_data
 
-def calculate_heartrate_recovery_rate(stream_data: Dict[str, Any]) -> int:
-    """
-    计算心率恢复速率
-    
-    Args:
-        stream_data: 流数据
-        
-    Returns:
-        int: 心率恢复速率（BPM），如果无法计算则返回0
-    """
+def calculate_heartrate_recovery_rate(
+    stream_data: Dict[str, Any]
+) -> int:
     try:
         # 获取心率数据
         heartrate_data = stream_data.get('heartrate', [])
@@ -794,24 +802,17 @@ def calculate_heartrate_recovery_rate(stream_data: Dict[str, Any]) -> int:
     except Exception as e:
         return 0
 
-def calculate_efficiency_index(stream_data: Dict[str, Any], ftp: str) -> float:
-    """
-    计算效率指数
-    
-    Args:
-        stream_data: 流数据
-        ftp: FTP值（字符串类型）
-        
-    Returns:
-        float: 效率指数（保留两位小数）
-    """
+def calculate_efficiency_index(
+    stream_data: Dict[str, Any], 
+    ftp: int
+) -> Optional[float]:
     try:
         # 获取功率和心率数据
         power_data = stream_data.get('power', [])
         heartrate_data = stream_data.get('heartrate', [])
         
         if not power_data or not heartrate_data:
-            return 0.0
+            return None
         
         # 过滤有效数据
         valid_powers = [p for p in power_data if p is not None and p > 0]
@@ -831,21 +832,13 @@ def calculate_efficiency_index(stream_data: Dict[str, Any], ftp: str) -> float:
             efficiency_index = avg_power / avg_hr
             return round(efficiency_index, 2)
         
-        return 0.0
-        
+        return None      
     except Exception as e:
-        return 0.0
+        return None
 
-def calculate_decoupling_rate(stream_data: Dict[str, Any]) -> str:
-    """
-    计算解耦率
-    
-    Args:
-        stream_data: 流数据
-        
-    Returns:
-        str: 解耦率（百分比，保留一位小数，带%符号）
-    """
+def calculate_decoupling_rate(
+    stream_data: Dict[str, Any]
+) -> Optional[str]:
     try:
         # 获取功率和心率数据
         power_data = stream_data.get('power', [])
@@ -903,93 +896,20 @@ def calculate_decoupling_rate(stream_data: Dict[str, Any]) -> str:
             decoupling_percentage = (decoupling_rate / first_half_ratio) * 100
             return f"{round(decoupling_percentage, 1)}%"
         
-        return "0.0%"
-        
-    except Exception as e:
-        return "0.0%" 
-
-def get_activity_cadence_info(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
-    """
-    获取活动的踏频相关信息
-    
-    Args:
-        db: 数据库会话
-        activity_id: 活动ID
-        
-    Returns:
-        Dict[str, Any]: 踏频相关信息，如果不存在则返回None
-    """
-    try:
-        # 获取活动和运动员信息
-        activity_athlete = get_activity_athlete(db, activity_id)
-        if not activity_athlete:
-            return None
-        
-        activity, athlete = activity_athlete
-        
-        # 获取流数据
-        stream_data = get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        
-        # 获取session段数据
-        session_data = get_session_data(activity.upload_fit_url)
-        
-        # 获取踏频数据
-        cadence_data = stream_data.get('cadence', [])
-        if not cadence_data:
-            return None
-        
-        # 过滤有效的踏频数据（大于0）
-        valid_cadences = [c for c in cadence_data if c is not None and c > 0]
-        if not valid_cadences:
-            return None
-        
-        result = {}
-        
-        # 1. 平均踏频（整数）- 优先从session中获取
-        if session_data and 'avg_cadence' in session_data:
-            result['avg_cadence'] = int(session_data['avg_cadence'])
-        else:
-            result['avg_cadence'] = int(sum(valid_cadences) / len(valid_cadences))
-        
-        # 2. 最大踏频（整数）- 优先从session中获取
-        if session_data and 'max_cadence' in session_data:
-            result['max_cadence'] = int(session_data['max_cadence'])
-        else:
-            result['max_cadence'] = int(max(valid_cadences))
-        
-        # 3. 左右平衡（优先从session中获取，没有则从records中计算）
-        result['left_right_balance'] = get_left_right_balance(session_data, stream_data, activity.upload_fit_url)
-        
-        # 4. 左右扭矩效率
-        result['left_torque_effectiveness'] = get_torque_effectiveness(session_data, stream_data, 'left', activity.upload_fit_url)
-        result['right_torque_effectiveness'] = get_torque_effectiveness(session_data, stream_data, 'right', activity.upload_fit_url)
-        
-        # 5. 左右踏板平顺度
-        result['left_pedal_smoothness'] = get_pedal_smoothness(session_data, stream_data, 'left', activity.upload_fit_url)
-        result['right_pedal_smoothness'] = get_pedal_smoothness(session_data, stream_data, 'right', activity.upload_fit_url)
-        
-        # 6. 踏板总行程数（计算总踩踏次数）
-        result['total_strokes'] = calculate_total_strokes(valid_cadences)
-        
-        return result
-        
-    except Exception as e:
         return None
-
-def get_left_right_balance(session_data: Optional[Dict[str, Any]], stream_data: Dict[str, Any], fit_url: str) -> Optional[Dict[str, int]]:
-    """
-    获取左右平衡数据
-    
-    Args:
-        session_data: session段数据
-        stream_data: 流数据
-        fit_url: FIT文件URL
         
-    Returns:
-        Optional[Dict[str, int]]: 左右平衡值，格式为{"left": 49, "right": 51}，如果没有则返回None
-    """
+    except Exception as e:
+        return None 
+
+
+
+
+
+def get_left_right_balance(
+    session_data: Optional[Dict[str, Any]], 
+    stream_data: Dict[str, Any], 
+    fit_url: str
+) -> Optional[Dict[str, int]]:
     def parse_left_right(value: int) -> Optional[Tuple[int, int]]:
         """解析左右平衡值"""
         try:
@@ -1006,6 +926,7 @@ def get_left_right_balance(session_data: Optional[Dict[str, Any]], stream_data: 
         except (ValueError, TypeError):
             return None
     
+    # print("stream_data包含的内容有：", list(stream_data.keys()))
     # 直接从records中获取
     all_values = get_all_left_right_balance_values(fit_url)
     if all_values:
@@ -1018,10 +939,8 @@ def get_left_right_balance(session_data: Optional[Dict[str, Any]], stream_data: 
         if parsed_values:
             left_values = [lr[0] for lr in parsed_values]
             right_values = [lr[1] for lr in parsed_values]
-            
             avg_left = int(round(sum(left_values) / len(left_values)))
             avg_right = int(round(sum(right_values) / len(right_values)))
-            
             return {"left": avg_left, "right": avg_right}
     
     return None
@@ -1082,24 +1001,6 @@ def get_pedal_smoothness(session_data: Optional[Dict[str, Any]], stream_data: Di
     
     return None
 
-def calculate_total_strokes(cadence_data: List[int]) -> int:
-    """
-    计算踏板总行程数
-    
-    Args:
-        cadence_data: 踏频数据列表（RPM）
-        
-    Returns:
-        int: 总踩踏次数
-    """
-    if not cadence_data:
-        return 0
-    
-    # 假设每秒一个数据点，踏频是每分钟的转数
-    # 总踩踏次数 = 所有踏频数据点之和 * (1/60) 分钟
-    total_revolutions = sum(cadence_data) / 60.0
-    
-    return int(total_revolutions)
 
 def get_activity_speed_info(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
     try:

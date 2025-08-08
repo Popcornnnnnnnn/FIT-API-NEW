@@ -25,37 +25,48 @@ class FitParser:
             'torque', 'spi', 'w_balance', 'vam'
         }
     
-    def parse_fit_file(self, file_data: bytes, athlete_info: Optional[Dict[str, Any]] = None) -> StreamData:
-        """
-        解析FIT文件数据
-        
-        Args:
-            file_data: FIT文件的二进制数据
-            athlete_info: 运动员信息，包含ftp和wj字段，用于w_balance计算
-            
-        Returns:
-            StreamData: 包含所有流数据的对象
-        """
+    def parse_fit_file(
+        self, 
+        file_data: bytes, 
+        athlete_info: Optional[Dict[str, Any]] = None
+    ) -> StreamData:
         try:
-            # 使用fitparse库解析真实的FIT文件
             return self._parse_real_fit_data(file_data, athlete_info)
         except Exception as e:
-            # 如果解析失败，返回空的StreamData
-            return StreamData()
+            return StreamData() # 如果解析失败，返回空的StreamData
     
-    def _parse_real_fit_data(self, file_data: bytes, athlete_info: Optional[Dict[str, Any]] = None) -> StreamData:
-        """
-        解析真实的FIT文件数据
-        使用fitparse库提取所有可用的流数据
-        按照时间戳和distance字段对齐所有数据
-        """
-        # 创建FitFile对象
+    def _parse_real_fit_data(
+        self, 
+        file_data: bytes, 
+        athlete_info: Optional[Dict[str, Any]] = None
+    ) -> StreamData:
+
         fitfile = FitFile(BytesIO(file_data))
         
-        # 第一步：收集所有record数据，建立时间戳和distance的映射
-        record_data = {}  # {timestamp: {field: value}}
-        start_time = None
+        # 直接按顺序处理records数据
+        timestamps = []
+        distances = []
+        altitudes = []
+        cadences = []
+        heartrates = []
+        speeds = []
+        latitudes = []
+        longitudes = []
+        powers = []
+        temps = []
+        elapsed_time = []
         
+        start_time = None
+        prev_timestamp = None
+        total_elapsed = 0
+        expected_interval = 1
+        
+        # INSERT_YOUR_CODE
+        # 打印所有record中的字段（仅调试用，实际部署时请移除）
+        for record in fitfile.get_messages('record'):
+            print("record字段：", [field.name for field in record.fields])
+            break  # 只打印第一个record的字段，避免输出过多
+
         for record in fitfile.get_messages('record'):
             # 提取时间戳
             timestamp = record.get_value('timestamp')
@@ -73,30 +84,37 @@ class FitParser:
             if distance is None:
                 continue
             
-            # 初始化这个时间戳的数据记录
-            if relative_timestamp not in record_data:
-                record_data[relative_timestamp] = {
-                    'timestamp': relative_timestamp,
-                    'distance': float(distance)
-                }
+            # 计算elapsed_time
+            if prev_timestamp is None:
+                elapsed_time.append(0)
+                prev_timestamp = relative_timestamp
+            else:
+                delta = relative_timestamp - prev_timestamp
+                if delta > expected_interval * 2:
+                    total_elapsed += expected_interval
+                else:
+                    total_elapsed += delta
+                elapsed_time.append(int(total_elapsed))
+                prev_timestamp = relative_timestamp
+            
+            # 添加基础数据
+            timestamps.append(relative_timestamp)
+            distances.append(float(distance))
             
             # 提取其他字段
             # 海拔
             altitude = record.get_value('enhanced_altitude')
             if altitude is None:
                 altitude = record.get_value('altitude')
-            if altitude is not None:
-                record_data[relative_timestamp]['altitude'] = int(round(float(altitude)))
+            altitudes.append(int(round(float(altitude))) if altitude is not None else 0)
             
             # 踏频
             cadence = record.get_value('cadence')
-            if cadence is not None:
-                record_data[relative_timestamp]['cadence'] = int(cadence)
+            cadences.append(int(cadence) if cadence is not None else 0)
             
             # 心率
             hr = record.get_value('heart_rate')
-            if hr is not None:
-                record_data[relative_timestamp]['heartrate'] = int(hr)
+            heartrates.append(int(hr) if hr is not None else 0)
             
             # 速度
             speed = record.get_value('enhanced_speed')
@@ -104,78 +122,24 @@ class FitParser:
                 speed = record.get_value('speed')
             if speed is not None:
                 speed_kmh = float(speed) * 3.6
-                record_data[relative_timestamp]['speed'] = round(speed_kmh, 1)
+                speeds.append(round(speed_kmh, 1))
+            else:
+                speeds.append(0.0)
             
             # GPS坐标
             lat = record.get_value('position_lat')
-            if lat is not None:
-                record_data[relative_timestamp]['latitude'] = float(lat)
+            latitudes.append(float(lat) if lat is not None else 0.0)
             
             lon = record.get_value('position_long')
-            if lon is not None:
-                record_data[relative_timestamp]['longitude'] = float(lon)
+            longitudes.append(float(lon) if lon is not None else 0.0)
             
             # 功率
             power = record.get_value('power')
-            if power is not None:
-                record_data[relative_timestamp]['power'] = int(power)
+            powers.append(int(power) if power is not None else 0)
             
             # 温度
             temp = record.get_value('temperature')
-            if temp is not None:
-                record_data[relative_timestamp]['temp'] = float(temp)
-        
-        # 第二步：按时间戳排序，确保数据顺序正确
-        sorted_timestamps = sorted(record_data.keys())
-        
-        # 第三步：提取对齐后的数据
-        timestamps = []
-        distances = []
-        altitudes = []
-        cadences = []
-        heartrates = []
-        speeds = []
-        latitudes = []
-        longitudes = []
-        powers = []
-        temps = []
-        elapsed_time = []
-        
-        prev_timestamp = None
-        total_elapsed = 0
-        expected_interval = 1
-        
-        for ts in sorted_timestamps:
-            data = record_data[ts]
-            
-            # 时间戳
-            timestamps.append(ts)
-            
-            # 距离
-            distances.append(data['distance'])
-            
-            # 计算elapsed_time
-            if prev_timestamp is None:
-                elapsed_time.append(0)
-                prev_timestamp = ts
-            else:
-                delta = ts - prev_timestamp
-                if delta > expected_interval * 2:
-                    total_elapsed += expected_interval
-                else:
-                    total_elapsed += delta
-                elapsed_time.append(int(total_elapsed))
-                prev_timestamp = ts
-            
-            # 其他字段（如果存在）
-            altitudes.append(data.get('altitude', 0))
-            cadences.append(data.get('cadence', 0))
-            heartrates.append(data.get('heartrate', 0))
-            speeds.append(data.get('speed', 0.0))
-            latitudes.append(data.get('latitude', 0.0))
-            longitudes.append(data.get('longitude', 0.0))
-            powers.append(data.get('power', 0))
-            temps.append(data.get('temp', 0.0))
+            temps.append(float(temp) if temp is not None else 0.0)
 
 
         # 计算最佳功率曲线

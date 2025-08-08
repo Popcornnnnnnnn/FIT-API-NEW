@@ -14,6 +14,7 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from . import models
 from .fit_parser import FitParser
+# from ..activities.strava_analyzer import StravaAnalyzer
 
 class StreamCRUD:
     """流数据CRUD操作类"""
@@ -203,7 +204,11 @@ class StreamCRUD:
         
         return stream_data.get_summary_stats(stream_type)
     
-    def _get_or_parse_stream_data(self, db: Session, activity: models.TbActivity) -> Optional[models.StreamData]:
+    def _get_or_parse_stream_data(
+        self, 
+        db: Session, 
+        activity: models.TbActivity
+    ) -> Optional[models.StreamData]:
         """
         获取或解析活动的流数据
         
@@ -229,6 +234,8 @@ class StreamCRUD:
             response.raise_for_status()
             file_data = response.content
             
+            
+
             # 获取运动员信息用于w_balance计算
             athlete_info = None
             # 从tb_athlete表获取运动员信息
@@ -253,7 +260,6 @@ class StreamCRUD:
                 return None
 
         
-            # ! 这里有问题
             # 解析FIT文件
             stream_data = self.fit_parser.parse_fit_file(file_data, athlete_info)
             
