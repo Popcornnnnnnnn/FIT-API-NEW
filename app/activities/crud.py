@@ -15,7 +15,14 @@ from fitparse import FitFile
 from io import BytesIO
 import requests
 
-def update_database_field(db: Session, table_class, record_id: int, field_name: str, value: Any) -> bool:
+# 数据库相关
+def update_database_field(
+    db: Session, 
+    table_class, 
+    record_id: int, 
+    field_name: str, 
+    value: Any
+) -> bool:
     """
     通用的数据库字段更新函数
     
@@ -52,7 +59,10 @@ def update_database_field(db: Session, table_class, record_id: int, field_name: 
         return False
 
 # @ 这里没问题
-def get_activity_athlete(db: Session, activity_id: int) -> Optional[Tuple[TbActivity, TbAthlete]]:
+def get_activity_athlete(
+    db: Session, 
+    activity_id: int
+) -> Optional[Tuple[TbActivity, TbAthlete]]:
     # 查询活动信息（返回 tb_activity 的一整行内容）
     activity = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
     if not activity:
@@ -64,7 +74,11 @@ def get_activity_athlete(db: Session, activity_id: int) -> Optional[Tuple[TbActi
         return None
     return activity, athlete
 
-def get_activity_stream_data(db: Session, activity_id: int) -> Optional[Dict[str, Any]]: # ! 重要函数
+
+def get_activity_stream_data(
+    db: Session, 
+    activity_id: int
+) -> Optional[Dict[str, Any]]:
     """
     获取活动的流数据
     
@@ -104,6 +118,7 @@ def get_activity_stream_data(db: Session, activity_id: int) -> Optional[Dict[str
     except Exception as e:
         return None
 
+# 所有接口相关的整体信息
 def get_activity_overall_info(
     db: Session, 
     activity_id: int
@@ -222,6 +237,72 @@ def get_activity_overall_info(
     except Exception as e:
         return None
 
+def get_activity_power_info(
+    db: Session, 
+    activity_id: int
+) -> Optional[Dict[str, Any]]:
+    try:
+        activity, athlete = get_activity_athlete(db, activity_id)
+        ftp = int(athlete.ftp)
+
+        stream_data = get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        
+        session_data = get_session_data(activity.upload_fit_url)
+        
+        power_data = stream_data.get('power', [])
+        if not power_data:
+            return None
+
+        valid_powers = [p for p in power_data if p is not None and p > 0]
+        if not valid_powers:
+            return None
+        
+        result = {}
+
+        if session_data and 'avg_power' in session_data:
+            result['avg_power'] = int(session_data['avg_power'])
+        else:
+            result['avg_power'] = int(sum(valid_powers) / len(valid_powers))
+        
+        if session_data and 'max_power' in session_data:
+            result['max_power'] = int(session_data['max_power'])
+        else:
+            result['max_power'] = int(max(valid_powers))
+        
+        if session_data and 'normalized_power' in session_data:
+            result['normalized_power'] = int(session_data['normalized_power'])
+        else:
+            result['normalized_power'] = calculate_normalized_power(valid_powers)
+        
+        if session_data and 'intensity_factor' in session_data:
+            result['intensity_factor'] = round(session_data['intensity_factor'], 2)
+        else:
+            result['intensity_factor'] = round(result['normalized_power'] / ftp, 2)
+
+        result['total_work'] = round(sum(valid_powers) / 1000, 0)
+        
+        if result['avg_power'] > 0:
+            result['variability_index'] = round(result['normalized_power'] / result['avg_power'], 2)
+        else:
+            result['variability_index'] = None
+
+        result['weighted_average_power'] = None
+        result['work_above_ftp'] = int(sum([(power - ftp) for power in valid_powers if power > ftp]) / 1000)
+        result['eftp'] = None
+        
+        w_balance_data = stream_data.get('w_balance', [])
+        if w_balance_data:
+            result['w_balance_decline'] = calculate_w_balance_decline(w_balance_data)
+        else:
+            result['w_balance_decline'] = None
+        
+        return result
+        
+    except Exception as e:
+        return None
+
 def get_activity_training_effect_info(
     db: Session, 
     activity_id: int
@@ -260,6 +341,12 @@ def get_activity_training_effect_info(
         
     except Exception as e:
         return None 
+
+
+
+# 工具函数
+
+
 
 def get_session_data(fit_url: str) -> Optional[Dict[str, Any]]: # ! 重要函数
     """
@@ -505,102 +592,7 @@ def calculate_and_save_training_load(
         print(f"警告：无法将训练负荷值 {training_load} 保存到活动 {activity_id} 的数据库")   
     return training_load
 
-def get_activity_power_info(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
-    try:
-        # 获取活动和运动员信息
-        activity_athlete = get_activity_athlete(db, activity_id)
-        if not activity_athlete:
-            return None
-        
-        activity, athlete = activity_athlete
-        
-        # 获取FTP信息
-        ftp = None
-        if athlete.ftp:
-            try:
-                ftp = float(athlete.ftp)
-            except (ValueError, TypeError):
-                ftp = None
-        
-        # 获取流数据
-        stream_data = get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        
-        # 获取session段数据
-        session_data = get_session_data(activity.upload_fit_url)
-        
-        # 获取功率数据
-        power_data = stream_data.get('power', [])
-        if not power_data:
-            return None
-        
-        # 过滤有效的功率数据（大于0）
-        valid_powers = [p for p in power_data if p is not None and p > 0]
-        if not valid_powers:
-            return None
-        
-        result = {}
-        
-        # 1. 平均功率（保留整数）
-        if session_data and 'avg_power' in session_data:
-            result['avg_power'] = int(session_data['avg_power'])
-        else:
-            result['avg_power'] = int(sum(valid_powers) / len(valid_powers))
-        
-        # 2. 最大功率（保留整数）
-        if session_data and 'max_power' in session_data:
-            result['max_power'] = int(session_data['max_power'])
-        else:
-            result['max_power'] = int(max(valid_powers))
-        
-        # 3. 标准化功率（保留整数）
-        if session_data and 'normalized_power' in session_data:
-            result['normalized_power'] = int(session_data['normalized_power'])
-        else:
-            result['normalized_power'] = calculate_normalized_power(valid_powers)
-        
-        # 4. 强度因子（保留两位小数）
-        if session_data and 'intensity_factor' in session_data:
-            result['intensity_factor'] = round(session_data['intensity_factor'], 2)
-        else:
-            if ftp and ftp > 0:
-                result['intensity_factor'] = round(result['normalized_power'] / ftp, 2)
-            else:
-                result['intensity_factor'] = None
-        
-        # 5. 总做功（保留整数）
-        result['total_work'] = calculate_total_work(valid_powers)
-        
-        # 6. 变异性指数（保留两位小数）
-        if result['avg_power'] > 0:
-            result['variability_index'] = round(result['normalized_power'] / result['avg_power'], 2)
-        else:
-            result['variability_index'] = None
-        
-        # 7. 加权平均功率（返回None）
-        result['weighted_average_power'] = None
-        
-        # 8. 高于FTP做功（保留整数）
-        if ftp and ftp > 0:
-            result['work_above_ftp'] = calculate_work_above_ftp(valid_powers, ftp)
-        else:
-            result['work_above_ftp'] = None
-        
-        # 9. 本次骑行的eFTP（返回None）
-        result['eftp'] = None
-        
-        # 10. W平衡下降（保留一位小数）
-        w_balance_data = stream_data.get('w_balance', [])
-        if w_balance_data:
-            result['w_balance_decline'] = calculate_w_balance_decline(w_balance_data)
-        else:
-            result['w_balance_decline'] = None
-        
-        return result
-        
-    except Exception as e:
-        return None
+
 
 def calculate_normalized_power(
     powers: list
@@ -618,46 +610,6 @@ def calculate_normalized_power(
     
     return round(normalized_power, 0)
 
-def calculate_total_work(powers: list) -> int:
-    """
-    计算总做功（千焦）
-    
-    Args:
-        powers: 功率数据列表（假设每秒一个数据点）
-        
-    Returns:
-        int: 总做功（千焦）
-    """
-    if not powers:
-        return 0
-    
-    # 功率 * 时间 = 做功，假设每秒一个数据点
-    total_work = sum(powers)  # 瓦特 * 秒 = 焦耳
-    total_work_kj = total_work / 1000  # 转换为千焦
-    
-    return int(total_work_kj)
-
-def calculate_work_above_ftp(powers: list, ftp: float) -> int:
-    """
-    计算高于FTP的做功
-    
-    Args:
-        powers: 功率数据列表
-        ftp: 功能阈值功率
-        
-    Returns:
-        int: 高于FTP的做功（千焦）
-    """
-    if not powers or ftp <= 0:
-        return 0
-    
-    work_above_ftp = 0
-    for power in powers:
-        if power > ftp:
-            work_above_ftp += (power - ftp)  # (W - FTP) * 时间（假设1秒）
-    
-    work_above_ftp_kj = work_above_ftp / 1000  # 转换为千焦
-    return int(work_above_ftp_kj)
 
 def calculate_w_balance_decline(w_balance_data: list) -> float:
     """

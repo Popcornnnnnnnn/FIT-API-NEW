@@ -217,8 +217,6 @@ async def get_activity_multi_streams(
             raise HTTPException(status_code=400, detail="无效的分辨率参数，必须是 low、medium 或 high")
         
         
-
-
         # 获取流数据
         streams_data = stream_crud.get_activity_streams(db, activity_id, request.keys, resolution)
         
@@ -458,8 +456,32 @@ async def get_activity_all_data(
         except Exception:
             response_data["best_powers"] = None
         
-        # 添加流数据字段（本地数据库查询时不支持流数据）
-        response_data["streams"] = None
+        # 获取流数据
+        try:
+            # 直接调用streams模块的CRUD函数，避免循环导入
+            from ..streams.crud import stream_crud
+            from ..streams.models import Resolution
+            
+            # 获取可用的流数据类型
+            available_result = stream_crud.get_available_streams(db, activity_id)
+            if available_result["status"] == "success":
+                available_streams = available_result["available_streams"]
+                
+                # 设置分辨率
+                resolution_enum = Resolution.HIGH
+                if resolution == "low":
+                    resolution_enum = Resolution.LOW
+                elif resolution == "medium":
+                    resolution_enum = Resolution.MEDIUM
+                
+                # 获取流数据
+                streams_data = stream_crud.get_activity_streams(db, activity_id, available_streams, resolution_enum)
+                response_data["streams"] = streams_data
+            else:
+                response_data["streams"] = None
+        except Exception as e:
+            print(f"获取流数据时发生错误: {str(e)}")
+            response_data["streams"] = None
         
         # 构建响应
         return AllActivityDataResponse(**response_data)

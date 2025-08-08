@@ -16,17 +16,7 @@ from .crud import stream_crud
 router = APIRouter(prefix="/activities", tags=["streams"])
 
 @router.get("/{activity_id}/available")
-def get_available_streams(activity_id: int):
-    """
-    获取活动可用的流数据类型
-    
-    Args:
-        activity_id: 活动ID
-        
-    Returns:
-        Dict: 可用的流类型列表
-    """
-    db = next(get_db())
+def get_available_streams(activity_id: int, db: Session = Depends(get_db)):
     try:
         result = stream_crud.get_available_streams(db, activity_id)
         
@@ -61,8 +51,6 @@ def get_available_streams(activity_id: int):
             status_code=500, 
             detail=f"获取可用流数据类型时发生错误: {str(e)}"
         )
-    finally:
-        db.close()
 
 @router.get("/{activity_id}/streams")
 def get_activity_streams(
@@ -71,7 +59,8 @@ def get_activity_streams(
     resolution: models.Resolution = Query(
         models.Resolution.HIGH, 
         description="数据分辨率，可选值：low, medium, high"
-    )
+    ),
+    db: Session = Depends(get_db)
 ):
     """
     获取活动的流数据
@@ -84,7 +73,6 @@ def get_activity_streams(
     Returns:
         List: 流数据数组，每个元素包含 type, data, series_type, original_size, resolution
     """
-    db = next(get_db())
     try:
         # 首先检查该活动是否有这个stream
         result = stream_crud.get_available_streams(db, activity_id)
@@ -117,6 +105,4 @@ def get_activity_streams(
         raise HTTPException(
             status_code=500, 
             detail=f"获取流数据时发生错误: {str(e)}"
-        )
-    finally:
-        db.close() 
+        ) 
