@@ -545,63 +545,6 @@ class StravaAnalyzer:
             return 0.0, 0.0
         
     @staticmethod
-    def _calculate_w_balance_decline_from_strava(
-        stream_data: Dict[str, Any], external_id: int, db: Session
-    ) -> Optional[float]:
-        """
-        从 Strava 流数据计算 W 平衡下降
-        使用功率数据和数据库中的运动员信息计算 W' 平衡数组，然后计算下降值
-
-        Args:
-            stream_data: Strava API 返回的流数据
-            external_id: Strava 的 external_id
-            db: 数据库会话
-
-        Returns:
-            Optional[float]: W平衡下降值（保留一位小数），如果无法计算则返回 None
-        """
-        try:
-
-            power_stream = stream_data.get("watts", {}) if stream_data else {}
-            power_data = power_stream.get("data", []) if power_stream else []
-
-            if not power_data:
-                return None
-
-            # 从数据库获取运动员信息
-            # 注意：这里的 external_id 是 Strava 的 external_id
-            activity_athlete = StravaAnalyzer._get_activity_athlete_by_external_id(
-                db, external_id
-            )
-
-            if not activity_athlete:
-                return None
-
-            activity, athlete = activity_athlete
-            if not athlete or not int(athlete.ftp) > 0 or not athlete.w_balance:
-                return None
-
-            # 准备运动员信息
-            athlete_info = {
-                "ftp": int(athlete.ftp),
-                "wj": athlete.w_balance,  # 无氧储备（焦耳）
-            }
-
-            # 计算 W' 平衡数组（参考 fit_parser.py 的算法）
-            w_balance_array = StravaAnalyzer._calculate_w_balance_array(
-                power_data, athlete_info
-            )
-
-            if w_balance_array:
-                return StravaAnalyzer._calculate_w_balance_decline(w_balance_array)
-            else:
-                return None
-
-        except Exception as e:
-            print(f"计算 W 平衡下降时出错: {str(e)}")
-            return None
-
-    @staticmethod
     def _calculate_w_balance_decline(
         w_balance_data: list
     ) -> Optional[float]:
@@ -622,7 +565,8 @@ class StravaAnalyzer:
 
     @staticmethod
     def _calculate_w_balance_array(
-        power_data: list, athlete_info: TbAthlete
+        power_data: list, 
+        athlete_info: TbAthlete
     ) -> list:
         try:
             W_prime = athlete_info.w_balance
@@ -1077,7 +1021,6 @@ class StravaAnalyzer:
                     if watts_data:
                         try:
                             _, athlete_info = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
-                            print(athlete_info)
                             w_balance_data = StravaAnalyzer._calculate_w_balance_array(watts_data, athlete_info)
                             result.append({
                                 'type': field,
