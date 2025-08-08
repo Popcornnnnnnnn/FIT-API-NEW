@@ -31,23 +31,25 @@ class TbActivity(Base):
     """活动表模型"""
     __tablename__ = "tb_activity"
     
-    id = Column(BIGINT, primary_key=True, index=True)
-    athlete_id = Column(BIGINT)
-    upload_fit_url = Column(VARCHAR(255))
-    name = Column(VARCHAR(255))
-    training_stress_score = Column(Integer, nullable=True)
-    external_id = Column(VARCHAR(255))
-
+    id                    = Column(BIGINT, primary_key=True, index=True)
+    athlete_id            = Column(BIGINT)
+    upload_fit_url        = Column(VARCHAR(255))
+    name                  = Column(VARCHAR(255))
+    external_id           = Column(VARCHAR(255))
+    training_stress_score = Column(Integer)
 
 class TbAthlete(Base):
     """运动员表模型"""
     __tablename__ = "tb_athlete"
     
-    id = Column(BIGINT, primary_key=True, index=True)
+    id            = Column(BIGINT, primary_key=True, index=True)
     max_heartrate = Column(Integer)
-    ftp = Column(VARCHAR(255))
-    w_balance = Column(Integer)
-    weight = Column(Integer)
+    ftp           = Column(VARCHAR(255))
+    w_balance     = Column(Integer)
+    weight        = Column(Integer)
+    tsb           = Column(Integer)
+    ctl           = Column(Integer)
+    atl           = Column(Integer)
 
 # 流数据模型
 class BaseStream(BaseModel):
@@ -251,7 +253,7 @@ class StreamData(BaseModel):
                 continue
             # best_power 依赖 power
             if field_name == 'best_power':
-                if getattr(self, 'power') and any(getattr(self, 'power')) and data and any(x != 0 for x in data):
+                if getattr(self, 'power') and any(x != 0 for x in getattr(self, 'power')):
                     available.append(field_name)
                 continue
             # SPI 和 torque 需要 power 和 cadence 都有
@@ -261,12 +263,12 @@ class StreamData(BaseModel):
                 continue
             # w_balance 需要 power 数据
             if field_name == 'w_balance':
-                if getattr(self, 'power') and any(getattr(self, 'power')) and data and any(x != 0 for x in data):
+                if getattr(self, 'power') and any(x != 0 for x in getattr(self, 'power')):
                     available.append(field_name)
                 continue
             # vam 需要 altitude 数据
             if field_name == 'vam':
-                if getattr(self, 'altitude') and any(getattr(self, 'altitude')) and data and any(x != 0 for x in data):
+                if getattr(self, 'altitude') and any(x != 0 for x in getattr(self, 'altitude')):
                     available.append(field_name)
                 continue
             # 其它流只要有非 None/非 0 数据即可

@@ -26,60 +26,34 @@ async def get_activity_zones(
     activity_id: int,
     key: ZoneType = Query(..., description="区间类型：power（功率）或heartrate（心率）"),
     db: Session = Depends(get_db)
-):
-    """
-    获取活动的区间分析数据
-    """
+) -> ZoneResponse:
     try:
-        # 获取活动和运动员信息
         activity_athlete = get_activity_athlete(db, activity_id)
         if not activity_athlete:
-            raise HTTPException(status_code=404, detail="活动或运动员信息不存在")
-        
-        activity, athlete = activity_athlete
-        
-        # 获取流数据
+            raise HTTPException(status_code=404, detail="活动或运动员信息不存在") 
+        _, athlete = activity_athlete  
         stream_data = get_activity_stream_data(db, activity_id)
         if not stream_data:
-            raise HTTPException(status_code=404, detail="活动流数据不存在")
-        
-        # 根据区间类型进行分析
+            raise HTTPException(status_code=404, detail="活动流数据不存在")        
+    
         if key == ZoneType.POWER:
-            # athlete.ftp 可能为字符串，需要转为 int
-            try:
-                ftp = int(athlete.ftp)
-            except (TypeError, ValueError):
-                ftp = None
-            if not ftp or ftp <= 0:
-                raise HTTPException(status_code=400, detail="运动员FTP数据不存在或无效")
-            
+            ftp = int(athlete.ftp)
             power_data = stream_data.get('power', [])
             if not power_data:
                 raise HTTPException(status_code=400, detail="活动功率数据不存在")
-            
             distribution_buckets = ZoneAnalyzer.analyze_power_zones(power_data, ftp)
-            zone_type = "power"
-            
+            zone_type = "power"      
         elif key == ZoneType.HEARTRATE:
-            if not athlete.max_heartrate or athlete.max_heartrate <= 0:
-                raise HTTPException(status_code=400, detail="运动员最大心率数据不存在或无效")
-            
             hr_data = stream_data.get('heartrate', [])
             if not hr_data:
                 raise HTTPException(status_code=400, detail="活动心率数据不存在")
-            
             distribution_buckets = ZoneAnalyzer.analyze_heartrate_zones(hr_data, athlete.max_heartrate)
-            zone_type = "heartrate"
-        
-        else:
-            raise HTTPException(status_code=400, detail="不支持的区间类型")
-        
-        # 构建响应
+            zone_type = "heartrate"       
+    
         zone_data = ZoneData(
             distribution_buckets=distribution_buckets,
             type=zone_type
-        )
-        
+        )   
         return ZoneResponse(zones=[zone_data])
         
     except HTTPException:
@@ -90,23 +64,13 @@ async def get_activity_zones(
 @router.get("/{activity_id}/overall", response_model=OverallResponse)
 async def get_activity_overall(
     activity_id: int,
-    db: Session = Depends(get_db),  # @ db 是通过 FastAPI 的 Depends 依赖注入机制，从 get_db 函数获取的数据库会话（Session）对象  
-):
-    """
-    获取活动的总体信息
-    
-    返回活动的关键指标，包括距离、时间、速度、功率、心率等。
-    优先使用FIT文件session段中的数据，如果没有则从流数据中计算。
-    """
+    db: Session = Depends(get_db)
+) -> OverallResponse:
     try:
-        # 获取活动总体信息
         overall_info = get_activity_overall_info(db, activity_id)
         if not overall_info:
             raise HTTPException(status_code=404, detail="活动信息不存在或无法解析")
-        
-        # 构建响应
         return OverallResponse(**overall_info)
-        
     except HTTPException:
         raise
     except Exception as e:
@@ -116,22 +80,12 @@ async def get_activity_overall(
 async def get_activity_power(
     activity_id: int,
     db: Session = Depends(get_db)
-):
-    """
-    获取活动的功率相关信息
-    
-    返回活动的功率相关指标，包括平均功率、最大功率、标准化功率、强度因子等。
-    优先使用FIT文件session段中的数据，如果没有则从流数据中计算。
-    """
+) -> PowerResponse:
     try:
-        # 获取活动功率信息
         power_info = get_activity_power_info(db, activity_id)
         if not power_info:
             raise HTTPException(status_code=404, detail="活动功率信息不存在或无法解析")
-        
-        # 构建响应
-        return PowerResponse(**power_info)
-        
+        return PowerResponse(**power_info)     
     except HTTPException:
         raise
     except Exception as e:
@@ -141,22 +95,12 @@ async def get_activity_power(
 async def get_activity_heartrate(
     activity_id: int,
     db: Session = Depends(get_db)
-):
-    """
-    获取活动的心率相关信息
-    
-    返回活动的心率相关指标，包括平均心率、最大心率、效率指数、解耦率等。
-    优先使用FIT文件session段中的数据，如果没有则从流数据中计算。
-    """
+) -> HeartrateResponse:
     try:
-        # 获取活动心率信息
         heartrate_info = get_activity_heartrate_info(db, activity_id)
         if not heartrate_info:
             raise HTTPException(status_code=404, detail="活动心率信息不存在或无法解析")
-        
-        # 构建响应
-        return HeartrateResponse(**heartrate_info)
-        
+        return HeartrateResponse(**heartrate_info)      
     except HTTPException:
         raise
     except Exception as e:
@@ -166,22 +110,12 @@ async def get_activity_heartrate(
 async def get_activity_cadence(
     activity_id: int,
     db: Session = Depends(get_db)
-):
-    """
-    获取活动的踏频相关信息
-    
-    返回活动的踏频相关指标，包括平均踏频、最大踏频、左右平衡、扭矩效率、踏板平顺度、总踩踏次数等。
-    优先使用FIT文件session段中的数据，如果没有则从流数据中计算。
-    """
+) -> CadenceResponse:
     try:
-        # 获取活动踏频信息
         cadence_info = get_activity_cadence_info(db, activity_id)
         if not cadence_info:
             raise HTTPException(status_code=404, detail="活动踏频信息不存在或无法解析")
-        
-        # 构建响应
-        return CadenceResponse(**cadence_info)
-        
+        return CadenceResponse(**cadence_info)       
     except HTTPException:
         raise
     except Exception as e:
@@ -191,22 +125,12 @@ async def get_activity_cadence(
 async def get_activity_speed(
     activity_id: int,
     db: Session = Depends(get_db)
-):
-    """
-    获取活动的速度相关信息
-    
-    返回活动的速度相关指标，包括平均速度、最大速度、移动时间、全程耗时、暂停时间、滑行时间等。
-    优先使用FIT文件session段中的数据，如果没有则从流数据中计算。
-    """
+) -> SpeedResponse:
     try:
-        # 获取活动速度信息
         speed_info = get_activity_speed_info(db, activity_id)
         if not speed_info:
             raise HTTPException(status_code=404, detail="活动速度信息不存在或无法解析")
-        
-        # 构建响应
-        return SpeedResponse(**speed_info)
-        
+        return SpeedResponse(**speed_info)     
     except HTTPException:
         raise
     except Exception as e:
@@ -216,20 +140,11 @@ async def get_activity_speed(
 async def get_activity_altitude(
     activity_id: int,
     db: Session = Depends(get_db)
-):
-    """
-    获取活动的海拔相关信息
-    
-    返回活动的海拔相关指标，包括爬升海拔、最高海拔、最大坡度、累计下降、最低海拔、上坡距离、下坡距离等。
-    优先使用FIT文件session段中的数据，如果没有则从流数据中计算。
-    """
+) -> AltitudeResponse:
     try:
-        # 获取活动海拔信息
         altitude_info = get_activity_altitude_info(db, activity_id)
         if not altitude_info:
             raise HTTPException(status_code=404, detail="活动海拔信息不存在或无法解析")
-        
-        # 构建响应
         return AltitudeResponse(**altitude_info)
         
     except HTTPException:
@@ -241,22 +156,12 @@ async def get_activity_altitude(
 async def get_activity_temperature(
     activity_id: int,
     db: Session = Depends(get_db)
-):
-    """
-    获取活动的温度相关信息
-    
-    返回活动的温度相关指标，包括最低温度、平均温度、最大温度。
-    优先使用FIT文件session段中的数据，如果没有则从流数据中计算。
-    """
+) -> TemperatureResponse:
     try:
-        # 获取活动温度信息
         temperature_info = get_activity_temperature_info(db, activity_id)
         if not temperature_info:
             raise HTTPException(status_code=404, detail="活动温度信息不存在或无法解析")
-        
-        # 构建响应
-        return TemperatureResponse(**temperature_info)
-        
+        return TemperatureResponse(**temperature_info)   
     except HTTPException:
         raise
     except Exception as e:
@@ -266,22 +171,12 @@ async def get_activity_temperature(
 async def get_activity_best_power(
     activity_id: int,
     db: Session = Depends(get_db)
-):
-    """
-    获取活动的最佳功率信息
-    
-    返回活动在不同时间区间的最佳功率数据，包括5秒、30秒、1分钟、5分钟、8分钟、20分钟、30分钟、1小时的最佳功率。
-    如果活动时长不足某个时间区间，则不返回该区间的数据。
-    """
+) -> BestPowerResponse:
     try:
-        # 获取活动最佳功率信息
         best_power_info = get_activity_best_power_info(db, activity_id)
         if not best_power_info:
             raise HTTPException(status_code=404, detail="活动最佳功率信息不存在或无法解析")
-        
-        # 构建响应
-        return BestPowerResponse(**best_power_info)
-        
+        return BestPowerResponse(**best_power_info) 
     except HTTPException:
         raise
     except Exception as e:
@@ -291,22 +186,12 @@ async def get_activity_best_power(
 async def get_activity_training_effect(
     activity_id: int,
     db: Session = Depends(get_db)
-):
-    """
-    获取活动的训练效果信息
-    
-    返回活动的训练效果相关指标，包括主要训练益处、有氧效果、无氧效果、训练负荷、碳水化合物消耗量等。
-    优先使用FIT文件session段中的数据，如果没有则从流数据中计算。
-    """
+) -> TrainingEffectResponse:
     try:
-        # 获取活动训练效果信息
         training_effect_info = get_activity_training_effect_info(db, activity_id)
         if not training_effect_info:
             raise HTTPException(status_code=404, detail="活动训练效果信息不存在或无法解析")
-        
-        # 构建响应
-        return TrainingEffectResponse(**training_effect_info)
-        
+        return TrainingEffectResponse(**training_effect_info)     
     except HTTPException:
         raise
     except Exception as e:

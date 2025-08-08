@@ -243,8 +243,13 @@ class StreamCRUD:
                             'ftp': athlete.ftp,
                             'wj': athlete.w_balance  # 假设w_balance字段存储的是wj值
                         }
+                    else:
+                        print(f"运动员信息不完整: athlete_id={activity.athlete_id}, ftp={getattr(athlete, 'ftp', None) if athlete else None}, w_balance={getattr(athlete, 'w_balance', None) if athlete else None}")
+                else:
+                    print(f"活动 {activity.id} 的athlete_id为空")
                 
             except Exception as e:
+                print(f"获取运动员信息时出错: {str(e)}")
                 return None
 
         

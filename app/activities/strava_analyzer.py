@@ -217,7 +217,7 @@ class StravaAnalyzer:
                 aerobic_effect = aerobic_effect,
                 anaerobic_effect = anaerobic_effect,
                 training_load = StravaAnalyzer._calculate_training_load(stream_data, external_id, db),
-                carbohydrate_consumption = 0.0,
+                carbohydrate_consumption = int(activity_data.get("calories", 0) / 4.138),
             )
         except Exception as e:
             print(f"分析训练效果信息时出错: {str(e)}")
@@ -326,7 +326,8 @@ class StravaAnalyzer:
 
     @staticmethod
     def analyze_best_powers(
-        activity_data: Dict[str, Any], stream_data: Dict[str, Any]
+        activity_data: Dict[str, Any], 
+        stream_data: Dict[str, Any]
     ) -> Optional[Dict[str, int]]:
         if "watts" not in stream_data:
             return None
@@ -702,11 +703,27 @@ class StravaAnalyzer:
     def _get_activity_athlete_by_external_id(
         db: Session, external_id: int
     ) -> Optional[Tuple[TbActivity, TbAthlete]]:
+        """
+        根据external_id获取活动和运动员信息
+        
+        Args:
+            db: 数据库会话
+            external_id: 外部ID
+            
+        Returns:
+            Optional[Tuple[TbActivity, TbAthlete]]: 活动和运动员信息元组
+        """
         try:
             activity = db.query(TbActivity).filter(TbActivity.external_id == external_id).first()
             if not activity:
                 print(f"未找到 external_id 为 {external_id} 的活动")
                 return None
+                
+            # 检查athlete_id是否存在
+            if not hasattr(activity, 'athlete_id') or activity.athlete_id is None:
+                print(f"活动 {external_id} 的athlete_id为空")
+                return None
+                
             athlete = (
                 db.query(TbAthlete).filter(TbAthlete.id == activity.athlete_id).first()
             )
@@ -721,7 +738,8 @@ class StravaAnalyzer:
 
     @staticmethod
     def _calculate_training_load(
-        stream_data: Dict[str, Any], external_id: int, db: Session
+        stream_data: Dict[str, Any], external_id: int, 
+        db: Session
     ) -> int:
         power_stream = stream_data.get("watts", {})
         if not power_stream:

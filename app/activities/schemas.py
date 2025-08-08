@@ -118,7 +118,7 @@ class TrainingEffectResponse(BaseModel):
     aerobic_effect: float = Field(..., description="有氧效果（保留两位小数）")
     anaerobic_effect: float = Field(..., description="无氧效果（保留两位小数）")
     training_load: int = Field(..., description="训练负荷（无单位，保留整数）")
-    carbohydrate_consumption: float = Field(..., description="碳水化合物消耗量（保留两位小数）")
+    carbohydrate_consumption: int = Field(..., description="碳水化合物消耗量")
 
 class StreamDataItem(BaseModel):
     """流数据项"""
