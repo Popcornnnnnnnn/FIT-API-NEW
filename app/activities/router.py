@@ -291,7 +291,6 @@ async def get_activity_all_data(
                 else:
                     # 如果 keys 为空，返回所有可用的字段
                     keys_list = ['time', 'distance', 'latlng', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp', 'moving', 'grade_smooth', 'best_power', 'torque', 'spi', 'power_hr_ratio', 'w_balance', 'vam']
-                
                 return StravaAnalyzer.analyze_activity_data(activity_data, stream_data, athlete_data, activity_id, db, keys_list, resolution)
             except HTTPException:
                 raise
@@ -366,9 +365,13 @@ async def get_activity_all_data(
                 # 使用全局数据管理器获取流数据
                 streams_data = activity_data_manager.get_activity_streams(db, activity_id, available_streams, resolution_enum)
 
-                # temperature 流重命名为 temp
-                if streams_data and "temperature" in streams_data:
-                    streams_data["temp"] = streams_data.pop("temperature")
+                # 字段重命名（仅对返回的部分）
+                if streams_data:
+                    for stream in streams_data:
+                        if stream["type"] == "temperature":
+                            stream["type"] = "temp"
+                        if stream["type"] == "heart_rate":
+                            stream["type"] = "heartrate"
 
                 response_data["streams"] = streams_data
             else:

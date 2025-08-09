@@ -70,12 +70,12 @@ class StravaAnalyzer:
                 moving_time    = ZoneAnalyzer.format_time(int(activity_data.get("moving_time"))),
                 average_speed  = round(activity_data.get("average_speed") * 3.6, 1),
                 elevation_gain = int(activity_data.get("total_elevation_gain")),
-                avg_power      = int(activity_data.get("average_watts", 0)),
-                calories       = int(activity_data.get("calories", 0)),
+                avg_power      = int(activity_data.get("average_watts")) if activity_data.get("average_watts") else None,
+                calories       = int(activity_data.get("calories")),
                 training_load  = StravaAnalyzer._calculate_training_load(stream_data, external_id, db),
                 status         = None,
-                avg_heartrate  = int(activity_data.get("average_heartrate", 0)),
-                max_altitude   = int(activity_data.get("elev_high", 0)),
+                avg_heartrate  = int(activity_data.get("average_heartrate")) if activity_data.get("average_heartrate") else None,
+                max_altitude   = int(activity_data.get("elev_high")),
             )
         except Exception as e:
             print(f"分析总体信息时出错: {str(e)}")
@@ -684,10 +684,10 @@ class StravaAnalyzer:
     def _calculate_training_load(
         stream_data: Dict[str, Any], external_id: int, 
         db: Session
-    ) -> int:
+    ) -> Optional[int]:
         power_stream = stream_data.get("watts", {})
         if not power_stream:
-            return 0
+            return None
         try:
             power_data = power_stream.get("data", [])
             power_data = [p if p is not None else 0 for p in power_data]
@@ -700,7 +700,7 @@ class StravaAnalyzer:
             return int(round(tss, 0))
         except Exception as e:
             print(f"计算训练负荷时出错: {str(e)}")
-            return 0
+            return None
 
     @staticmethod
     def _calculate_aerobic_effect(
