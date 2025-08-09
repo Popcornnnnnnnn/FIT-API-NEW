@@ -140,11 +140,11 @@ class ElapsedTimeStream(BaseStream):
 
 class StreamData(BaseModel):
     """完整的流数据集合，用于存储FIT文件中的所有原始数据"""
-    timestamp                  : List[int]   = Field(default_factory=list)
     position_lat               : List[float] = Field(default_factory=list)
+    timestamp                  : List[int]   = Field(default_factory=list)
     position_long              : List[float] = Field(default_factory=list)
-    distance                   : List[float] = Field(default_factory=list)
     enhanced_altitude          : List[float] = Field(default_factory=list)
+    distance                   : List[float] = Field(default_factory=list)
     altitude                   : List[int]   = Field(default_factory=list)
     enhanced_speed             : List[float] = Field(default_factory=list)
     speed                      : List[float] = Field(default_factory=list)

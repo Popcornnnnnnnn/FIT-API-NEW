@@ -4,6 +4,7 @@ Activities模块的数据库操作函数
 包含活动相关的数据库查询和操作。
 """
 
+from numpy.random import f
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from typing import Optional, Tuple, Dict, Any, List
@@ -55,15 +56,6 @@ def get_activity_athlete(
     return activity, athlete
 
 
-def get_activity_stream_data(
-    db: Session, 
-    activity_id: int
-) -> Optional[Dict[str, Any]]:
-    try:
-        return activity_data_manager.get_activity_stream_data(db, activity_id)
-    except Exception as e:
-        return None
-
 
 
 
@@ -80,12 +72,12 @@ def get_activity_overall_info(
         activity, athlete = activity_athlete
         
         # 获取流数据
-        stream_data = get_activity_stream_data(db, activity_id)
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
         if not stream_data:
             return None
 
         # 获取session段数据
-        session_data = get_session_data(activity.upload_fit_url)
+        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         
         # 计算各项指标
         result = {}
@@ -194,7 +186,7 @@ def get_activity_power_info(
         activity, athlete = get_activity_athlete(db, activity_id)
         ftp = int(athlete.ftp)
 
-        stream_data = get_activity_stream_data(db, activity_id)
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
         if not stream_data:
             return None
         
@@ -260,7 +252,7 @@ def get_activity_heartrate_info(
 ) -> Optional[Dict[str, Any]]:
     try:
         activity, athlete = get_activity_athlete(db, activity_id)
-        stream_data = get_activity_stream_data(db, activity_id)
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
         if not stream_data:
             return None
         session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
@@ -389,59 +381,6 @@ def get_activity_heartrate_info(
     except Exception as e:
         return None
 
-
-
-
-
-
-
-
-
-
-
-
-
-def get_activity_training_effect_info(
-    db: Session, 
-    activity_id: int
-) -> Optional[Dict[str, Any]]:
-    try:
-        activity, athlete = get_activity_athlete(db, activity_id)
-        stream_data = get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        if 'power' not in stream_data:
-            return None
-        power_data = stream_data.get('power', [])
-        valid_power_data = [p for p in power_data if p is not None and p > 0]
-        
-        ftp = int(athlete.ftp)
-        result = {}
-        result['aerobic_effect'] = _calculate_aerobic_effect(valid_power_data, ftp)
-        result['anaerobic_effect'] = _calculate_anaerobic_effect(valid_power_data, ftp)
-
-        
-        primary_training_benefit, secondary_training_benefit = _get_primary_training_benefit(
-            _get_power_zone_percentages(valid_power_data, ftp),
-            _get_power_zone_time(valid_power_data, ftp),
-            round(len(valid_power_data) / 60, 0),
-            result['aerobic_effect'],
-            result['anaerobic_effect'],
-            ftp,
-            max(valid_power_data)
-        )
-        avg_power = int(sum(valid_power_data) / len(valid_power_data))
-        result['primary_training_benefit'] = primary_training_benefit
-        result['training_load'] = calculate_training_load(avg_power, ftp, len(valid_power_data))
-        calories = estimate_calories(avg_power, len(valid_power_data), athlete.weight if athlete.weight else 70)
-        result['carbohydrate_consumption'] = round(calories / 4.138, 0)     
-        return result
-        
-    except Exception as e:
-        return None 
-
-
-
 def get_activity_cadence_info(
     db: Session, 
     activity_id: int
@@ -451,12 +390,10 @@ def get_activity_cadence_info(
         if not activity:
             return None
         
-        stream_data = get_activity_stream_data(db, activity_id)
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
         if not stream_data:
             return None
         
-        # 使用全局数据管理器获取session数据
-        from .data_manager import activity_data_manager
         session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         
         cadence_data = stream_data.get('cadence', [])
@@ -479,149 +416,437 @@ def get_activity_cadence_info(
         else:
             result['max_cadence'] = int(max(valid_cadences))
         
-        
-        result['left_right_balance'] = get_left_right_balance(session_data, stream_data, activity.upload_fit_url)
-        
-        result['left_torque_effectiveness'] = get_torque_effectiveness(session_data, stream_data, 'left', activity.upload_fit_url)
-        result['right_torque_effectiveness'] = get_torque_effectiveness(session_data, stream_data, 'right', activity.upload_fit_url)
-        
-        result['left_pedal_smoothness'] = get_pedal_smoothness(session_data, stream_data, 'left', activity.upload_fit_url)
-        result['right_pedal_smoothness'] = get_pedal_smoothness(session_data, stream_data, 'right', activity.upload_fit_url)
-        
+        if "left_torque_effectiveness" and "right_torque_effectiveness" in stream_data:
+            left_te_list = stream_data.get('left_torque_effectiveness', [])
+            right_te_list = stream_data.get('right_torque_effectiveness', [])
+            if left_te_list and right_te_list:
+                result['left_torque_effectiveness'] = round(sum(left_te_list) / len(left_te_list), 2)
+                result['right_torque_effectiveness'] = round(sum(right_te_list) / len(right_te_list), 2)
+        else:
+            result['left_torque_effectiveness'] = None
+            result['right_torque_effectiveness'] = None
+
+        if "left_pedal_smoothness" and "right_pedal_smoothness" in stream_data:
+            left_ps_list = stream_data.get('left_pedal_smoothness', [])
+            right_ps_list = stream_data.get('right_pedal_smoothness', [])
+            if left_ps_list and right_ps_list:
+                result['left_pedal_smoothness'] = round(sum(left_ps_list) / len(left_ps_list), 2)
+                result['right_pedal_smoothness'] = round(sum(right_ps_list) / len(right_ps_list), 2)
+        else:   
+            result['left_pedal_smoothness'] = None
+            result['right_pedal_smoothness'] = None
+
+        def get_left_right_balance() -> Optional[Dict[str, int]]:
+            def parse_left_right(value: float) -> Optional[Tuple[int, int]]:
+                """解析左右平衡值"""
+                try:
+                    # 将float转换为int进行位运算
+                    int_value = int(value)
+                    # 正常的record值解析
+                    side_flag = int_value & 0x01
+                    percent = int_value >> 1
+                    if side_flag == 1:
+                        right = percent
+                        left = 100 - percent
+                    else:
+                        left = percent
+                        right = 100 - percent
+                    return (left, right)
+                except (ValueError, TypeError):
+                    return None
+            
+            left_right_balance_list = stream_data.get('left_right_balance', [])
+            if not left_right_balance_list:
+                return None
+            else:
+                parsed_values = []
+                for value in left_right_balance_list:
+                    parsed = parse_left_right(value)
+                    if parsed:
+                        parsed_values.append(parsed)
+                
+                if parsed_values:
+                    left_values = [lr[0] for lr in parsed_values]
+                    right_values = [lr[1] for lr in parsed_values]
+                    avg_left = int(round(sum(left_values) / len(left_values)))
+                    avg_right = int(round(sum(right_values) / len(right_values)))
+                    return {"left": avg_left, "right": avg_right}
+            
+            return None
+
+        result['left_right_balance'] = get_left_right_balance()
         result['total_strokes'] = int(sum(cadence_data) / 60.0)
         return result
         
     except Exception as e:
         return None
 
-# 工具函数
-
-def get_session_data(
-    fit_url: str
-) -> Optional[Dict[str, Any]]: # ! 重要函数
-
+def get_activity_speed_info(
+    db: Session, 
+    activity_id: int
+) -> Optional[Dict[str, Any]]:
     try:
-        # 下载FIT文件
-        response = requests.get(fit_url)
-        if response.status_code != 200:
+
+        activity, athlete = get_activity_athlete(db, activity_id)
+        if not activity:
             return None
         
-        fit_data = response.content
-        
-        # 解析FIT文件
-        fitfile = FitFile(BytesIO(fit_data))
-        
-        # 查找session消息
-        for message in fitfile.get_messages('session'):
-            session_data = {}
-            
-            # 提取session段中的字段
-            fields = [
-                'total_distance', 'total_elapsed_time', 'total_timer_time',
-                'avg_power', 'max_power', 'avg_heart_rate', 'max_heart_rate',
-                'total_calories', 'total_ascent', 'total_descent',
-                'avg_cadence', 'max_cadence', 'left_right_balance',
-                'left_torque_effectiveness', 'right_torque_effectiveness',
-                'left_pedal_smoothness', 'right_pedal_smoothness',
-                'avg_speed', 'max_speed', 'avg_temperature', 'max_temperature', 'min_temperature',
-                'normalized_power', "training_stress_score","avg_speed", "max_speed"
-                "intensity_factor"
-            ]
-            
-            for field in fields:
-                value = message.get_value(field)
-                if value is not None:
-                    session_data[field] = value
-            
-            return session_data
-        
-        return None
-    except Exception as e:
-        return None
-
-def get_cadence_fields_from_records(fit_url: str) -> Optional[Dict[str, Any]]:
-    """
-    从FIT文件的records中提取踏频相关字段
-    
-    Args:
-        fit_url: FIT文件URL
-        
-    Returns:
-        Dict[str, Any]: 踏频相关字段数据，如果解析失败则返回None
-    """
-    try:
-        # 下载FIT文件
-        response = requests.get(fit_url)
-        if response.status_code != 200:
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        if not stream_data:
             return None
         
-        fit_data = response.content
+        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         
-        # 解析FIT文件
-        fitfile = FitFile(BytesIO(fit_data))
+        speed_data = stream_data.get('speed', [])
+        power_data = stream_data.get('power', [])
         
-        # 踏频相关字段
-        cadence_fields = {
-            'left_right_balance': [],
-            'left_torque_effectiveness': [],
-            'right_torque_effectiveness': [],
-            'left_pedal_smoothness': [],
-            'right_pedal_smoothness': []
-        }
         
-        # 从records中提取踏频相关字段
-        for record in fitfile.get_messages('record'):
-            for field_name in cadence_fields.keys():
-                value = record.get_value(field_name)
-                if value is not None:
-                    cadence_fields[field_name].append(float(value))
-        
-        # 计算平均值（如果有数据的话）
         result = {}
-        for field_name, values in cadence_fields.items():
-            if values:
-                result[field_name] = sum(values) / len(values)
         
-        return result if result else None
+        if session_data and 'avg_speed' in session_data:
+            result['avg_speed'] = round(float(session_data['avg_speed']) * 3.6, 1)
+        else:
+            result['avg_speed'] = round(sum(speed_data) / len(speed_data), 1)
         
+        if session_data and 'max_speed' in session_data:
+            result['max_speed'] = round(float(session_data['max_speed']) * 3.6, 1)
+        else:
+            result['max_speed'] = round(max(speed_data), 1)
+
+
+        if session_data and 'total_timer_time' in session_data:
+            result['moving_time'] = format_time(session_data['total_timer_time'])
+        else:
+            result['moving_time'] = format_time(max(stream_data.get('elapsed_time', [])))
+        
+        if session_data and 'total_elapsed_time' in session_data:
+            result['total_time'] = format_time(session_data['total_elapsed_time'])
+        else:
+            result['total_time'] = format_time(max(stream_data.get('timestamp', [])))
+        
+        total_seconds = parse_time_to_seconds(result['total_time'])
+        moving_seconds = parse_time_to_seconds(result['moving_time'])
+        pause_seconds = total_seconds - moving_seconds
+        result['pause_time'] = format_time(pause_seconds)
+        
+        def calculate_coasting_time() -> str:
+            coasting_seconds = 0
+            for i in range(len(speed_data)):
+                is_coasting = False
+                if speed_data[i] < 1.0:
+                    is_coasting = True
+                if power_data and not is_coasting and power_data[i] < 10:
+                    is_coasting = True
+                if is_coasting:
+                    coasting_seconds += 1
+            return format_time(coasting_seconds) 
+
+        result['coasting_time'] = calculate_coasting_time()
+        
+        return result  
     except Exception as e:
         return None
 
-def get_all_left_right_balance_values(fit_url: str) -> Optional[List[int]]:
+def get_activity_altitude_info(
+    db: Session, 
+    activity_id: int
+) -> Optional[Dict[str, Any]]:
+
     try:
-        # 下载FIT文件
-        response = requests.get(fit_url)
-        if response.status_code != 200:
+        activity, athlete = get_activity_athlete(db, activity_id)
+        if not activity:
+            return None
+
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+
+        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
+    
+        altitude_data = stream_data.get('altitude', [])
+        distance_data = stream_data.get('distance', [])
+        
+        if not altitude_data:
             return None
         
-        fit_data = response.content
+        def calculate_elevation_gain() -> float:
+            # 过滤异常值（参考VAM计算中的过滤方法）
+            filtered_altitudes = []
+            for i, alt in enumerate(altitude_data):
+                if alt is None:
+                    continue
+                
+                # 过滤异常值：超过5000米或低于-500米的设为None
+                if alt > 5000 or alt < -500:
+                    continue
+                
+                # 如果与前一个有效值差异过大（超过100米），可能是异常值
+                if filtered_altitudes and abs(alt - filtered_altitudes[-1]) > 100:
+                    continue
+                
+                filtered_altitudes.append(alt)
+            
+            if len(filtered_altitudes) < 2:
+                return 0.0
+            
+            # 计算爬升
+            elevation_gain = 0.0
+            for i in range(1, len(filtered_altitudes)):
+                diff = filtered_altitudes[i] - filtered_altitudes[i-1]
+                if diff > 0:  # 只计算上升
+                    elevation_gain += diff
+            
+            return elevation_gain
+
+        def calculate_max_grade() -> float:
+            
+            max_grade = 0.0
+            # 使用间隔更多的点计算坡度，提高数据准确性
+            # 间隔点数：每5个点计算一次坡度，或者每50米距离计算一次
+            interval_points = 5  # 每5个点计算一次
+            min_distance_interval = 50  # 最小距离间隔（米）
+            
+            for i in range(interval_points, min(len(altitude_data), len(distance_data))):
+                # 获取当前点和间隔前的点
+                current_idx = i
+                previous_idx = i - interval_points
+                
+                if (altitude_data[current_idx] is not None and altitude_data[previous_idx] is not None and 
+                    distance_data[current_idx] is not None and distance_data[previous_idx] is not None):
+                    
+                    # 计算海拔差和距离差
+                    altitude_diff = altitude_data[current_idx] - altitude_data[previous_idx]
+                    distance_diff = distance_data[current_idx] - distance_data[previous_idx]
+                    
+                    # 避免除零错误和异常值
+                    if (distance_diff > min_distance_interval and distance_diff < 1000):  # 距离差至少50米，不超过1000米
+                        # 坡度 = 海拔差 / 距离差 * 100%
+                        grade = (altitude_diff / distance_diff) * 100
+                        # 过滤不合理的坡度值（超过50%的坡度在现实中几乎不可能）
+                        if abs(grade) <= 50:
+                            max_grade = max(max_grade, abs(grade))
+            
+            return round(max_grade, 2)
+
+        def calculate_total_descent() -> float:
+            # 过滤异常值（参考VAM计算中的过滤方法）
+            filtered_altitudes = []
+            for i, alt in enumerate(altitude_data):
+                if alt is None:
+                    continue
+                
+                # 过滤异常值：超过5000米或低于-500米的设为None
+                if alt > 5000 or alt < -500:
+                    continue
+                
+                # 如果与前一个有效值差异过大（超过100米），可能是异常值
+                if filtered_altitudes and abs(alt - filtered_altitudes[-1]) > 100:
+                    continue
+                
+                filtered_altitudes.append(alt)
+            
+            if len(filtered_altitudes) < 2:
+                return 0.0
+            
+            # 计算下降
+            total_descent = 0.0
+            for i in range(1, len(filtered_altitudes)):
+                diff = filtered_altitudes[i] - filtered_altitudes[i-1]
+                if diff < 0:  # 只计算下降
+                    total_descent += abs(diff)
+            
+            return total_descent
+
+        def calculate_uphill_distance() -> float:
+            uphill_distance = 0.0
+            
+            # 使用间隔更多的点计算上坡距离，提高数据准确性
+            interval_points = 5  # 每5个点计算一次
+            min_distance_interval = 50  # 最小距离间隔（米）
+            
+            for i in range(interval_points, min(len(altitude_data), len(distance_data))):
+                # 获取当前点和间隔前的点
+                current_idx = i
+                previous_idx = i - interval_points
+                
+                if (altitude_data[current_idx] is not None and altitude_data[previous_idx] is not None and 
+                    distance_data[current_idx] is not None and distance_data[previous_idx] is not None):
+                    
+                    # 计算海拔差和距离差
+                    altitude_diff = altitude_data[current_idx] - altitude_data[previous_idx]
+                    distance_diff = distance_data[current_idx] - distance_data[previous_idx]
+                    
+                    # 如果是上坡（海拔增加）且距离间隔合理，累加上坡距离
+                    if altitude_diff > 0 and distance_diff > min_distance_interval:
+                        uphill_distance += distance_diff
+            
+            # 转换为千米并保留两位小数
+            return round(uphill_distance / 1000, 2)
+
+        def calculate_downhill_distance() -> float:
+            
+            downhill_distance = 0.0
+            
+            # 使用间隔更多的点计算下坡距离，提高数据准确性
+            interval_points = 5  # 每5个点计算一次
+            min_distance_interval = 50  # 最小距离间隔（米）
+            
+            for i in range(interval_points, min(len(altitude_data), len(distance_data))):
+                # 获取当前点和间隔前的点
+                current_idx = i
+                previous_idx = i - interval_points
+                
+                if (altitude_data[current_idx] is not None and altitude_data[previous_idx] is not None and 
+                    distance_data[current_idx] is not None and distance_data[previous_idx] is not None):
+                    
+                    # 计算海拔差和距离差
+                    altitude_diff = altitude_data[current_idx] - altitude_data[previous_idx]
+                    distance_diff = distance_data[current_idx] - distance_data[previous_idx]
+                    
+                    # 如果是下坡（海拔减少）且距离间隔合理，累加下坡距离
+                    if altitude_diff < 0 and distance_diff > min_distance_interval:
+                        downhill_distance += distance_diff
+            
+            # 转换为千米并保留两位小数
+            return round(downhill_distance / 1000, 2) 
         
-        # 解析FIT文件
-        fitfile = FitFile(BytesIO(fit_data))
+        result = {}
         
-        # 从records中提取所有left_right_balance值
-        left_right_balance_values = []
+        if session_data and 'total_ascent' in session_data and session_data['total_ascent']:
+            result['elevation_gain'] = int(session_data['total_ascent'])
+        else:
+            result['elevation_gain'] = int(calculate_elevation_gain())
         
-        for record in fitfile.get_messages('record'):
-            value = record.get_value('left_right_balance')
-            if value is not None:
-                left_right_balance_values.append(int(value))
+        result['max_altitude'] = int(max(altitude_data))
+        result['max_grade'] = calculate_max_grade()
         
-        return left_right_balance_values if left_right_balance_values else None
+        if session_data and 'total_descent' in session_data and session_data['total_descent']:
+            result['total_descent'] = int(session_data['total_descent'])
+        else:
+            result['total_descent'] = int(calculate_total_descent())
+        
+        result['min_altitude'] = int(min(altitude_data))
+        result['uphill_distance'] = calculate_uphill_distance() 
+        result['downhill_distance'] = calculate_downhill_distance()
+        
+        return result
         
     except Exception as e:
         return None
 
+def get_activity_temperature_info(
+    db: Session, 
+    activity_id: int
+) -> Optional[Dict[str, Any]]:
+    try:
+        activity, athlete = get_activity_athlete(db, activity_id)
+        if not activity:
+            return None
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        temperature_data = stream_data.get('temperature', [])
+        if not temperature_data:
+            return None
+        
+        result = {}     
+        result["min_temp"] = int(round(min(temperature_data)))
+        result["avg_temp"] = int(round(sum(temperature_data) / len(temperature_data)))
+        result["max_temp"] = int(round(max(temperature_data)))
+        
+        return result
+        
+    except Exception as e:
+        return None 
+
+def get_activity_best_power_info(
+    db: Session, 
+    activity_id: int
+) -> Optional[Dict[str, Any]]:
+    try:
+        activity, athlete = get_activity_athlete(db, activity_id)
+        if not activity:
+            return None
+        
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        
+        best_powers_data = stream_data.get('best_power', [])
+        if not best_powers_data:
+            return None
+        
+        time_intervals = {
+            '5s': 5,
+            '30s': 30,
+            '1min': 60,
+            '5min': 300,
+            '8min': 480,
+            '20min': 1200,
+            '30min': 1800,
+            '1h': 3600
+        }
+
+        # 构建最佳功率响应
+        best_powers = {}
+        for interval_name, interval_seconds in time_intervals.items():
+            # 检查是否有足够的数据点
+            if len(best_powers_data) >= interval_seconds:
+                best_powers[interval_name] = best_powers_data[interval_seconds - 1]  # 数组索引从0开始
+        
+        return { 'best_powers': best_powers }
+        
+    except Exception as e:
+        return None 
+
+def get_activity_training_effect_info(
+    db: Session, 
+    activity_id: int
+) -> Optional[Dict[str, Any]]:
+    try:
+        activity, athlete = get_activity_athlete(db, activity_id)
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        if 'power' not in stream_data:
+            return None
+        power_data = stream_data.get('power', [])
+        
+        ftp = int(athlete.ftp)
+        result = {}
+        result['aerobic_effect'] = _calculate_aerobic_effect(power_data, ftp)
+        result['anaerobic_effect'] = _calculate_anaerobic_effect(power_data, ftp)
+
+        
+        primary_training_benefit, secondary_training_benefit = _get_primary_training_benefit(
+            _get_power_zone_percentages(power_data, ftp),
+            _get_power_zone_time(power_data, ftp),
+            round(len(power_data) / 60, 0),
+            result['aerobic_effect'],
+            result['anaerobic_effect'],
+            ftp,
+            max(power_data)
+        )
+        avg_power = int(sum(power_data) / len(power_data))
+        result['primary_training_benefit'] = primary_training_benefit
+        result['training_load'] = calculate_training_load(avg_power, ftp, len(power_data))
+        calories = estimate_calories(avg_power, len(power_data), athlete.weight if athlete.weight else 70)
+        result['carbohydrate_consumption'] = round(calories / 4.138, 0)     
+        return result
+        
+    except Exception as e:
+        return None 
+
+
+
+
+
+# 时间相关函数
 def format_time(
     seconds: int
 ) -> str:
-    try:
-        # 确保输入是整数
-        if seconds is None:
-            return "00:00:00"       
-        # 转换为整数，处理字符串或其他类型
+    try:    
         seconds = int(seconds)        
-        # 处理负数
         if seconds < 0:
             seconds = 0
         
@@ -630,7 +855,6 @@ def format_time(
         secs = seconds % 60
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
     except (ValueError, TypeError):
-        # 如果转换失败，返回默认值
         return "00:00:00"
 
 def parse_time_to_seconds(
@@ -645,47 +869,7 @@ def parse_time_to_seconds(
     except:
         return 0
 
-def calculate_elevation_gain(altitudes: list) -> float:
-    """
-    计算爬升海拔，参考VAM计算时的过滤和处理方法
-    
-    Args:
-        altitudes: 海拔数据列表
-        
-    Returns:
-        float: 爬升海拔（米）
-    """
-    if not altitudes or len(altitudes) < 2:
-        return 0.0
-    
-    # 过滤异常值（参考VAM计算中的过滤方法）
-    filtered_altitudes = []
-    for i, alt in enumerate(altitudes):
-        if alt is None:
-            continue
-        
-        # 过滤异常值：超过5000米或低于-500米的设为None
-        if alt > 5000 or alt < -500:
-            continue
-        
-        # 如果与前一个有效值差异过大（超过100米），可能是异常值
-        if filtered_altitudes and abs(alt - filtered_altitudes[-1]) > 100:
-            continue
-        
-        filtered_altitudes.append(alt)
-    
-    if len(filtered_altitudes) < 2:
-        return 0.0
-    
-    # 计算爬升
-    elevation_gain = 0.0
-    for i in range(1, len(filtered_altitudes)):
-        diff = filtered_altitudes[i] - filtered_altitudes[i-1]
-        if diff > 0:  # 只计算上升
-            elevation_gain += diff
-    
-    return elevation_gain
-
+# 训练效果相关函数
 def estimate_calories(
     avg_power: int, 
     duration_seconds: int, 
@@ -726,7 +910,7 @@ def calculate_and_save_training_load(
         print(f"警告：无法将训练负荷值 {training_load} 保存到活动 {activity_id} 的数据库")   
     return training_load
 
-
+# 功率相关函数
 def calculate_normalized_power(
     powers: list
 ) -> int:
@@ -744,16 +928,9 @@ def calculate_normalized_power(
     return round(normalized_power, 0)
 
 
-def calculate_w_balance_decline(w_balance_data: list) -> float:
-    """
-    计算W平衡下降
-    
-    Args:
-        w_balance_data: W平衡数据列表
-        
-    Returns:
-        float: W平衡下降值（保留一位小数）
-    """
+def calculate_w_balance_decline(
+    w_balance_data: list
+) -> float:
     if not w_balance_data:
         return None
     
@@ -771,681 +948,6 @@ def calculate_w_balance_decline(w_balance_data: list) -> float:
 
 
 
-
-
-
-
-
-
-
-
-
-
-def get_left_right_balance(
-    session_data: Optional[Dict[str, Any]], 
-    stream_data: Dict[str, Any], 
-    fit_url: str
-) -> Optional[Dict[str, int]]:
-    def parse_left_right(value: int) -> Optional[Tuple[int, int]]:
-        """解析左右平衡值"""
-        try:
-            # 正常的record值解析
-            side_flag = value & 0x01
-            percent = value >> 1
-            if side_flag == 1:
-                right = percent
-                left = 100 - percent
-            else:
-                left = percent
-                right = 100 - percent
-            return (left, right)
-        except (ValueError, TypeError):
-            return None
-    
-    # print("stream_data包含的内容有：", list(stream_data.keys()))
-    # 直接从records中获取
-    all_values = get_all_left_right_balance_values(fit_url)
-    if all_values:
-        parsed_values = []
-        for value in all_values:
-            parsed = parse_left_right(value)
-            if parsed:
-                parsed_values.append(parsed)
-        
-        if parsed_values:
-            left_values = [lr[0] for lr in parsed_values]
-            right_values = [lr[1] for lr in parsed_values]
-            avg_left = int(round(sum(left_values) / len(left_values)))
-            avg_right = int(round(sum(right_values) / len(right_values)))
-            return {"left": avg_left, "right": avg_right}
-    
-    return None
-
-def get_torque_effectiveness(session_data: Optional[Dict[str, Any]], stream_data: Dict[str, Any], side: str, fit_url: str) -> Optional[float]:
-    """
-    获取扭矩效率数据
-    
-    Args:
-        session_data: session段数据
-        stream_data: 流数据
-        side: 左右侧（'left'或'right'）
-        fit_url: FIT文件URL
-        
-    Returns:
-        Optional[float]: 扭矩效率值，如果没有则返回None
-    """
-    # 优先从session中获取
-    if session_data:
-        field_name = f'{side}_torque_effectiveness'
-        if field_name in session_data:
-            return float(session_data[field_name])
-    
-    # 从records中获取
-    records_data = get_cadence_fields_from_records(fit_url)
-    if records_data:
-        field_name = f'{side}_torque_effectiveness'
-        if field_name in records_data:
-            return records_data[field_name]
-    
-    return None
-
-def get_pedal_smoothness(session_data: Optional[Dict[str, Any]], stream_data: Dict[str, Any], side: str, fit_url: str) -> Optional[float]:
-    """
-    获取踏板平顺度数据
-    
-    Args:
-        session_data: session段数据
-        stream_data: 流数据
-        side: 左右侧（'left'或'right'）
-        fit_url: FIT文件URL
-        
-    Returns:
-        Optional[float]: 踏板平顺度值，如果没有则返回None
-    """
-    # 优先从session中获取
-    if session_data:
-        field_name = f'{side}_pedal_smoothness'
-        if field_name in session_data:
-            return float(session_data[field_name])
-    
-    # 从records中获取
-    records_data = get_cadence_fields_from_records(fit_url)
-    if records_data:
-        field_name = f'{side}_pedal_smoothness'
-        if field_name in records_data:
-            return records_data[field_name]
-    
-    return None
-
-
-def get_activity_speed_info(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
-    try:
-        # 获取活动和运动员信息
-        activity_athlete = get_activity_athlete(db, activity_id)
-        if not activity_athlete:
-            return None
-        
-        activity, athlete = activity_athlete
-        
-        # 获取流数据
-        stream_data = get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        
-        # 获取session段数据
-        from .data_manager import activity_data_manager
-        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
-        
-        # 获取速度数据
-        speed_data = stream_data.get('speed', [])
-        power_data = stream_data.get('power', [])
-        elapsed_time_data = stream_data.get('elapsed_time', [])
-        
-        if not speed_data:
-            return None
-        
-        # 过滤有效的速度数据（大于0）
-        valid_speeds = [s for s in speed_data if s is not None and s > 0]
-        if not valid_speeds:
-            return None
-        
-        result = {}
-        
-        # 1. 平均速度（千米每小时，保留一位小数）
-        if session_data and 'avg_speed' in session_data:
-            # 如果session中有速度数据，需要转换为km/h
-            session_speed = session_data['avg_speed']
-            if session_speed:
-                # 假设session中的速度是m/s，转换为km/h
-                result['avg_speed'] = round(float(session_speed) * 3.6, 1)
-            else:
-                result['avg_speed'] = round(sum(valid_speeds) / len(valid_speeds), 1)
-        else:
-            result['avg_speed'] = round(sum(valid_speeds) / len(valid_speeds), 1)
-        
-        # 2. 最大速度（千米每小时，保留一位小数）
-        if session_data and 'max_speed' in session_data:
-            # 如果session中有最大速度数据，需要转换为km/h
-            session_max_speed = session_data['max_speed']
-            if session_max_speed:
-                # 假设session中的速度是m/s，转换为km/h
-                result['max_speed'] = round(float(session_max_speed) * 3.6, 1)
-            else:
-                result['max_speed'] = round(max(valid_speeds), 1)
-        else:
-            result['max_speed'] = round(max(valid_speeds), 1)
-        
-        # 3. 移动时间（格式化字符串）
-        if session_data and 'total_timer_time' in session_data:
-            result['moving_time'] = format_time(session_data['total_timer_time'])
-        elif session_data and 'total_elapsed_time' in session_data:
-            result['moving_time'] = format_time(session_data['total_elapsed_time'])
-        elif elapsed_time_data:
-            max_elapsed = max(elapsed_time_data)
-            result['moving_time'] = format_time(max_elapsed)
-        else:
-            result['moving_time'] = "00:00:00"
-        
-        # 4. 全程耗时（总时间，格式化字符串）
-        if session_data and 'total_elapsed_time' in session_data:
-            result['total_time'] = format_time(session_data['total_elapsed_time'])
-        elif elapsed_time_data:
-            # 从elapsed_time数据计算总时间
-            total_seconds = calculate_total_time_from_elapsed(elapsed_time_data)
-            result['total_time'] = format_time(total_seconds)
-        else:
-            result['total_time'] = "00:00:00"
-        
-        # 5. 暂停时间（全程耗时减去移动时间）
-        total_seconds = parse_time_to_seconds(result['total_time'])
-        moving_seconds = parse_time_to_seconds(result['moving_time'])
-        pause_seconds = total_seconds - moving_seconds
-        result['pause_time'] = format_time(pause_seconds)
-        
-        # 6. 滑行时间（速度低于1km/h或功率低于10w的时间，暂停时间点不算在内）
-        result['coasting_time'] = calculate_coasting_time(speed_data, power_data, elapsed_time_data)
-        
-        return result  
-    except Exception as e:
-        return None
-
-def calculate_total_time_from_elapsed(elapsed_time_data: List[int]) -> int:
-    """
-    从elapsed_time数据计算总时间
-    
-    Args:
-        elapsed_time_data: elapsed_time数据列表
-        
-    Returns:
-        int: 总时间（秒）
-    """
-    if not elapsed_time_data:
-        return 0
-    
-    # 找到最大的elapsed_time，这通常是总时间
-    max_elapsed = max(elapsed_time_data)
-    
-    # 但是elapsed_time可能不包括暂停时间，所以需要估算
-    # 假设数据点之间的间隔是1秒，如果有大的间隔，说明有暂停
-    total_time = max_elapsed
-    
-    # 检查数据点之间的间隔
-    if len(elapsed_time_data) > 1:
-        # 计算实际的数据点数量，这应该等于总时间（包括暂停）
-        total_time = len(elapsed_time_data)
-    
-    return total_time
-
-def calculate_coasting_time(speed_data: List[float], power_data: List[int], elapsed_time_data: List[int]) -> str:
-    """
-    计算滑行时间（速度低于1km/h或功率低于10w的时间，暂停时间点不算在内）
-    
-    Args:
-        speed_data: 速度数据列表（km/h）
-        power_data: 功率数据列表（W）
-        elapsed_time_data: elapsed_time数据列表
-        
-    Returns:
-        str: 滑行时间（格式化字符串）
-    """
-    if not speed_data or not elapsed_time_data:
-        return "00:00:00"
-    
-    coasting_seconds = 0
-    
-    # 遍历所有数据点
-    for i in range(len(speed_data)):
-        if i >= len(elapsed_time_data):
-            break
-        
-        # 检查是否为滑行状态
-        is_coasting = False
-        
-        # 检查速度是否低于1km/h
-        if i < len(speed_data) and speed_data[i] is not None:
-            if speed_data[i] < 1.0:
-                is_coasting = True
-        
-        # 检查功率是否低于10W
-        if not is_coasting and i < len(power_data) and power_data[i] is not None:
-            if power_data[i] < 10:
-                is_coasting = True
-        
-        # 如果是滑行状态，计算这个时间段的持续时间
-        if is_coasting:
-            if i == 0:
-                # 第一个数据点，假设持续1秒
-                coasting_seconds += 1
-            else:
-                # 计算与前一个数据点的时间差
-                current_elapsed = elapsed_time_data[i]
-                prev_elapsed = elapsed_time_data[i-1]
-                time_diff = current_elapsed - prev_elapsed
-                
-                # 如果时间差合理（不超过5秒），认为是连续滑行
-                if time_diff <= 5:
-                    coasting_seconds += time_diff
-                else:
-                    # 时间差过大，可能是有暂停，只计算1秒
-                    coasting_seconds += 1
-    
-    return format_time(coasting_seconds) 
-
-def get_activity_altitude_info(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
-    """
-    获取活动的海拔相关信息
-    
-    Args:
-        db: 数据库会话
-        activity_id: 活动ID
-        
-    Returns:
-        Dict[str, Any]: 海拔相关信息，如果不存在则返回None
-    """
-    try:
-        # 获取活动和运动员信息
-        activity_athlete = get_activity_athlete(db, activity_id)
-        if not activity_athlete:
-            return None
-        
-        activity, athlete = activity_athlete
-        
-        # 获取流数据
-        stream_data = get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        
-        # 获取session段数据
-        from .data_manager import activity_data_manager
-        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
-        
-        # 获取海拔和距离数据
-        altitude_data = stream_data.get('altitude', [])
-        distance_data = stream_data.get('distance', [])
-        
-        if not altitude_data:
-            return None
-        
-        # 过滤有效的海拔数据
-        valid_altitudes = [alt for alt in altitude_data if alt is not None]
-        if not valid_altitudes:
-            return None
-        
-        result = {}
-        
-        # 1. 爬升海拔（米，保留整数）- 优先使用session中的total_ascent
-        if session_data and 'total_ascent' in session_data and session_data['total_ascent']:
-            result['elevation_gain'] = int(session_data['total_ascent'])
-        else:
-            result['elevation_gain'] = int(calculate_elevation_gain(valid_altitudes))
-        
-        # 2. 最高海拔（米，保留整数）
-        result['max_altitude'] = int(max(valid_altitudes))
-        
-        # 3. 最大坡度（百分比，保留两位小数）
-        result['max_grade'] = calculate_max_grade(altitude_data, distance_data)
-        
-        # 4. 累计下降（米，保留整数）- 优先使用session中的total_descent
-        if session_data and 'total_descent' in session_data and session_data['total_descent']:
-            result['total_descent'] = int(session_data['total_descent'])
-        else:
-            result['total_descent'] = int(calculate_total_descent(valid_altitudes))
-        
-        # 5. 最低海拔（米，保留整数）
-        result['min_altitude'] = int(min(valid_altitudes))
-        
-        # 6. 上坡距离（千米，保留两位小数）
-        result['uphill_distance'] = calculate_uphill_distance(altitude_data, distance_data)
-        
-        # 7. 下坡距离（千米，保留两位小数）
-        result['downhill_distance'] = calculate_downhill_distance(altitude_data, distance_data)
-        
-        return result
-        
-    except Exception as e:
-        return None
-
-# !待优化
-def calculate_max_grade(altitude_data: List[int], distance_data: List[float]) -> float:
-    """
-    计算最大坡度
-    
-    Args:
-        altitude_data: 海拔数据列表（米）
-        distance_data: 距离数据列表（米）
-        
-    Returns:
-        float: 最大坡度（百分比，保留两位小数）
-    """
-    if not altitude_data or not distance_data or len(altitude_data) < 2 or len(distance_data) < 2:
-        return 0.0
-    
-    max_grade = 0.0
-    
-    # 计算相邻点之间的坡度
-    for i in range(1, min(len(altitude_data), len(distance_data))):
-        if (altitude_data[i] is not None and altitude_data[i-1] is not None and 
-            distance_data[i] is not None and distance_data[i-1] is not None):
-            
-            # 计算海拔差和距离差
-            altitude_diff = altitude_data[i] - altitude_data[i-1]
-            distance_diff = distance_data[i] - distance_data[i-1]
-            
-            # 避免除零错误
-            if distance_diff > 0:
-                # 坡度 = 海拔差 / 距离差 * 100%
-                grade = (altitude_diff / distance_diff) * 100
-                max_grade = max(max_grade, grade)
-    
-    return round(max_grade, 2)
-
-def calculate_total_descent(altitudes: List[int]) -> float:
-    """
-    计算累计下降
-    
-    Args:
-        altitudes: 海拔数据列表（米）
-        
-    Returns:
-        float: 累计下降（米）
-    """
-    if not altitudes or len(altitudes) < 2:
-        return 0.0
-    
-    # 过滤异常值（参考VAM计算中的过滤方法）
-    filtered_altitudes = []
-    for i, alt in enumerate(altitudes):
-        if alt is None:
-            continue
-        
-        # 过滤异常值：超过5000米或低于-500米的设为None
-        if alt > 5000 or alt < -500:
-            continue
-        
-        # 如果与前一个有效值差异过大（超过100米），可能是异常值
-        if filtered_altitudes and abs(alt - filtered_altitudes[-1]) > 100:
-            continue
-        
-        filtered_altitudes.append(alt)
-    
-    if len(filtered_altitudes) < 2:
-        return 0.0
-    
-    # 计算下降
-    total_descent = 0.0
-    for i in range(1, len(filtered_altitudes)):
-        diff = filtered_altitudes[i] - filtered_altitudes[i-1]
-        if diff < 0:  # 只计算下降
-            total_descent += abs(diff)
-    
-    return total_descent
-
-def calculate_uphill_distance(altitude_data: List[int], distance_data: List[float]) -> float:
-    """
-    计算上坡距离
-    
-    Args:
-        altitude_data: 海拔数据列表（米）
-        distance_data: 距离数据列表（米）
-        
-    Returns:
-        float: 上坡距离（千米，保留两位小数）
-    """
-    if not altitude_data or not distance_data or len(altitude_data) < 2 or len(distance_data) < 2:
-        return 0.0
-    
-    uphill_distance = 0.0
-    
-    # 计算相邻点之间的上坡距离
-    for i in range(1, min(len(altitude_data), len(distance_data))):
-        if (altitude_data[i] is not None and altitude_data[i-1] is not None and 
-            distance_data[i] is not None and distance_data[i-1] is not None):
-            
-            # 计算海拔差和距离差
-            altitude_diff = altitude_data[i] - altitude_data[i-1]
-            distance_diff = distance_data[i] - distance_data[i-1]
-            
-            # 如果是上坡（海拔增加），累加上坡距离
-            if altitude_diff > 0 and distance_diff > 0:
-                uphill_distance += distance_diff
-    
-    # 转换为千米并保留两位小数
-    return round(uphill_distance / 1000, 2)
-
-def calculate_downhill_distance(altitude_data: List[int], distance_data: List[float]) -> float:
-    """
-    计算下坡距离
-    
-    Args:
-        altitude_data: 海拔数据列表（米）
-        distance_data: 距离数据列表（米）
-        
-    Returns:
-        float: 下坡距离（千米，保留两位小数）
-    """
-    if not altitude_data or not distance_data or len(altitude_data) < 2 or len(distance_data) < 2:
-        return 0.0
-    
-    downhill_distance = 0.0
-    
-    # 计算相邻点之间的下坡距离
-    for i in range(1, min(len(altitude_data), len(distance_data))):
-        if (altitude_data[i] is not None and altitude_data[i-1] is not None and 
-            distance_data[i] is not None and distance_data[i-1] is not None):
-            
-            # 计算海拔差和距离差
-            altitude_diff = altitude_data[i] - altitude_data[i-1]
-            distance_diff = distance_data[i] - distance_data[i-1]
-            
-            # 如果是下坡（海拔减少），累加下坡距离
-            if altitude_diff < 0 and distance_diff > 0:
-                downhill_distance += distance_diff
-    
-    # 转换为千米并保留两位小数
-    return round(downhill_distance / 1000, 2) 
-
-def get_activity_temperature_info(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
-    try:
-        # 获取活动和运动员信息
-        activity_athlete = get_activity_athlete(db, activity_id)
-        if not activity_athlete:
-            return None
-        
-        activity, athlete = activity_athlete
-        
-        # 获取流数据
-        stream_data = get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        
-        # 获取session段数据
-        from .data_manager import activity_data_manager
-        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
-        
-        # 获取温度数据
-        temperature_data = stream_data.get('temp', [])
-        if not temperature_data:
-            return None
-        
-        # 过滤有效的温度数据（排除None值）
-        valid_temperatures = [t for t in temperature_data if t is not None]
-        if not valid_temperatures:
-            return None
-        
-        result = {}
-        
-        # 1. 最低温度（保留整数）- 优先使用session中的数据
-        if session_data and 'min_temperature' in session_data:
-            result['min_temp'] = int(round(session_data['min_temperature']))
-        else:
-            result['min_temp'] = int(round(min(valid_temperatures)))
-        
-        # 2. 平均温度（保留整数）- 优先使用session中的数据
-        if session_data and 'avg_temperature' in session_data:
-            result['avg_temp'] = int(round(session_data['avg_temperature']))
-        else:
-            result['avg_temp'] = int(round(sum(valid_temperatures) / len(valid_temperatures)))
-        
-        # 3. 最大温度（保留整数）- 优先使用session中的数据
-        if session_data and 'max_temperature' in session_data:
-            result['max_temp'] = int(round(session_data['max_temperature']))
-        else:
-            result['max_temp'] = int(round(max(valid_temperatures)))
-        return result
-        
-    except Exception as e:
-        return None 
-
-def get_activity_best_power_info(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
-    """
-    获取活动的最佳功率信息
-    
-    Args:
-        db: 数据库会话
-        activity_id: 活动ID
-        
-    Returns:
-        Dict[str, Any]: 活动最佳功率信息，如果不存在则返回None
-    """
-    try:
-        # 获取活动总体信息
-        activity_athlete = get_activity_athlete(db, activity_id)
-        if not activity_athlete:
-            return None
-        
-        activity, athlete = activity_athlete
-        
-        # 获取流数据
-        stream_data = get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        
-        # 获取最佳功率数据
-        best_powers_data = stream_data.get('best_power', [])
-        if not best_powers_data:
-            return None
-        
-        # 定义时间区间映射（秒）
-        time_intervals = {
-            '5s': 5,
-            '30s': 30,
-            '1min': 60,
-            '5min': 300,
-            '8min': 480,
-            '20min': 1200,
-            '30min': 1800,
-            '1h': 3600
-        }
-        
-        # 构建最佳功率响应
-        best_powers = {}
-        for interval_name, interval_seconds in time_intervals.items():
-            # 检查是否有足够的数据点
-            if len(best_powers_data) >= interval_seconds:
-                best_powers[interval_name] = best_powers_data[interval_seconds - 1]  # 数组索引从0开始
-        
-        return {
-            'best_powers': best_powers
-        }
-        
-    except Exception as e:
-        return None 
-
-
-
-def get_activity_power_zones(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
-    try:
-        # 获取活动和运动员信息
-        activity_athlete = get_activity_athlete(db, activity_id)
-        if not activity_athlete:
-            return None
-        
-        activity, athlete = activity_athlete
-        
-        # 检查FTP数据
-        try:
-            ftp = int(athlete.ftp)
-        except (TypeError, ValueError):
-            ftp = None
-        if not ftp or ftp <= 0:
-            return None
-        
-        # 获取流数据
-        stream_data = get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        
-        # 获取功率数据
-        power_data = stream_data.get('power', [])
-        if not power_data:
-            return None
-        
-        # 分析功率区间
-        from .zone_analyzer import ZoneAnalyzer
-        distribution_buckets = ZoneAnalyzer.analyze_power_zones(power_data, ftp)
-        
-        return {
-            "distribution_buckets": distribution_buckets,
-            "type": "power"
-        }
-        
-    except Exception as e:
-        return None
-
-def get_activity_heartrate_zones(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
-    try:
-        # 获取活动和运动员信息
-        activity_athlete = get_activity_athlete(db, activity_id)
-        if not activity_athlete:
-            return None
-        
-        activity, athlete = activity_athlete
-        
-        # 检查最大心率数据
-        if not athlete.max_heartrate or athlete.max_heartrate <= 0:
-            return None
-        
-        # 获取流数据（使用全局数据管理器，自动缓存）
-        stream_data = get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        
-        # 获取心率数据
-        heartrate_data = stream_data.get('heartrate', [])
-        if not heartrate_data:
-            return None
-        
-        # 分析心率区间
-        from .zone_analyzer import ZoneAnalyzer
-        distribution_buckets = ZoneAnalyzer.analyze_heartrate_zones(heartrate_data, athlete.max_heartrate)
-        
-        return {
-            "distribution_buckets": distribution_buckets,
-            "type": "heartrate"
-        }
-        
-    except Exception as e:
-        return None 
 
 def _calculate_aerobic_effect(power_data: list, ftp: int) -> float:
     try:
@@ -1640,3 +1142,65 @@ def _get_primary_training_benefit(
 
     return primary_type, secondary_type
 
+
+# 其他文件中使用到的函数
+def get_activity_power_zones(
+    db: Session, 
+    activity_id: int
+) -> Optional[Dict[str, Any]]:
+    try:
+        activity, athlete = get_activity_athlete(db, activity_id)
+        if not activity:
+            return None
+
+        ftp = int(athlete.ftp)
+        
+        # 获取流数据
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        # 获取功率数据
+        power_data = stream_data.get('power', [])
+        if not power_data:
+            return None
+        
+        # 分析功率区间
+        from .zone_analyzer import ZoneAnalyzer
+        distribution_buckets = ZoneAnalyzer.analyze_power_zones(power_data, ftp)
+        
+        return {
+            "distribution_buckets": distribution_buckets,
+            "type": "power"
+        }
+        
+    except Exception as e:
+        return None
+
+def get_activity_heartrate_zones(
+    db: Session, 
+    activity_id: int
+) -> Optional[Dict[str, Any]]:
+    try:
+        activity, athlete = get_activity_athlete(db, activity_id)
+        if not activity:
+            return None
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        
+        # 获取心率数据
+        heartrate_data = stream_data.get('heartrate', [])
+        if not heartrate_data:
+            return None
+        
+        # 分析心率区间
+        from .zone_analyzer import ZoneAnalyzer
+        distribution_buckets = ZoneAnalyzer.analyze_heartrate_zones(heartrate_data, athlete.max_heartrate)
+        
+        return {
+            "distribution_buckets": distribution_buckets,
+            "type": "heartrate"
+        }
+        
+    except Exception as e:
+        return None 
