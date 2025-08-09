@@ -4,10 +4,10 @@ Activities模块的路由
 包含活动相关的API端点。
 """
 
-from tarfile import data_filter
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import requests
 import logging
 from ..utils import get_db
@@ -17,6 +17,7 @@ from .zone_analyzer import ZoneAnalyzer
 from .strava_analyzer import StravaAnalyzer
 from ..streams.models import Resolution
 from ..streams.crud import stream_crud
+from .data_manager import activity_data_manager
 import json
 
 router = APIRouter(prefix="/activities", tags=["活动"])
@@ -28,14 +29,9 @@ async def get_activity_zones(
     db: Session = Depends(get_db)
 ) -> ZoneResponse:
     try:
-        activity_athlete = get_activity_athlete(db, activity_id)
-        if not activity_athlete:
-            raise HTTPException(status_code=404, detail="活动或运动员信息不存在") 
-        _, athlete = activity_athlete  
-        stream_data = get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            raise HTTPException(status_code=404, detail="活动流数据不存在")        
-    
+        _, athlete = activity_data_manager.get_athlete_info(db, activity_id)
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+      
         if key == ZoneType.POWER:
             ftp = int(athlete.ftp)
             power_data = stream_data.get('power', [])
@@ -43,13 +39,10 @@ async def get_activity_zones(
                 raise HTTPException(status_code=400, detail="活动功率数据不存在")
             distribution_buckets = ZoneAnalyzer.analyze_power_zones(power_data, ftp)
             zone_type = "power"      
-        elif key == ZoneType.HEARTRATE:
-            hr_data = stream_data.get('heartrate', [])
-            if not hr_data:
-                raise HTTPException(status_code=400, detail="活动心率数据不存在")
+        elif key == ZoneType.HEARTRATE or key == ZoneType.HEART_RATE:
+            hr_data = stream_data.get('heart_rate', [])
             distribution_buckets = ZoneAnalyzer.analyze_heartrate_zones(hr_data, athlete.max_heartrate)
             zone_type = "heartrate"       
-    
         zone_data = ZoneData(
             distribution_buckets=distribution_buckets,
             type=zone_type
@@ -197,7 +190,7 @@ async def get_activity_training_effect(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
 
-@router.get("/{activity_id}/multi-streams", response_model=MultiStreamResponse)
+@router.post("/{activity_id}/multi-streams", response_model=MultiStreamResponse)
 async def get_activity_multi_streams(
     activity_id: int,
     request: MultiStreamRequest,
@@ -217,8 +210,8 @@ async def get_activity_multi_streams(
             raise HTTPException(status_code=400, detail="无效的分辨率参数，必须是 low、medium 或 high")
         
         
-        # 获取流数据
-        streams_data = stream_crud.get_activity_streams(db, activity_id, request.keys, resolution)
+        # 使用全局数据管理器获取流数据
+        streams_data = activity_data_manager.get_activity_streams(db, activity_id, request.keys, resolution)
         
         # 构建响应数据
         response_data = []
@@ -456,12 +449,8 @@ async def get_activity_all_data(
         except Exception:
             response_data["best_powers"] = None
         
-        # 获取流数据
+        # 获取流数据 - 使用全局数据管理器
         try:
-            # 直接调用streams模块的CRUD函数，避免循环导入
-            from ..streams.crud import stream_crud
-            from ..streams.models import Resolution
-            
             # 获取可用的流数据类型
             available_result = stream_crud.get_available_streams(db, activity_id)
             if available_result["status"] == "success":
@@ -474,8 +463,8 @@ async def get_activity_all_data(
                 elif resolution == "medium":
                     resolution_enum = Resolution.MEDIUM
                 
-                # 获取流数据
-                streams_data = stream_crud.get_activity_streams(db, activity_id, available_streams, resolution_enum)
+                # 使用全局数据管理器获取流数据
+                streams_data = activity_data_manager.get_activity_streams(db, activity_id, available_streams, resolution_enum)
                 response_data["streams"] = streams_data
             else:
                 response_data["streams"] = None
@@ -488,5 +477,43 @@ async def get_activity_all_data(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+
+# 添加缓存管理接口
+@router.delete("/cache/{activity_id}")
+async def clear_activity_cache(
+    activity_id: int,
+    db: Session = Depends(get_db)
+):
+    """清除指定活动的缓存数据"""
+    try:
+        activity_data_manager.clear_cache(activity_id)
+        return {"message": f"活动 {activity_id} 的缓存已清除"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"清除缓存时发生错误: {str(e)}")
+
+@router.delete("/cache")
+async def clear_all_cache(
+    db: Session = Depends(get_db)
+):
+    """清除所有活动的缓存数据"""
+    try:
+        activity_data_manager.clear_cache()
+        return {"message": "所有缓存已清除"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"清除缓存时发生错误: {str(e)}")
+
+@router.get("/cache/stats")
+async def get_cache_stats(
+    db: Session = Depends(get_db)
+):
+    """获取缓存统计信息"""
+    try:
+        stats = activity_data_manager.get_cache_stats()
+        return {
+            "message": "获取缓存统计信息成功",
+            "data": stats
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取缓存统计信息时发生错误: {str(e)}")
 
 

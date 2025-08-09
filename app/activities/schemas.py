@@ -11,8 +11,9 @@ from typing import Dict
 
 class ZoneType(str, Enum):
     """区间类型枚举"""
-    POWER     = "power"
-    HEARTRATE = "heartrate"
+    POWER      = "power"
+    HEARTRATE  = "heartrate"
+    HEART_RATE = "heart_rate"
 
 class ZoneRequest(BaseModel):
     """区间请求参数"""

@@ -14,6 +14,7 @@ import numpy as np
 from fitparse import FitFile
 from io import BytesIO
 import requests
+from .data_manager import activity_data_manager
 
 # 数据库相关
 def update_database_field(
@@ -23,33 +24,13 @@ def update_database_field(
     field_name: str, 
     value: Any
 ) -> bool:
-    """
-    通用的数据库字段更新函数
-    
-    Args:
-        db: 数据库会话
-        table_class: 表模型类（如TbActivity, TbAthlete等）
-        record_id: 记录ID
-        field_name: 要更新的字段名
-        value: 要更新的值
-        
-    Returns:
-        bool: 更新是否成功
-    """
     try:
-        # 查询记录
         record = db.query(table_class).filter(table_class.id == record_id).first()
         if not record:
             return False
-        
-        # 检查字段是否存在
         if not hasattr(record, field_name):
             return False
-        
-        # 更新字段值
         setattr(record, field_name, value)
-        
-        # 提交更改
         db.commit()
         return True
         
@@ -58,7 +39,6 @@ def update_database_field(
         db.rollback()
         return False
 
-# @ 这里没问题
 def get_activity_athlete(
     db: Session, 
     activity_id: int
@@ -79,44 +59,13 @@ def get_activity_stream_data(
     db: Session, 
     activity_id: int
 ) -> Optional[Dict[str, Any]]:
-    """
-    获取活动的流数据
-    
-    Args:
-        db: 数据库会话
-        activity_id: 活动ID
-        
-    Returns:
-        Dict[str, Any]: 流数据字典，如果不存在则返回None
-    """
     try:
-        # 查询活动信息
-        activity = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
-        if not activity:
-            return None
-        
-        
-        # ! 这里有问题
-        # 使用StreamCRUD获取流数据
-        stream_crud = StreamCRUD()
-        stream_data = stream_crud._get_or_parse_stream_data(db, activity)
-        
-
-        if not stream_data:
-            return None
-        
-        # 转换为字典格式
-        result = {}
-        # 从模型类访问 model_fields，而不是从实例
-        for field_name in stream_data.__class__.model_fields:
-            if field_name not in ('timestamp',):  # 只排除timestamp，保留distance和elapsed_time
-                data = getattr(stream_data, field_name)
-                if data and any(x is not None and x != 0 for x in data):
-                    result[field_name] = data
-        return result
-        
+        return activity_data_manager.get_activity_stream_data(db, activity_id)
     except Exception as e:
         return None
+
+
+
 
 # 所有接口相关的整体信息
 def get_activity_overall_info(
@@ -249,7 +198,9 @@ def get_activity_power_info(
         if not stream_data:
             return None
         
-        session_data = get_session_data(activity.upload_fit_url)
+        # 使用全局数据管理器获取session数据
+        from .data_manager import activity_data_manager
+        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         
         power_data = stream_data.get('power', [])
         if not power_data:
@@ -303,6 +254,153 @@ def get_activity_power_info(
     except Exception as e:
         return None
 
+def get_activity_heartrate_info(
+    db: Session, 
+    activity_id: int
+) -> Optional[Dict[str, Any]]:
+    try:
+        activity, athlete = get_activity_athlete(db, activity_id)
+        stream_data = get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
+        
+        heartrate_data = stream_data.get('heart_rate', [])
+        if not heartrate_data:
+            return None
+  
+        def filter_heartrate_data_with_smoothing(
+            heartrate_data: List[Any]
+        ) -> List[int]:
+            filtered_data = []
+            for i, hr in enumerate(heartrate_data):
+                if hr is None:
+                    continue
+                if hr <= 0 or hr < 30:
+                    continue
+                if hr > 220:
+                    continue
+                if filtered_data and abs(hr - filtered_data[-1]) > 50:
+                    continue
+                
+                filtered_data.append(hr)
+            return filtered_data
+
+        def calculate_efficiency_index(
+        ) -> Optional[float]:
+            try:
+                avg_power = sum(power_data) / len(power_data)
+                avg_hr = sum(valid_hr) / len(valid_hr)
+                return round(avg_power / avg_hr, 2)
+            except Exception as e:
+                return None
+
+        def calculate_heartrate_recovery_rate(
+        ) -> int:
+            try:
+                max_drop = 0
+                window = 60
+                n = len(valid_hr)
+                
+                for i in range(n - window):
+                    start_hr = valid_hr[i]
+                    end_hr = valid_hr[i + window]
+                    drop = start_hr - end_hr
+                    if drop > max_drop:
+                        max_drop = drop
+                
+                return int(max_drop) if max_drop > 0 else 0
+                
+            except Exception as e:
+                return 0
+
+        def calculate_decoupling_rate(
+        ) -> Optional[str]:
+            try:
+                min_length = min(len(power_data), len(heartrate_data))
+                powers = power_data[:min_length]
+                heart_rates = heartrate_data[:min_length]
+                
+                # 将数据分为前半部分和后半部分
+                mid_point = min_length // 2
+                
+                first_half_powers = powers[:mid_point]
+                first_half_hr = heart_rates[:mid_point]
+                second_half_powers = powers[mid_point:]
+                second_half_hr = heart_rates[mid_point:]
+                
+                # 计算前半部分的功率/心率比
+                first_half_ratio = 0.0
+                if first_half_hr and any(hr > 0 for hr in first_half_hr):
+                    first_half_avg_power = sum(first_half_powers) / len(first_half_powers)
+                    first_half_avg_hr = sum(first_half_hr) / len(first_half_hr)
+                    if first_half_avg_hr > 0:
+                        first_half_ratio = first_half_avg_power / first_half_avg_hr
+                
+                # 计算后半部分的功率/心率比
+                second_half_ratio = 0.0
+                if second_half_hr and any(hr > 0 for hr in second_half_hr):
+                    second_half_avg_power = sum(second_half_powers) / len(second_half_powers)
+                    second_half_avg_hr = sum(second_half_hr) / len(second_half_hr)
+                    if second_half_avg_hr > 0:
+                        second_half_ratio = second_half_avg_power / second_half_avg_hr
+                
+                # 计算解耦率：前半部分功率/心率 - 后半部分功率/心率
+                if first_half_ratio > 0 and second_half_ratio > 0:
+                    decoupling_rate = first_half_ratio - second_half_ratio
+                    # 转换为百分比
+                    decoupling_percentage = (decoupling_rate / first_half_ratio) * 100
+                    return f"{round(decoupling_percentage, 1)}%"
+                
+                return None
+                
+            except Exception as e:
+                return None 
+
+        # 过滤心率异常值
+        valid_hr = filter_heartrate_data_with_smoothing(heartrate_data)
+        
+        result = {}
+        
+        if session_data and 'avg_heart_rate' in session_data:
+            result['avg_heartrate'] = int(session_data['avg_heart_rate'])
+        else:
+            result['avg_heartrate'] = int(sum(valid_hr) / len(valid_hr))
+
+        if session_data and 'max_heart_rate' in session_data:
+            result['max_heartrate'] = int(session_data['max_heart_rate'])
+        else:
+            result['max_heartrate'] = int(max(valid_hr))
+        
+        if "power" in stream_data:
+            power_data = stream_data.get('power', [])
+            result['heartrate_recovery_rate'] = calculate_heartrate_recovery_rate()
+            result['heartrate_lag'] = None
+            result['efficiency_index'] = calculate_efficiency_index()
+            result['decoupling_rate'] = calculate_decoupling_rate()
+        else:
+            result['heartrate_recovery_rate'] = None
+            result['heartrate_lag'] = None
+            result['efficiency_index'] = None
+            result['decoupling_rate'] = None
+        
+        return result
+        
+    except Exception as e:
+        return None
+
+
+
+
+
+
+
+
+
+
+
+
+
 def get_activity_training_effect_info(
     db: Session, 
     activity_id: int
@@ -342,48 +440,7 @@ def get_activity_training_effect_info(
     except Exception as e:
         return None 
 
-def get_activity_heartrate_info(
-    db: Session, 
-    activity_id: int
-) -> Optional[Dict[str, Any]]:
-    try:
-        activity, athlete = get_activity_athlete(db, activity_id)
-        stream_data = get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        
-        session_data = get_session_data(activity.upload_fit_url)
-        
-        heartrate_data = stream_data.get('heartrate', [])
-        if not heartrate_data:
-            return None
-        
-        # 过滤心率异常值
-        valid_hr = filter_heartrate_data(heartrate_data)
-        if not valid_hr:
-            return None
-        
-        result = {}
-        
-        if session_data and 'avg_heart_rate' in session_data:
-            result['avg_heartrate'] = int(session_data['avg_heart_rate'])
-        else:
-            result['avg_heartrate'] = int(sum(valid_hr) / len(valid_hr))
 
-        if session_data and 'max_heart_rate' in session_data:
-            result['max_heartrate'] = int(session_data['max_heart_rate'])
-        else:
-            result['max_heartrate'] = int(max(valid_hr))
-        
-        result['heartrate_recovery_rate'] = calculate_heartrate_recovery_rate(stream_data)
-        result['heartrate_lag'] = None
-        result['efficiency_index'] = calculate_efficiency_index(stream_data, int(athlete.ftp))
-        result['decoupling_rate'] = calculate_decoupling_rate(stream_data)
-        
-        return result
-        
-    except Exception as e:
-        return None
 
 def get_activity_cadence_info(
     db: Session, 
@@ -398,7 +455,9 @@ def get_activity_cadence_info(
         if not stream_data:
             return None
         
-        session_data = get_session_data(activity.upload_fit_url)
+        # 使用全局数据管理器获取session数据
+        from .data_manager import activity_data_manager
+        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         
         cadence_data = stream_data.get('cadence', [])
         if not cadence_data:
@@ -712,194 +771,11 @@ def calculate_w_balance_decline(w_balance_data: list) -> float:
 
 
 
-def filter_heartrate_data(heartrate_data: List[Any]) -> List[int]:
-    """
-    过滤心率数据中的异常值
-    
-    Args:
-        heartrate_data: 原始心率数据列表
-        
-    Returns:
-        List[int]: 过滤后的心率数据列表
-    """
-    filtered_data = []
-    for hr in heartrate_data:
-        if hr is None:
-            continue
-        
-        # 过滤掉0值和异常低值（小于30 BPM）
-        if hr <= 0 or hr < 30:
-            continue
-        
-        # 过滤掉异常高值（大于220 BPM）
-        if hr > 220:
-            continue
-        
-        filtered_data.append(hr)
-    
-    return filtered_data
 
-def filter_heartrate_data_with_smoothing(heartrate_data: List[Any]) -> List[int]:
-    """
-    过滤心率数据中的异常值，并平滑突变值
-    
-    Args:
-        heartrate_data: 原始心率数据列表
-        
-    Returns:
-        List[int]: 过滤和平滑后的心率数据列表
-    """
-    filtered_data = []
-    for i, hr in enumerate(heartrate_data):
-        if hr is None:
-            continue
-        
-        # 过滤掉0值和异常低值（小于30 BPM）
-        if hr <= 0 or hr < 30:
-            continue
-        
-        # 过滤掉异常高值（大于220 BPM）
-        if hr > 220:
-            continue
-        
-        # 过滤突变值：如果与前一个有效值差异过大（超过50 BPM），则跳过
-        if filtered_data and abs(hr - filtered_data[-1]) > 50:
-            continue
-        
-        filtered_data.append(hr)
-    
-    return filtered_data
 
-def calculate_heartrate_recovery_rate(
-    stream_data: Dict[str, Any]
-) -> int:
-    try:
-        # 获取心率数据
-        heartrate_data = stream_data.get('heartrate', [])
-        if not heartrate_data or len(heartrate_data) < 60:
-            return 0
-        
-        # 过滤异常值并平滑突变值
-        filtered_hr_data = filter_heartrate_data_with_smoothing(heartrate_data)
-        
-        # 如果过滤后的数据不足60个点，返回0
-        if len(filtered_hr_data) < 60:
-            return 0
-        
-        max_drop = 0
-        window = 60  # 60秒窗口
-        n = len(filtered_hr_data)
-        
-        for i in range(n - window):
-            start_hr = filtered_hr_data[i]
-            end_hr = filtered_hr_data[i + window]
-            drop = start_hr - end_hr
-            if drop > max_drop:
-                max_drop = drop
-        
-        return int(max_drop) if max_drop > 0 else 0
-        
-    except Exception as e:
-        return 0
 
-def calculate_efficiency_index(
-    stream_data: Dict[str, Any], 
-    ftp: int
-) -> Optional[float]:
-    try:
-        # 获取功率和心率数据
-        power_data = stream_data.get('power', [])
-        heartrate_data = stream_data.get('heartrate', [])
-        
-        if not power_data or not heartrate_data:
-            return None
-        
-        # 过滤有效数据
-        valid_powers = [p for p in power_data if p is not None and p > 0]
-        
-        # 过滤心率异常值
-        valid_hr = filter_heartrate_data(heartrate_data)
-        
-        if not valid_powers or not valid_hr:
-            return 0.0
-        
-        # 计算平均功率和平均心率
-        avg_power = sum(valid_powers) / len(valid_powers)
-        avg_hr = sum(valid_hr) / len(valid_hr)
-        
-        # 效率指数 = 平均功率 / 平均心率
-        if avg_hr > 0:
-            efficiency_index = avg_power / avg_hr
-            return round(efficiency_index, 2)
-        
-        return None      
-    except Exception as e:
-        return None
 
-def calculate_decoupling_rate(
-    stream_data: Dict[str, Any]
-) -> Optional[str]:
-    try:
-        # 获取功率和心率数据
-        power_data = stream_data.get('power', [])
-        heartrate_data = stream_data.get('heartrate', [])
-        
-        if not power_data or not heartrate_data:
-            return "0.0%"
-        
-        # 过滤有效数据
-        valid_powers = [p for p in power_data if p is not None and p > 0]
-        
-        # 过滤心率异常值
-        valid_hr = filter_heartrate_data(heartrate_data)
-        
-        if not valid_powers or not valid_hr:
-            return "0.0%"
-        
-        # 确保数据长度一致，取较短的长度
-        min_length = min(len(valid_powers), len(valid_hr))
-        if min_length < 10:  # 至少需要10个数据点
-            return "0.0%"
-        
-        # 截取相同长度的数据
-        powers = valid_powers[:min_length]
-        heart_rates = valid_hr[:min_length]
-        
-        # 将数据分为前半部分和后半部分
-        mid_point = min_length // 2
-        
-        first_half_powers = powers[:mid_point]
-        first_half_hr = heart_rates[:mid_point]
-        second_half_powers = powers[mid_point:]
-        second_half_hr = heart_rates[mid_point:]
-        
-        # 计算前半部分的功率/心率比
-        first_half_ratio = 0.0
-        if first_half_hr and any(hr > 0 for hr in first_half_hr):
-            first_half_avg_power = sum(first_half_powers) / len(first_half_powers)
-            first_half_avg_hr = sum(first_half_hr) / len(first_half_hr)
-            if first_half_avg_hr > 0:
-                first_half_ratio = first_half_avg_power / first_half_avg_hr
-        
-        # 计算后半部分的功率/心率比
-        second_half_ratio = 0.0
-        if second_half_hr and any(hr > 0 for hr in second_half_hr):
-            second_half_avg_power = sum(second_half_powers) / len(second_half_powers)
-            second_half_avg_hr = sum(second_half_hr) / len(second_half_hr)
-            if second_half_avg_hr > 0:
-                second_half_ratio = second_half_avg_power / second_half_avg_hr
-        
-        # 计算解耦率：前半部分功率/心率 - 后半部分功率/心率
-        if first_half_ratio > 0 and second_half_ratio > 0:
-            decoupling_rate = first_half_ratio - second_half_ratio
-            # 转换为百分比
-            decoupling_percentage = (decoupling_rate / first_half_ratio) * 100
-            return f"{round(decoupling_percentage, 1)}%"
-        
-        return None
-        
-    except Exception as e:
-        return None 
+
 
 
 
@@ -1017,7 +893,8 @@ def get_activity_speed_info(db: Session, activity_id: int) -> Optional[Dict[str,
             return None
         
         # 获取session段数据
-        session_data = get_session_data(activity.upload_fit_url)
+        from .data_manager import activity_data_manager
+        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         
         # 获取速度数据
         speed_data = stream_data.get('speed', [])
@@ -1199,7 +1076,8 @@ def get_activity_altitude_info(db: Session, activity_id: int) -> Optional[Dict[s
             return None
         
         # 获取session段数据
-        session_data = get_session_data(activity.upload_fit_url)
+        from .data_manager import activity_data_manager
+        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         
         # 获取海拔和距离数据
         altitude_data = stream_data.get('altitude', [])
@@ -1401,7 +1279,8 @@ def get_activity_temperature_info(db: Session, activity_id: int) -> Optional[Dic
             return None
         
         # 获取session段数据
-        session_data = get_session_data(activity.upload_fit_url)
+        from .data_manager import activity_data_manager
+        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         
         # 获取温度数据
         temperature_data = stream_data.get('temp', [])
@@ -1546,7 +1425,7 @@ def get_activity_heartrate_zones(db: Session, activity_id: int) -> Optional[Dict
         if not athlete.max_heartrate or athlete.max_heartrate <= 0:
             return None
         
-        # 获取流数据
+        # 获取流数据（使用全局数据管理器，自动缓存）
         stream_data = get_activity_stream_data(db, activity_id)
         if not stream_data:
             return None

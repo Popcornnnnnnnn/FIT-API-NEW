@@ -52,19 +52,21 @@ class ZoneAnalyzer:
         return f"{percentage:.1f}%"
     
     @staticmethod
-    def analyze_power_zones(power_data: List[int], ftp: float) -> List[Dict[str, Any]]:
+    def analyze_power_zones(
+        power_data: List[int], 
+        ftp: int
+    ) -> List[Dict[str, Any]]:
         if not power_data or ftp <= 0:
             return []
-        
-        # 功率区间定义（基于FTP的7个区间）
+
         zones = [
-            (0, int(ftp * 0.55)),      # Zone 1: < 55% FTP
+            (0, int(ftp * 0.55)),                # Zone 1: < 55% FTP
             (int(ftp * 0.55), int(ftp * 0.75)),  # Zone 2: 55-75% FTP
             (int(ftp * 0.75), int(ftp * 0.90)),  # Zone 3: 75-90% FTP
             (int(ftp * 0.90), int(ftp * 1.05)),  # Zone 4: 90-105% FTP
             (int(ftp * 1.05), int(ftp * 1.20)),  # Zone 5: 105-120% FTP
             (int(ftp * 1.20), int(ftp * 1.50)),  # Zone 6: 120-150% FTP
-            (int(ftp * 1.50), int(ftp * 20.00)),  # Zone 7: >150% FTP
+            (int(ftp * 1.50), float('inf')),     # Zone 7: >150% FTP
         ]
         
         # 统计每个区间的时间
@@ -91,9 +93,10 @@ class ZoneAnalyzer:
         result = []
         for i, (min_power, max_power) in enumerate(zones):
             time_in_zone = zone_times[i]
+            max_value = -1 if max_power == float('inf') else max_power
             result.append({
                 "min": min_power,
-                "max": max_power,
+                "max": max_value,
                 "time": ZoneAnalyzer.format_time(time_in_zone),
                 "percentage": ZoneAnalyzer.calculate_percentage(time_in_zone, valid_data_count)
             })
@@ -101,21 +104,13 @@ class ZoneAnalyzer:
         return result
     
     @staticmethod
-    def analyze_heartrate_zones(hr_data: List[int], max_hr: int) -> List[Dict[str, Any]]:
-        """
-        分析心率区间
-        
-        Args:
-            hr_data: 心率数据列表
-            max_hr: 最大心率
-            
-        Returns:
-            List[Dict]: 心率区间分布
-        """
+    def analyze_heartrate_zones(
+        hr_data: List[int], 
+        max_hr: int
+    ) -> List[Dict[str, Any]]:
         if not hr_data or max_hr <= 0:
             return []
         
-        # 心率区间定义（基于最大心率的5个区间）
         zones = [
             (0, int(max_hr * 0.60)),      # Zone 1: < 60% Max HR
             (int(max_hr * 0.60), int(max_hr * 0.70)),  # Zone 2: 60-70% Max HR
@@ -124,27 +119,22 @@ class ZoneAnalyzer:
             (int(max_hr * 0.90), max_hr),  # Zone 5: 90-100% Max HR
         ]
         
-        # 统计每个区间的时间
         zone_times = defaultdict(int)
-        valid_data_count = 0  # 有效数据点计数
+        valid_data_count = 0 
         
         for hr in hr_data:
             if hr is None or hr <= 0:
                 continue
             
             valid_data_count += 1
-            
-            # 找到心率所属的区间
             for i, (min_hr, max_hr_zone) in enumerate(zones):
                 if min_hr <= hr < max_hr_zone:
                     zone_times[i] += 1
                     break
             else:
-                # 如果超过所有区间，归入最后一个区间
                 if hr >= zones[-1][1]:
                     zone_times[len(zones) - 1] += 1
         
-        # 构建结果
         result = []
         for i, (min_hr, max_hr_zone) in enumerate(zones):
             time_in_zone = zone_times[i]
