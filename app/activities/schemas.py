@@ -43,7 +43,7 @@ class OverallResponse(BaseModel):
     elevation_gain: int           = Field(..., description="爬升海拔（米，保留整数）")
     avg_power     : Optional[int] = Field(None, description="平均功率（瓦特，保留整数）")
     calories      : int           = Field(..., description="卡路里（估算值，保留整数）")
-    training_load : int           = Field(..., description="训练负荷（无单位，保留整数）")
+    training_load : Optional[int] = Field(None, description="训练负荷（无单位，保留整数）")
     status        : Optional[str] = Field(None, description="状态值")
     avg_heartrate : Optional[int] = Field(None, description="平均心率（保留整数）")
     max_altitude  : Optional[int] = Field(None, description="最高海拔（米，保留整数）")

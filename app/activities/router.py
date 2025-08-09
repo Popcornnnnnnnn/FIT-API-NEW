@@ -196,12 +196,6 @@ async def get_activity_multi_streams(
     request: MultiStreamRequest,
     db: Session = Depends(get_db)
 ):
-    """
-    获取活动的多个流数据
-    
-    接收一个字段数组和分辨率参数，返回指定格式的流数据。
-    如果请求的字段不存在，则在data处返回None。
-    """
     try:
         # 验证分辨率参数
         try:
@@ -249,30 +243,6 @@ async def get_activity_all_data(
     resolution: Optional[str] = Query("high", description="数据分辨率：low, medium, high"),
     db: Session = Depends(get_db)
 ):
-    """
-    获取活动的所有数据
-    
-    按照 overall、power、heartrate、cadence、speed、training_effect、altitude、temp、zones、best_powers 的顺序返回所有子字段。
-    如果某一个大的字段有缺失就在相应位置返回 None。
-    
-    参数说明：
-    - 如果没有传入 access_token，将 activity_id 作为本地数据库ID进行查询
-    - 如果传入了 access_token，将 activity_id 作为 Strava 的 external_id 调用 API
-    - keys 参数只有在 access_token 存在且有效时才会被解析：
-      * 格式：用逗号分隔的字符串，如：time,distance,watts,heartrate
-      * 如果为空，则返回所有可用的流数据字段
-      * 支持的字段：
-        - 直接使用 Strava API 字段名：distance, altitude, cadence, heartrate, velocity_smooth, latlng, watts, temp, time, moving, grade_smooth 等
-        - 特殊字段：
-          * latitude/longitude: 从 latlng 中提取的经纬度数据
-          * best_power: 最佳功率数据（计算得出）
-          * power_hr_ratio: 功率心率比（功率/心率，计算得出）
-          * torque: 扭矩数据（功率/踏频，计算得出）
-          * spi: 速度功率指数（功率/踏频，计算得出）
-          * w_balance: W平衡数据（基于功率的平衡计算）
-          * vam: 垂直爬升速度（海拔变化率，计算得出）
-    - resolution 参数控制数据分辨率：low, medium, high（默认：high）
-    """
     try:
         # 如果传入了 access_token，调用 Strava API
         if access_token:
@@ -332,120 +302,47 @@ async def get_activity_all_data(
         # 初始化响应数据
         response_data = {}
         
-        # 获取总体信息
-        try:
-            overall_info = get_activity_overall_info(db, activity_id)
-            if overall_info:
-                response_data["overall"] = OverallResponse(**overall_info)
-            else:
-                response_data["overall"] = None
-        except Exception:
-            response_data["overall"] = None
-        
-        # 获取功率信息
-        try:
-            power_info = get_activity_power_info(db, activity_id)
-            if power_info:
-                response_data["power"] = PowerResponse(**power_info)
-            else:
-                response_data["power"] = None
-        except Exception:
-            response_data["power"] = None
-        
-        # 获取心率信息
-        try:
-            heartrate_info = get_activity_heartrate_info(db, activity_id)
-            if heartrate_info:
-                response_data["heartrate"] = HeartrateResponse(**heartrate_info)
-            else:
-                response_data["heartrate"] = None
-        except Exception:
-            response_data["heartrate"] = None
-        
-        # 获取踏频信息
-        try:
-            cadence_info = get_activity_cadence_info(db, activity_id)
-            if cadence_info:
-                response_data["cadence"] = CadenceResponse(**cadence_info)
-            else:
-                response_data["cadence"] = None
-        except Exception:
-            response_data["cadence"] = None
-        
-        # 获取速度信息
-        try:
-            speed_info = get_activity_speed_info(db, activity_id)
-            if speed_info:
-                response_data["speed"] = SpeedResponse(**speed_info)
-            else:
-                response_data["speed"] = None
-        except Exception:
-            response_data["speed"] = None
-        
-        # 获取训练效果信息
-        try:
-            training_effect_info = get_activity_training_effect_info(db, activity_id)
-            if training_effect_info:
-                response_data["training_effect"] = TrainingEffectResponse(**training_effect_info)
-            else:
-                response_data["training_effect"] = None
-        except Exception:
-            response_data["training_effect"] = None
-        
-        # 获取海拔信息
-        try:
-            altitude_info = get_activity_altitude_info(db, activity_id)
-            if altitude_info:
-                response_data["altitude"] = AltitudeResponse(**altitude_info)
-            else:
-                response_data["altitude"] = None
-        except Exception:
-            response_data["altitude"] = None
-        
-        # 获取温度信息
-        try:
-            temperature_info = get_activity_temperature_info(db, activity_id)
-            if temperature_info:
-                response_data["temp"] = TemperatureResponse(**temperature_info)
-            else:
-                response_data["temp"] = None
-        except Exception:
-            response_data["temp"] = None
-        
-        # 获取区间分析信息（功率和心率区间）
+        # 本地数据库查询整合
+        info_funcs = [
+            ("overall", get_activity_overall_info, OverallResponse),
+            ("power", get_activity_power_info, PowerResponse),
+            ("heartrate", get_activity_heartrate_info, HeartrateResponse),
+            ("cadence", get_activity_cadence_info, CadenceResponse),
+            ("speed", get_activity_speed_info, SpeedResponse),
+            ("training_effect", get_activity_training_effect_info, TrainingEffectResponse),
+            ("altitude", get_activity_altitude_info, AltitudeResponse),
+            ("temp", get_activity_temperature_info, TemperatureResponse),
+        ]
+        for key, func, resp_cls in info_funcs:
+            try:
+                info = func(db, activity_id)
+                response_data[key] = resp_cls(**info) if info else None
+            except Exception:
+                response_data[key] = None
+
+        # 区间分析（功率区间和心率区间）
         try:
             zones_data = []
-            
-            # 获取功率区间数据
             try:
                 power_zones = get_activity_power_zones(db, activity_id)
                 if power_zones:
                     zones_data.append(ZoneData(**power_zones))
             except Exception:
                 pass
-            
-            # 获取心率区间数据
             try:
                 heartrate_zones = get_activity_heartrate_zones(db, activity_id)
                 if heartrate_zones:
                     zones_data.append(ZoneData(**heartrate_zones))
             except Exception:
                 pass
-            
-            if zones_data:
-                response_data["zones"] = zones_data
-            else:
-                response_data["zones"] = None
+            response_data["zones"] = zones_data if zones_data else None
         except Exception:
             response_data["zones"] = None
-        
-        # 获取最佳功率信息
+
+        # 最佳功率
         try:
             best_power_info = get_activity_best_power_info(db, activity_id)
-            if best_power_info:
-                response_data["best_powers"] = best_power_info["best_powers"]
-            else:
-                response_data["best_powers"] = None
+            response_data["best_powers"] = best_power_info["best_powers"] if best_power_info else None
         except Exception:
             response_data["best_powers"] = None
         
@@ -455,16 +352,24 @@ async def get_activity_all_data(
             available_result = stream_crud.get_available_streams(db, activity_id)
             if available_result["status"] == "success":
                 available_streams = available_result["available_streams"]
-                
+
+                # 移除 left_right_balance 流
+                available_streams = [s for s in available_streams if s != "left_right_balance"]
+
                 # 设置分辨率
                 resolution_enum = Resolution.HIGH
                 if resolution == "low":
                     resolution_enum = Resolution.LOW
                 elif resolution == "medium":
                     resolution_enum = Resolution.MEDIUM
-                
+
                 # 使用全局数据管理器获取流数据
                 streams_data = activity_data_manager.get_activity_streams(db, activity_id, available_streams, resolution_enum)
+
+                # temperature 流重命名为 temp
+                if streams_data and "temperature" in streams_data:
+                    streams_data["temp"] = streams_data.pop("temperature")
+
                 response_data["streams"] = streams_data
             else:
                 response_data["streams"] = None

@@ -4,20 +4,15 @@ Activities模块的数据库操作函数
 包含活动相关的数据库查询和操作。
 """
 
-from numpy.random import f
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
 from typing import Optional, Tuple, Dict, Any, List
 from ..streams.models import TbActivity, TbAthlete
-from ..streams.crud import StreamCRUD
-from ..utils import get_db
-import numpy as np
-from fitparse import FitFile
-from io import BytesIO
-import requests
 from .data_manager import activity_data_manager
+import requests
+from fitparse import FitFile
+from io import BytesIO 
 
-# 数据库相关
+# --------------数据库相关--------------
 def update_database_field(
     db: Session, 
     table_class, 
@@ -57,91 +52,58 @@ def get_activity_athlete(
 
 
 
-
-
-# 所有接口相关的整体信息
+# --------------所有接口相关的整体信息--------------
 def get_activity_overall_info(
     db: Session, 
     activity_id: int
 ) -> Optional[Dict[str, Any]]:
     try:
-        # 获取活动和运动员信息
-        activity_athlete = get_activity_athlete(db, activity_id)
-        if not activity_athlete:
+        activity, athlete = get_activity_athlete(db, activity_id)
+        if not activity:
             return None 
-        activity, athlete = activity_athlete
         
-        # 获取流数据
         stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
         if not stream_data:
             return None
 
-        # 获取session段数据
         session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         
-        # 计算各项指标
         result = {}
         
-        # 1. 距离（千米，保留两位小数）
         if session_data and 'total_distance' in session_data:
             result['distance'] = round(session_data['total_distance'] / 1000, 2)
-        elif 'distance' in stream_data and stream_data['distance']:
-            max_distance = max(stream_data['distance'])
-            result['distance'] = round(max_distance / 1000, 2)
         else:
-            result['distance'] = 0.0
+            result['distance'] = round(max(stream_data['distance']) / 1000, 2)
 
-        # 2. 移动时间（格式化字符串）
+
         if session_data and 'total_timer_time' in session_data:
-            # 优先使用total_timer_time（不包括暂停时间）
             result['moving_time'] = format_time(session_data['total_timer_time'])
-        elif session_data and 'total_elapsed_time' in session_data:
-            # 如果没有total_timer_time，使用total_elapsed_time
-            result['moving_time'] = format_time(session_data['total_elapsed_time'])
-        elif 'elapsed_time' in stream_data and stream_data['elapsed_time']:
-            max_elapsed = max(stream_data['elapsed_time'])
-            result['moving_time'] = format_time(max_elapsed)
         else:
-            result['moving_time'] = "00:00:00"
+            result['moving_time'] = format_time(max(stream_data.get('elapsed_time', [])))
         
-        # 3. 平均速度（千米每小时，保留一位小数）
-        if result['distance'] > 0 and result['moving_time'] != "00:00:00":
-            # 从格式化时间字符串解析秒数
-            time_seconds = parse_time_to_seconds(result['moving_time'])
-            if time_seconds > 0:
-                result['average_speed'] = round(result['distance'] / (time_seconds / 3600), 1)
-            else:
-                result['average_speed'] = 0.0
+        if session_data and 'avg_speed' in session_data:
+            result['average_speed'] = round(float(session_data['avg_speed']) * 3.6, 1)
         else:
-            result['average_speed'] = 0.0
-        
-        # 4. 爬升海拔（米，保留整数）
+            result['average_speed'] = round(sum(stream_data.get('speed', [])) / len(stream_data.get('speed', [])), 1)
+
         if 'total_ascent' in session_data and session_data['total_ascent']:
-            elevation_gain = session_data['total_ascent']
-            result['elevation_gain'] = int(elevation_gain)
+            result['elevation_gain'] = int(session_data['total_ascent'])
         else:
-            result['elevation_gain'] = 0
+            result['elevation_gain'] = int(calculate_elevation_gain(stream_data.get('enhanced_altitude', [])))
         
-        # 5. 平均功率（瓦特，保留整数）
         if session_data and 'avg_power' in session_data:
             result['avg_power'] = int(session_data['avg_power'])
         elif 'power' in stream_data and stream_data['power']:
-            valid_powers = [p for p in stream_data['power'] if p is not None and p > 0]
-            if valid_powers:
-                result['avg_power'] = int(sum(valid_powers) / len(valid_powers))
-            else:
-                result['avg_power'] = None
+            result['avg_power'] = int(sum(stream_data['power']) / len(stream_data['power']))
         else:
             result['avg_power'] = None
         
-        # 6. 卡路里（估算，保留整数）
         result['calories'] = estimate_calories(
             result['avg_power'], 
             parse_time_to_seconds(result['moving_time']), 
             athlete.weight if athlete.weight else 70
         )
         
-        # 7. 训练负荷（无单位）
         if float(athlete.ftp) and float(athlete.ftp) > 0 and result['avg_power'] is not None and result['avg_power'] > 0:
             result['training_load'] = calculate_and_save_training_load(
                 db,
@@ -152,19 +114,13 @@ def get_activity_overall_info(
             )
         else:
             result['training_load'] = 0
-        
-        # 8. 状态值
+    
         result['status'] = None
         
-        # 9. 平均心率（保留整数）
         if session_data and 'avg_heart_rate' in session_data:
             result['avg_heartrate'] = int(session_data['avg_heart_rate'])
-        elif 'heartrate' in stream_data and stream_data['heartrate']:
-            valid_hr = [hr for hr in stream_data['heartrate'] if hr is not None and hr > 0]
-            if valid_hr:
-                result['avg_heartrate'] = int(sum(valid_hr) / len(valid_hr))
-            else:
-                result['avg_heartrate'] = None
+        elif "heart_rate" in stream_data:
+            result['avg_heartrate'] = int(sum(stream_data['heart_rate']) / len(stream_data['heart_rate']))
         else:
             result['avg_heartrate'] = None
         
@@ -190,8 +146,6 @@ def get_activity_power_info(
         if not stream_data:
             return None
         
-        # 使用全局数据管理器获取session数据
-        from .data_manager import activity_data_manager
         session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         
         power_data = stream_data.get('power', [])
@@ -569,34 +523,6 @@ def get_activity_altitude_info(
         if not altitude_data:
             return None
         
-        def calculate_elevation_gain() -> float:
-            # 过滤异常值（参考VAM计算中的过滤方法）
-            filtered_altitudes = []
-            for i, alt in enumerate(altitude_data):
-                if alt is None:
-                    continue
-                
-                # 过滤异常值：超过5000米或低于-500米的设为None
-                if alt > 5000 or alt < -500:
-                    continue
-                
-                # 如果与前一个有效值差异过大（超过100米），可能是异常值
-                if filtered_altitudes and abs(alt - filtered_altitudes[-1]) > 100:
-                    continue
-                
-                filtered_altitudes.append(alt)
-            
-            if len(filtered_altitudes) < 2:
-                return 0.0
-            
-            # 计算爬升
-            elevation_gain = 0.0
-            for i in range(1, len(filtered_altitudes)):
-                diff = filtered_altitudes[i] - filtered_altitudes[i-1]
-                if diff > 0:  # 只计算上升
-                    elevation_gain += diff
-            
-            return elevation_gain
 
         def calculate_max_grade() -> float:
             
@@ -715,7 +641,7 @@ def get_activity_altitude_info(
         if session_data and 'total_ascent' in session_data and session_data['total_ascent']:
             result['elevation_gain'] = int(session_data['total_ascent'])
         else:
-            result['elevation_gain'] = int(calculate_elevation_gain())
+            result['elevation_gain'] = int(calculate_elevation_gain(altitude_data))
         
         result['max_altitude'] = int(max(altitude_data))
         result['max_grade'] = calculate_max_grade()
@@ -805,6 +731,8 @@ def get_activity_training_effect_info(
 ) -> Optional[Dict[str, Any]]:
     try:
         activity, athlete = get_activity_athlete(db, activity_id)
+        if not activity:
+            return None
         stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
         if not stream_data:
             return None
@@ -812,13 +740,14 @@ def get_activity_training_effect_info(
             return None
         power_data = stream_data.get('power', [])
         
+        
         ftp = int(athlete.ftp)
         result = {}
         result['aerobic_effect'] = _calculate_aerobic_effect(power_data, ftp)
         result['anaerobic_effect'] = _calculate_anaerobic_effect(power_data, ftp)
 
         
-        primary_training_benefit, secondary_training_benefit = _get_primary_training_benefit(
+        primary_training_benefit, _ = _get_primary_training_benefit(
             _get_power_zone_percentages(power_data, ftp),
             _get_power_zone_time(power_data, ftp),
             round(len(power_data) / 60, 0),
@@ -838,10 +767,41 @@ def get_activity_training_effect_info(
         return None 
 
 
+# --------------海拔相关函数--------------
+def calculate_elevation_gain(
+    altitude_data: list
+) -> float:
+    # 过滤异常值（参考VAM计算中的过滤方法）
+    filtered_altitudes = []
+    for i, alt in enumerate(altitude_data):
+        if alt is None:
+            continue
+        
+        # 过滤异常值：超过5000米或低于-500米的设为None
+        if alt > 5000 or alt < -500:
+            continue
+        
+        # 如果与前一个有效值差异过大（超过100米），可能是异常值
+        if filtered_altitudes and abs(alt - filtered_altitudes[-1]) > 100:
+            continue
+        
+        filtered_altitudes.append(alt)
+    
+    if len(filtered_altitudes) < 2:
+        return 0.0
+    
+    # 计算爬升
+    elevation_gain = 0.0
+    for i in range(1, len(filtered_altitudes)):
+        diff = filtered_altitudes[i] - filtered_altitudes[i-1]
+        if diff > 0:  # 只计算上升
+            elevation_gain += diff
+    
+    return elevation_gain
 
 
 
-# 时间相关函数
+# --------------时间相关函数--------------
 def format_time(
     seconds: int
 ) -> str:
@@ -869,7 +829,7 @@ def parse_time_to_seconds(
     except:
         return 0
 
-# 训练效果相关函数
+# --------------训练效果相关函数--------------
 def estimate_calories(
     avg_power: int, 
     duration_seconds: int, 
@@ -910,46 +870,11 @@ def calculate_and_save_training_load(
         print(f"警告：无法将训练负荷值 {training_load} 保存到活动 {activity_id} 的数据库")   
     return training_load
 
-# 功率相关函数
-def calculate_normalized_power(
-    powers: list
-) -> int:
-    window_size = 30
-    rolling_averages = []   
-    for i in range(len(powers)):
-        start_idx = max(0, i - window_size + 1)
-        window_powers = powers[start_idx:i+1]
-        avg_power = sum(window_powers) / len(window_powers)
-        rolling_averages.append(avg_power)
-    fourth_powers = [avg ** 4 for avg in rolling_averages]
-    mean_fourth_power = sum(fourth_powers) / len(fourth_powers)
-    normalized_power = mean_fourth_power ** 0.25
-    
-    return round(normalized_power, 0)
 
-
-def calculate_w_balance_decline(
-    w_balance_data: list
+def _calculate_aerobic_effect(
+    power_data: list, 
+    ftp: int
 ) -> float:
-    if not w_balance_data:
-        return None
-    
-    # 过滤有效数据
-    valid_w_balance = [w for w in w_balance_data if w is not None]
-    if not valid_w_balance:
-        return None
-    
-    # 初始值减去最小值
-    initial_value = valid_w_balance[0]
-    min_value = min(valid_w_balance)
-    decline = initial_value - min_value
-    
-    return round(decline, 1) 
-
-
-
-
-def _calculate_aerobic_effect(power_data: list, ftp: int) -> float:
     try:
         np = calculate_normalized_power(power_data)
         intensity_factor = np / ftp
@@ -958,7 +883,10 @@ def _calculate_aerobic_effect(power_data: list, ftp: int) -> float:
         print(f"计算有氧效果时出错: {str(e)}")
         return 0.0
 
-def _calculate_anaerobic_effect(power_data: list, ftp: int) -> float:
+def _calculate_anaerobic_effect(
+    power_data: list, 
+    ftp: int
+) -> float:
     try:
         if len(power_data) < 30:
             return 0.0
@@ -981,7 +909,10 @@ def _calculate_anaerobic_effect(power_data: list, ftp: int) -> float:
         print(f"计算无氧效果时出错: {str(e)}")
         return 0.0
 
-def _get_power_zone_percentages(power_data: list, ftp: int) -> list:
+def _get_power_zone_percentages(
+    power_data: list, 
+    ftp: int
+) -> list:
     from .zone_analyzer import ZoneAnalyzer
     zones = ZoneAnalyzer.analyze_power_zones(power_data, ftp)
     percentages = []
@@ -995,7 +926,10 @@ def _get_power_zone_percentages(power_data: list, ftp: int) -> list:
         percentages.append(percent)
     return percentages
 
-def _get_power_zone_time(power_data: list, ftp: int) -> list:
+def _get_power_zone_time(
+    power_data: list, 
+    ftp: int
+) -> list:
     from .zone_analyzer import ZoneAnalyzer
     zones = ZoneAnalyzer.analyze_power_zones(power_data, ftp)
     times = []
@@ -1142,8 +1076,44 @@ def _get_primary_training_benefit(
 
     return primary_type, secondary_type
 
+# --------------功率相关函数--------------
+def calculate_normalized_power(
+    powers: list
+) -> int:
+    window_size = 30
+    rolling_averages = []   
+    for i in range(len(powers)):
+        start_idx = max(0, i - window_size + 1)
+        window_powers = powers[start_idx:i+1]
+        avg_power = sum(window_powers) / len(window_powers)
+        rolling_averages.append(avg_power)
+    fourth_powers = [avg ** 4 for avg in rolling_averages]
+    mean_fourth_power = sum(fourth_powers) / len(fourth_powers)
+    normalized_power = mean_fourth_power ** 0.25
+    
+    return round(normalized_power, 0)
 
-# 其他文件中使用到的函数
+
+def calculate_w_balance_decline(
+    w_balance_data: list
+) -> float:
+    if not w_balance_data:
+        return None
+    
+    # 过滤有效数据
+    valid_w_balance = [w for w in w_balance_data if w is not None]
+    if not valid_w_balance:
+        return None
+    
+    # 初始值减去最小值
+    initial_value = valid_w_balance[0]
+    min_value = min(valid_w_balance)
+    decline = initial_value - min_value
+    
+    return round(decline, 1) 
+
+
+# --------------其他文件中使用到的函数--------------
 def get_activity_power_zones(
     db: Session, 
     activity_id: int
@@ -1204,3 +1174,45 @@ def get_activity_heartrate_zones(
         
     except Exception as e:
         return None 
+
+def get_session_data(
+    fit_url: str
+) -> Optional[Dict[str, Any]]: # ! 重要函数
+    try:
+        # 下载FIT文件
+        response = requests.get(fit_url)
+        if response.status_code != 200:
+            return None
+        
+        fit_data = response.content
+        
+        # 解析FIT文件
+        fitfile = FitFile(BytesIO(fit_data))
+        
+        # 查找session消息
+        for message in fitfile.get_messages('session'):
+            session_data = {}
+            
+            # 提取session段中的字段
+            fields = [
+                'total_distance', 'total_elapsed_time', 'total_timer_time',
+                'avg_power', 'max_power', 'avg_heart_rate', 'max_heart_rate',
+                'total_calories', 'total_ascent', 'total_descent',
+                'avg_cadence', 'max_cadence', 'left_right_balance',
+                'left_torque_effectiveness', 'right_torque_effectiveness',
+                'left_pedal_smoothness', 'right_pedal_smoothness',
+                'avg_speed', 'max_speed', 'avg_temperature', 'max_temperature', 'min_temperature',
+                'normalized_power', "training_stress_score","avg_speed", "max_speed"
+                "intensity_factor"
+            ]
+            
+            for field in fields:
+                value = message.get_value(field)
+                if value is not None:
+                    session_data[field] = value
+            
+            return session_data
+        
+        return None
+    except Exception as e:
+        return None
