@@ -6,6 +6,7 @@ Strava 数据分析器
 
 from cgi import print_arguments
 from typing import Dict, Any, Optional, List, Tuple, Union
+import numpy as np
 from .schemas import (
     AllActivityDataResponse,
     OverallResponse,
@@ -21,7 +22,7 @@ from .schemas import (
 from .zone_analyzer import ZoneAnalyzer
 from ..utils import get_db
 from sqlalchemy.orm import Session
-from .crud import get_activity_athlete
+from .crud import get_activity_athlete, update_database_field
 from ..streams.models import TbActivity, TbAthlete
 
 
@@ -72,8 +73,8 @@ class StravaAnalyzer:
                 elevation_gain = int(activity_data.get("total_elevation_gain")),
                 avg_power      = int(activity_data.get("average_watts")) if activity_data.get("average_watts") else None,
                 calories       = int(activity_data.get("calories")),
-                training_load  = StravaAnalyzer._calculate_training_load(stream_data, external_id, db),
-                status         = None,
+                training_load  = StravaAnalyzer._get_tss_and_update(stream_data, external_id, db),
+                status         = StravaAnalyzer._get_status(external_id, db),
                 avg_heartrate  = int(activity_data.get("average_heartrate")) if activity_data.get("average_heartrate") else None,
                 max_altitude   = int(activity_data.get("elev_high")),
             )
@@ -128,14 +129,16 @@ class StravaAnalyzer:
         try:
             if "watts" not in stream_data:
                 EF = None
+                heartrate_lag = None
             else:
                 EF = round(activity_data.get("average_watts") / activity_data.get("average_heartrate"), 2)
+                heartrate_lag = StravaAnalyzer._calculate_heartrate_lag(stream_data)
 
             return HeartrateResponse(
                 avg_heartrate           = int(activity_data.get("average_heartrate")),
                 max_heartrate           = int(activity_data.get("max_heartrate")),
                 heartrate_recovery_rate = StravaAnalyzer._calculate_heartrate_recovery_rate(stream_data),                                                    
-                heartrate_lag           = None,                                                    # 需要特殊算法
+                heartrate_lag           = heartrate_lag,                                                    
                 efficiency_index        = EF,
                 decoupling_rate         = StravaAnalyzer._calculate_decoupling_rate(stream_data),  # ! 没有严格比对
             )
@@ -361,7 +364,7 @@ class StravaAnalyzer:
             print(f"分析最佳功率信息时出错: {str(e)}")
             return None
  
-    # 辅助方法（复用 activities/crud.py 中的算法）
+    # ---------------辅助方法（复用 activities/crud.py 中的算法）-----------------
 
     @staticmethod
     def _calculate_heartrate_recovery_rate(
@@ -384,6 +387,40 @@ class StravaAnalyzer:
         return int(max_drop) if max_drop > 0 else 0
 
     @staticmethod
+    def _calculate_heartrate_lag(
+        stream_data: Dict[str, Any]
+    ) -> Optional[int]:
+        try:
+            power_stream = stream_data.get("watts")
+            heartrate_stream = stream_data.get("heartrate")
+            
+            power_data = power_stream.get("data", [])
+            power_valid = [p if p is not None else 0 for p in power_data]
+            power_array = np.array(power_valid)
+
+            heartrate_data = heartrate_stream.get("data", [])
+            heartrate_valid = [h if h is not None else 0 for h in heartrate_data]
+            heartrate_array = np.array(heartrate_valid)
+
+            power_norm = power_array - np.mean(power_array)
+            heartrate_norm = heartrate_array - np.mean(heartrate_array)
+
+            correlation = np.correlate(power_norm, heartrate_norm, mode='full')
+
+            # 找到最大相关点对应的滞后时间
+            lag_max = np.argmax(correlation) - (len(power_array) - 1)
+
+            # 如果最佳相关系数太低，认为没有明显的滞后关系
+            max_corr = np.max(correlation)
+            if max_corr < 0.3 * len(power_array):  # 调整阈值
+                return None
+
+            return int(abs(lag_max))
+        except Exception as e:
+            print(f"计算心率滞后时出错: {str(e)}")
+            return None
+    
+
     def _calculate_coasting_time(stream_data: Dict[str, Any]) -> int:
         try:
             speed_data = stream_data.get("velocity_smooth").get("data", [])
@@ -647,16 +684,6 @@ class StravaAnalyzer:
     def _get_activity_athlete_by_external_id(
         db: Session, external_id: int
     ) -> Optional[Tuple[TbActivity, TbAthlete]]:
-        """
-        根据external_id获取活动和运动员信息
-        
-        Args:
-            db: 数据库会话
-            external_id: 外部ID
-            
-        Returns:
-            Optional[Tuple[TbActivity, TbAthlete]]: 活动和运动员信息元组
-        """
         try:
             activity = db.query(TbActivity).filter(TbActivity.external_id == external_id).first()
             if not activity:
@@ -682,7 +709,8 @@ class StravaAnalyzer:
 
     @staticmethod
     def _calculate_training_load(
-        stream_data: Dict[str, Any], external_id: int, 
+        stream_data: Dict[str, Any], 
+        external_id: int, 
         db: Session
     ) -> Optional[int]:
         power_stream = stream_data.get("watts", {})
@@ -700,6 +728,51 @@ class StravaAnalyzer:
             return int(round(tss, 0))
         except Exception as e:
             print(f"计算训练负荷时出错: {str(e)}")
+            return None
+
+    @staticmethod
+    def _get_tss_and_update(
+        stream_data: Dict[str, Any],
+        external_id: int,   
+        db: Session
+    ) -> Optional[int]:
+        if "watts" not in stream_data:
+            return None
+        try:
+            activity, athlete = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
+            if not activity or not athlete:
+                return None
+            if activity.tss_updated == 0:
+                tss = StravaAnalyzer._calculate_training_load(stream_data, external_id, db)
+                update_database_field(db, TbActivity, activity.id, "tss", tss)
+                ctl = athlete.ctl
+                atl = athlete.atl
+                new_ctl = ctl + (tss - ctl) / 42
+                new_atl = atl + (tss - atl) / 7
+                update_database_field(db, TbAthlete, activity.athlete_id, "ctl", round(new_ctl, 0))
+                update_database_field(db, TbAthlete, activity.athlete_id, "atl", round(new_atl, 0))
+                update_database_field(db, TbActivity, activity.id, "tss_updated", 1)
+                update_database_field(db, TbAthlete, activity.athlete_id, "tsb", round(new_atl - new_ctl, 0))
+                return tss
+            else:
+                return activity.tss
+
+        except Exception as e:
+            print(f"更新TSS时出错: {str(e)}")
+            return None
+
+    @staticmethod
+    def _get_status(
+        external_id: int,
+        db: Session
+    ) -> Optional[int]:
+        try:
+            activity, athlete = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
+            if not activity or not athlete:
+                return None
+            return athlete.tsb
+        except Exception as e:
+            print(f"获取状态时出错: {str(e)}")
             return None
 
     @staticmethod
@@ -1093,7 +1166,9 @@ class StravaAnalyzer:
         return result if result else None
 
     @staticmethod
-    def _calculate_best_powers_from_stream(watts_data: List[Union[float, int]]) -> List[Union[float, int]]:
+    def _calculate_best_powers_from_stream(
+        watts_data: List[Union[float, int]]
+    ) -> List[Union[float, int]]:
         if not watts_data:
             return []
         

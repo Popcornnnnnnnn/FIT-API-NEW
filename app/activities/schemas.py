@@ -44,7 +44,7 @@ class OverallResponse(BaseModel):
     avg_power     : Optional[int] = Field(None, description="平均功率（瓦特，保留整数）")
     calories      : int           = Field(..., description="卡路里（估算值，保留整数）")
     training_load : Optional[int] = Field(None, description="训练负荷（无单位，保留整数）")
-    status        : Optional[str] = Field(None, description="状态值")
+    status        : Optional[int] = Field(None, description="状态值")
     avg_heartrate : Optional[int] = Field(None, description="平均心率（保留整数）")
     max_altitude  : Optional[int] = Field(None, description="最高海拔（米，保留整数）")
 
@@ -66,7 +66,7 @@ class HeartrateResponse(BaseModel):
     avg_heartrate          : int             = Field(..., description="平均心率（保留整数）")
     max_heartrate          : int             = Field(..., description="最大心率（保留整数）")
     heartrate_recovery_rate: Optional[int]   = Field(None, description="心率恢复速率")
-    heartrate_lag          : Optional[float] = Field(None, description="心率滞后")
+    heartrate_lag          : Optional[int] = Field(None, description="心率滞后")
     efficiency_index       : Optional[float] = Field(None, description="效率指数（保留两位小数）")
     decoupling_rate        : Optional[str]   = Field(None, description="解耦率（百分比，保留一位小数，带%符号）")
 

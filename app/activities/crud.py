@@ -11,6 +11,7 @@ from .data_manager import activity_data_manager
 import requests
 from fitparse import FitFile
 from io import BytesIO 
+import numpy as np
 
 # --------------数据库相关--------------
 def update_database_field(
@@ -113,9 +114,9 @@ def get_activity_overall_info(
                 parse_time_to_seconds(result['moving_time'])
             )
         else:
-            result['training_load'] = 0
+            result['training_load'] = None
     
-        result['status'] = None
+        result['status'] = athlete.tsb
         
         if session_data and 'avg_heart_rate' in session_data:
             result['avg_heartrate'] = int(session_data['avg_heart_rate'])
@@ -303,6 +304,27 @@ def get_activity_heartrate_info(
             except Exception as e:
                 return None 
 
+        def calculate_heartrate_lag(
+        ) -> Optional[int]:
+            try:
+                power_data = stream_data.get('power', [])
+                heartrate_data = stream_data.get('heart_rate', [])
+                power_valid = [p if p is not None else 0 for p in power_data]
+                heartrate_valid = [h if h is not None else 0 for h in heartrate_data]
+                power_array = np.array(power_valid)
+                heartrate_array = np.array(heartrate_valid)
+
+                power_norm = power_array - np.mean(power_array)
+                heartrate_norm = heartrate_array - np.mean(heartrate_array)
+
+                correlation = np.correlate(power_norm, heartrate_norm, mode='full')
+
+                lag_max = np.argmax(correlation) - (len(power_array) - 1)
+                max_corr = np.max(correlation)
+                return int(abs(lag_max)) if max_corr > 0.3 * len(power_array) else None
+            except Exception as e:
+                return None
+
         # 过滤心率异常值
         valid_hr = filter_heartrate_data_with_smoothing(heartrate_data)
         
@@ -321,7 +343,7 @@ def get_activity_heartrate_info(
         if "power" in stream_data:
             power_data = stream_data.get('power', [])
             result['heartrate_recovery_rate'] = calculate_heartrate_recovery_rate()
-            result['heartrate_lag'] = None
+            result['heartrate_lag'] = calculate_heartrate_lag()
             result['efficiency_index'] = calculate_efficiency_index()
             result['decoupling_rate'] = calculate_decoupling_rate()
         else:
@@ -863,12 +885,28 @@ def calculate_and_save_training_load(
     avg_power: int, 
     ftp: int, 
     duration_seconds: int
-) -> int:
-    training_load = calculate_training_load(avg_power, ftp, duration_seconds)
-    update_success = update_database_field(db, TbActivity, activity_id, 'training_stress_score', training_load)
-    if not update_success:
-        print(f"警告：无法将训练负荷值 {training_load} 保存到活动 {activity_id} 的数据库")   
-    return training_load
+) -> Optional[int]:
+    try:
+        activity, athlete = get_activity_athlete(db, activity_id)
+        if not activity:
+            return None
+        if activity.tss_updated == 0:
+            tss = calculate_training_load(avg_power, ftp, duration_seconds)
+            update_database_field(db, TbActivity, activity_id, 'tss', tss)
+            ctl = athlete.ctl
+            atl = athlete.atl
+            new_ctl = ctl + (tss - ctl) / 42
+            new_atl = atl + (tss - atl) / 7
+            update_database_field(db, TbAthlete, activity.athlete_id, "ctl", round(new_ctl, 0))
+            update_database_field(db, TbAthlete, activity.athlete_id, "atl", round(new_atl, 0))
+            update_database_field(db, TbActivity, activity_id, "tss_updated", 1)
+            update_database_field(db, TbAthlete, activity.athlete_id, "tsb", round(new_atl - new_ctl, 0))
+            return tss  
+        else:
+            return activity.tss
+    except Exception as e:
+        print(f"计算和保存训练负荷时出错: {str(e)}")
+        return None
 
 
 def _calculate_aerobic_effect(
