@@ -78,9 +78,11 @@ def get_activity_overall_info(
 
 
         if session_data and 'total_timer_time' in session_data:
-            result['moving_time'] = format_time(session_data['total_timer_time'])
+            moving_time = session_data['total_timer_time']
+            result['moving_time'] = format_time(moving_time)
         else:
-            result['moving_time'] = format_time(max(stream_data.get('elapsed_time', [])))
+            moving_time = max(stream_data.get('elapsed_time', []))
+            result['moving_time'] = format_time(moving_time)
         
         if session_data and 'avg_speed' in session_data:
             result['average_speed'] = round(float(session_data['avg_speed']) * 3.6, 1)
@@ -99,22 +101,13 @@ def get_activity_overall_info(
         else:
             result['avg_power'] = None
         
-        if result['avg_power'] is not None:
-            result['calories'] = estimate_calories(
-                result['avg_power'], 
-                parse_time_to_seconds(result['moving_time']), 
-                athlete.weight if athlete.weight else 70
-            )
-        else:
-            result['calories'] = None
-        
         if float(athlete.ftp) and float(athlete.ftp) > 0 and result['avg_power'] is not None and result['avg_power'] > 0:
             result['training_load'] = calculate_and_save_training_load(
                 db,
                 activity_id,
                 result['avg_power'], 
                 float(athlete.ftp), 
-                parse_time_to_seconds(result['moving_time'])
+                moving_time
             )
         else:
             result['training_load'] = None
@@ -128,11 +121,26 @@ def get_activity_overall_info(
         else:
             result['avg_heartrate'] = None
         
-        # 10. 最高海拔（米，保留整数）
         if 'altitude' in stream_data and stream_data['altitude']:
             result['max_altitude'] = int(max(stream_data['altitude']))
         else:
             result['max_altitude'] = None
+
+        if result['avg_power'] is not None:
+            result['calories'] = estimate_calories_with_power(
+                result['avg_power'], 
+                moving_time, 
+                athlete.weight if athlete.weight else 70
+            )
+        elif result['avg_heartrate'] is not None:
+            result['calories'] = estimate_calories_with_heartrate(
+                result['avg_heartrate'], 
+                moving_time, 
+                athlete.weight if athlete.weight else 70
+            )
+        else:
+            result['calories'] = None
+        
         
         return result   
     except Exception as e:
@@ -494,18 +502,20 @@ def get_activity_speed_info(
 
 
         if session_data and 'total_timer_time' in session_data:
-            result['moving_time'] = format_time(session_data['total_timer_time'])
+            moving_time = session_data['total_timer_time']
+            result['moving_time'] = format_time(moving_time)
         else:
-            result['moving_time'] = format_time(max(stream_data.get('elapsed_time', [])))
+            moving_time = max(stream_data.get('elapsed_time', []))
+            result['moving_time'] = format_time(moving_time)
         
         if session_data and 'total_elapsed_time' in session_data:
-            result['total_time'] = format_time(session_data['total_elapsed_time'])
+            total_time = session_data['total_elapsed_time']
+            result['total_time'] = format_time(total_time)
         else:
-            result['total_time'] = format_time(max(stream_data.get('timestamp', [])))
+            total_time = max(stream_data.get('timestamp', []))
+            result['total_time'] = format_time(total_time)
         
-        total_seconds = parse_time_to_seconds(result['total_time'])
-        moving_seconds = parse_time_to_seconds(result['moving_time'])
-        pause_seconds = total_seconds - moving_seconds
+        pause_seconds = total_time - moving_time
         result['pause_time'] = format_time(pause_seconds)
         
         def calculate_coasting_time() -> str:
@@ -829,37 +839,40 @@ def calculate_elevation_gain(
 # --------------时间相关函数--------------
 def format_time(
     seconds: int
-) -> str:
+) -> Optional[str]:
     try:    
         seconds = int(seconds)        
         if seconds < 0:
             seconds = 0
         
+        # 如果不到1分钟，直接显示秒数
+        if seconds < 60:
+            return f"{seconds}s"
+        
         hours = seconds // 3600
         minutes = (seconds % 3600) // 60
         secs = seconds % 60
-        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+        
+        # 如果不到1小时，不显示小时部分
+        if hours == 0:
+            # 如果不到10分钟，去掉分钟前导零
+            if minutes < 10:
+                return f"{minutes}:{secs:02d}"
+            else:
+                return f"{minutes}:{secs:02d}"
+        else:
+            # 1小时以上，去掉小时前导零
+            return f"{hours}:{minutes:02d}:{secs:02d}"
+            
     except (ValueError, TypeError):
-        return "00:00:00"
-
-def parse_time_to_seconds(
-    time_str: str
-) -> int:
-    try:
-        parts = time_str.split(':')
-        if len(parts) == 3:
-            hours, minutes, seconds = map(int, parts)
-            return hours * 3600 + minutes * 60 + seconds
-        return 0
-    except:
-        return 0
+        return None
 
 # --------------训练效果相关函数--------------
-def estimate_calories(
+def estimate_calories_with_power(
     avg_power: int, 
     duration_seconds: int, 
     weight_kg: int
-) -> int:
+) -> Optional[int]:
     try:
         # 功率转换为卡路里的系数（约0.24）
         power_to_calories_factor = 0.24
@@ -872,6 +885,17 @@ def estimate_calories(
         bmr_calories = bmr_per_minute * duration_seconds / 60  # 基础代谢消耗
         total_calories = power_calories + bmr_calories
         return int(total_calories)
+    except Exception as e:
+        print(f"计算卡路里时出错: {str(e)}")
+        return None
+
+def estimate_calories_with_heartrate(
+    avg_heartrate: int, 
+    duration_seconds: int, 
+    weight_kg: int
+) -> Optional[int]: # ! 理论上 6 应该替换成 0.2017 * 年龄，基于 Keytel 公式，适合中等强度运动估算
+    try:
+        return round((duration_seconds / 60) * (0.6309 * avg_heartrate + 0.1988 * weight_kg + 6 - 55.0969) / 4.184, 0)
     except Exception as e:
         print(f"计算卡路里时出错: {str(e)}")
         return None
