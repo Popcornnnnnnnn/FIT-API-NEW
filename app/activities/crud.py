@@ -99,11 +99,14 @@ def get_activity_overall_info(
         else:
             result['avg_power'] = None
         
-        result['calories'] = estimate_calories(
-            result['avg_power'], 
-            parse_time_to_seconds(result['moving_time']), 
-            athlete.weight if athlete.weight else 70
-        )
+        if result['avg_power'] is not None:
+            result['calories'] = estimate_calories(
+                result['avg_power'], 
+                parse_time_to_seconds(result['moving_time']), 
+                athlete.weight if athlete.weight else 70
+            )
+        else:
+            result['calories'] = None
         
         if float(athlete.ftp) and float(athlete.ftp) > 0 and result['avg_power'] is not None and result['avg_power'] > 0:
             result['training_load'] = calculate_and_save_training_load(
@@ -857,17 +860,21 @@ def estimate_calories(
     duration_seconds: int, 
     weight_kg: int
 ) -> int:
-    # 功率转换为卡路里的系数（约0.24）
-    power_to_calories_factor = 0.24
-    
-    # 基础代谢率（BMR）贡献
-    bmr_per_minute = 1.2  # 每分钟基础代谢消耗的卡路里
-    
-    # 计算总卡路里
-    power_calories = avg_power * duration_seconds * power_to_calories_factor / 3600  # 转换为小时
-    bmr_calories = bmr_per_minute * duration_seconds / 60  # 基础代谢消耗
-    total_calories = power_calories + bmr_calories
-    return int(total_calories)
+    try:
+        # 功率转换为卡路里的系数（约0.24）
+        power_to_calories_factor = 0.24
+        
+        # 基础代谢率（BMR）贡献
+        bmr_per_minute = 1.2  # 每分钟基础代谢消耗的卡路里
+        
+        # 计算总卡路里
+        power_calories = avg_power * duration_seconds * power_to_calories_factor / 3600  # 转换为小时
+        bmr_calories = bmr_per_minute * duration_seconds / 60  # 基础代谢消耗
+        total_calories = power_calories + bmr_calories
+        return int(total_calories)
+    except Exception as e:
+        print(f"计算卡路里时出错: {str(e)}")
+        return None
 
 def calculate_training_load(
     avg_power: int, 

@@ -130,9 +130,11 @@ class StravaAnalyzer:
             if "watts" not in stream_data:
                 EF = None
                 heartrate_lag = None
+                decoupling_rate = None
             else:
                 EF = round(activity_data.get("average_watts") / activity_data.get("average_heartrate"), 2)
                 heartrate_lag = StravaAnalyzer._calculate_heartrate_lag(stream_data)
+                decoupling_rate = StravaAnalyzer._calculate_decoupling_rate(stream_data)
 
             return HeartrateResponse(
                 avg_heartrate           = int(activity_data.get("average_heartrate")),
@@ -140,7 +142,7 @@ class StravaAnalyzer:
                 heartrate_recovery_rate = StravaAnalyzer._calculate_heartrate_recovery_rate(stream_data),                                                    
                 heartrate_lag           = heartrate_lag,                                                    
                 efficiency_index        = EF,
-                decoupling_rate         = StravaAnalyzer._calculate_decoupling_rate(stream_data),  # ! 没有严格比对
+                decoupling_rate         = decoupling_rate,  # ! 没有严格比对
             )
         except Exception as e:
             print(f"分析心率信息时出错: {str(e)}")
@@ -642,43 +644,25 @@ class StravaAnalyzer:
             heartrate_stream = stream_data.get("heartrate", {})
             heartrate_data = heartrate_stream.get("data", [])
 
+            heartrate_valid = [h if h is not None else 0 for h in heartrate_data]
+            power_valid = [p if p is not None else 0 for p in power_data]
+
             # 将数据分为前半部分和后半部分
             mid_point = len(power_data) // 2
 
-            first_half_powers = power_data[:mid_point]
-            first_half_hr = heartrate_data[:mid_point]
-            second_half_powers = power_data[mid_point:]
-            second_half_hr = heartrate_data[mid_point:]
+            first_half_powers = power_valid[:mid_point]
+            first_half_hr = heartrate_valid[:mid_point]
+            second_half_powers = power_valid[mid_point:]
+            second_half_hr = heartrate_valid[mid_point:]
 
-            # 计算前半部分的功率/心率比
-            first_half_ratio = 0.0
-            if first_half_hr and any(hr > 0 for hr in first_half_hr):
-                first_half_avg_power = sum(first_half_powers) / len(first_half_powers)
-                first_half_avg_hr = sum(first_half_hr) / len(first_half_hr)
-                if first_half_avg_hr > 0:
-                    first_half_ratio = first_half_avg_power / first_half_avg_hr
-
-            # 计算后半部分的功率/心率比
-            second_half_ratio = 0.0
-            if second_half_hr and any(hr > 0 for hr in second_half_hr):
-                second_half_avg_power = sum(second_half_powers) / len(
-                    second_half_powers
-                )
-                second_half_avg_hr = sum(second_half_hr) / len(second_half_hr)
-                if second_half_avg_hr > 0:
-                    second_half_ratio = second_half_avg_power / second_half_avg_hr
-
-            # 计算解耦率：前半部分功率/心率 - 后半部分功率/心率
-            if first_half_ratio > 0 and second_half_ratio > 0:
-                decoupling_rate = first_half_ratio - second_half_ratio
-                # 转换为百分比
-                decoupling_percentage = (decoupling_rate / first_half_ratio) * 100
-                return f"{round(decoupling_percentage, 1)}%"
-
-            return "0.0%"
+            r1 = (sum(first_half_powers) / len(first_half_powers)) / (sum(first_half_hr) / len(first_half_hr))
+            r2 = (sum(second_half_powers) / len(second_half_powers)) / (sum(second_half_hr) / len(second_half_hr))
+            decoupling_rate = r1 - r2
+            decoupling_percentage = (decoupling_rate / r1) * 100
+            return f"{round(decoupling_percentage, 1)}%"
 
         except Exception as e:
-            return "0.0%"
+            return None
 
     @staticmethod
     def _get_activity_athlete_by_external_id(
