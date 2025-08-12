@@ -290,7 +290,7 @@ async def get_activity_all_data(
                     keys_list = [key.strip() for key in keys.split(',') if key.strip()]
                 else:
                     # 如果 keys 为空，返回所有可用的字段
-                    keys_list = ['time', 'distance', 'latlng', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp', 'moving', 'grade_smooth', 'best_power', 'torque', 'spi', 'power_hr_ratio', 'w_balance', 'vam']
+                    keys_list = ['time', 'distance', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp',  'best_power', 'torque', 'spi', 'power_hr_ratio', 'w_balance', 'vam'] # ! 去掉 lating、moving、grade_smooth，将 velocity_smooth 改成 speed
                 return StravaAnalyzer.analyze_activity_data(activity_data, stream_data, athlete_data, activity_id, db, keys_list, resolution)
             except HTTPException:
                 raise
@@ -353,7 +353,7 @@ async def get_activity_all_data(
                 available_streams = available_result["available_streams"]
 
                 # 移除 left_right_balance 流
-                available_streams = [s for s in available_streams if s != "left_right_balance"]
+                available_streams = [s for s in available_streams if s != "left_right_balance" and s != "position_lat" and s != "position_long"]
 
                 # 设置分辨率
                 resolution_enum = Resolution.HIGH

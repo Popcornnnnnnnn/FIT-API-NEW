@@ -944,6 +944,19 @@ class StravaAnalyzer:
         
         # 直接使用 Strava API 字段名
         for field in keys:
+            if field == 'velocity_smooth': # ! 特别处理一下这里
+                stream_item = stream_data['velocity_smooth']
+                if isinstance(stream_item, dict) and 'data' in stream_item:
+                    raw_data = stream_item['data']
+                    speed_data = [round(v * 3.6, 1) for v in raw_data if v is not None]
+                    result.append({
+                        'type': 'speed',
+                        'data': speed_data,
+                        'series_type': stream_item.get('series_type', 'time'),
+                        'original_size': len(speed_data),
+                        'resolution': resolution
+                    })
+                continue
             if field in stream_data:
                 stream_item = stream_data[field]
                 if isinstance(stream_item, dict) and 'data' in stream_item:
@@ -1056,7 +1069,7 @@ class StravaAnalyzer:
                             result.append({
                                 'type': field,
                                 'data': w_balance_data,
-                                'series_type': 'distance',
+                                'series_type': 'time',
                                 'original_size': len(w_balance_data),
                                 'resolution': resolution
                             })
@@ -1116,7 +1129,7 @@ class StravaAnalyzer:
                         result.append({
                             'type': field,
                             'data': vam,
-                            'series_type': 'time',
+                            'series_type': 'distance',
                             'original_size': len(vam),
                             'resolution': resolution
                         })

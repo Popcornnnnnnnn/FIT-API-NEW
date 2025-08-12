@@ -105,7 +105,7 @@ class BestPowerStream(BaseStream):
 
 class PowerHrRatioStream(BaseStream):
     data: List[float] = Field(...)
-    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
+    series_type: SeriesType = Field(default=SeriesType.TIME)
 
 class TorqueStream(BaseStream):
     data: List[int] = Field(...)
@@ -117,7 +117,7 @@ class SPIStream(BaseStream):
 
 class WBalanceStream(BaseStream):
     data: List[float] = Field(...)
-    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
+    series_type: SeriesType = Field(default=SeriesType.TIME)
 
 class VAMStream(BaseStream):
     data: List[int] = Field(...)
@@ -177,8 +177,7 @@ class StreamData(BaseModel):
     def get_stream(
         self, 
         stream_type: str, 
-        resolution: Resolution = Resolution.HIGH, 
-        series_type: SeriesType = SeriesType.TIME # !
+        resolution: Resolution
     ) -> Optional[BaseStream]:
         available = self.get_available_streams()
         if stream_type not in available:
@@ -191,19 +190,6 @@ class StreamData(BaseModel):
         if not data:
             return None
         
-        # best_power 只能 series_type=time 且 resolution=high
-        if stream_type == 'best_power':
-            if series_type != SeriesType.TIME:
-                raise ValueError('best_power 只允许 series_type=time')
-            if resolution != Resolution.HIGH:
-                raise ValueError('best_power 只允许 resolution=high')
-
-            return BestPowerStream(
-                original_size = len(data),
-                resolution    = resolution,
-                data          = data,       
-                series_type   = SeriesType.TIME
-            )
        
         resampled_data = self._resample_data(data, resolution)
         stream_classes = {
@@ -214,7 +200,9 @@ class StreamData(BaseModel):
             'cadence'                   : CadenceStream,
             'heart_rate'                : HeartRateStream,
             'speed'                     : SpeedStream,
+            'position_lat'              : LatitudeStream,
             'latitude'                  : LatitudeStream,
+            'position_long'             : LongitudeStream,
             'longitude'                 : LongitudeStream,
             'power'                     : PowerStream,
             'temp'                      : TemperatureStream,
@@ -237,7 +225,7 @@ class StreamData(BaseModel):
                 original_size = len(data) ,
                 resolution    = resolution ,
                 data          = resampled_data ,
-                series_type   = series_type if series_type != SeriesType.TIME else SeriesType.DISTANCE # 除了best_power，其他默认都是distance
+                series_type   = stream_classes[stream_type].model_fields['series_type'].default
             )
         return None
     

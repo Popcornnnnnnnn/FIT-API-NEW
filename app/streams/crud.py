@@ -68,7 +68,7 @@ class StreamCRUD:
                 result.append({
                     "type": key,
                     "data": stream_obj.data,
-                    "series_type": SeriesType.TIME,
+                    "series_type": stream_obj.series_type,
                     "original_size": original_size,
                     "resolution": actual_resolution.value
                 })
