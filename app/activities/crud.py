@@ -76,7 +76,7 @@ def get_activity_overall_info(
         else:
             result['distance'] = round(max(stream_data['distance']) / 1000, 2)
 
-
+    
         if session_data and 'total_timer_time' in session_data:
             moving_time = session_data['total_timer_time']
             result['moving_time'] = format_time(moving_time)
@@ -126,7 +126,9 @@ def get_activity_overall_info(
         else:
             result['max_altitude'] = None
 
-        if result['avg_power'] is not None:
+        if "total_calories" in session_data:
+            result['calories'] = int(session_data['total_calories'])
+        elif result['avg_power'] is not None:
             result['calories'] = estimate_calories_with_power(
                 result['avg_power'], 
                 moving_time, 
@@ -247,9 +249,11 @@ def get_activity_heartrate_info(
         def calculate_efficiency_index(
         ) -> Optional[float]:
             try:
-                avg_power = sum(power_data) / len(power_data)
+                power_data = stream_data.get('power', [])   
+                valid_power = [p for p in power_data if p is not None and p > 0]
+                NP = calculate_normalized_power(valid_power)
                 avg_hr = sum(valid_hr) / len(valid_hr)
-                return round(avg_power / avg_hr, 2)
+                return round(NP / avg_hr, 2)
             except Exception as e:
                 return None
 
@@ -424,7 +428,7 @@ def get_activity_cadence_info(
             result['right_pedal_smoothness'] = None
 
         def get_left_right_balance() -> Optional[Dict[str, int]]:
-            def parse_left_right(value: float) -> Optional[Tuple[int, int]]:
+            def parse_left_right(value: float) -> Optional[Tuple[int, int]]: # ! 这里的解析方式应该没有问题
                 """解析左右平衡值"""
                 try:
                     # 将float转换为int进行位运算
@@ -474,7 +478,7 @@ def get_activity_speed_info(
 ) -> Optional[Dict[str, Any]]:
     try:
 
-        activity, athlete = get_activity_athlete(db, activity_id)
+        activity, _ = get_activity_athlete(db, activity_id)
         if not activity:
             return None
         
@@ -559,6 +563,7 @@ def get_activity_altitude_info(
             return None
         
 
+
         def calculate_max_grade() -> float:
             
             max_grade = 0.0
@@ -638,7 +643,7 @@ def get_activity_altitude_info(
                     distance_diff = distance_data[current_idx] - distance_data[previous_idx]
                     
                     # 如果是上坡（海拔增加）且距离间隔合理，累加上坡距离
-                    if altitude_diff > 0 and distance_diff > min_distance_interval:
+                    if altitude_diff > 1 and distance_diff > min_distance_interval:
                         uphill_distance += distance_diff
             
             # 转换为千米并保留两位小数
@@ -665,7 +670,7 @@ def get_activity_altitude_info(
                     distance_diff = distance_data[current_idx] - distance_data[previous_idx]
                     
                     # 如果是下坡（海拔减少）且距离间隔合理，累加下坡距离
-                    if altitude_diff < 0 and distance_diff > min_distance_interval:
+                    if altitude_diff < -1 and distance_diff > min_distance_interval:
                         downhill_distance += distance_diff
             
             # 转换为千米并保留两位小数
@@ -794,7 +799,7 @@ def get_activity_training_effect_info(
         avg_power = int(sum(power_data) / len(power_data))
         result['primary_training_benefit'] = primary_training_benefit
         result['training_load'] = calculate_training_load(avg_power, ftp, len(power_data))
-        calories = estimate_calories(avg_power, len(power_data), athlete.weight if athlete.weight else 70)
+        calories = estimate_calories_with_power(avg_power, len(power_data), athlete.weight if athlete.weight else 70)
         result['carbohydrate_consumption'] = round(calories / 4.138, 0)     
         return result
         
@@ -845,7 +850,6 @@ def format_time(
         if seconds < 0:
             seconds = 0
         
-        # 如果不到1分钟，直接显示秒数
         if seconds < 60:
             return f"{seconds}s"
         
@@ -853,9 +857,7 @@ def format_time(
         minutes = (seconds % 3600) // 60
         secs = seconds % 60
         
-        # 如果不到1小时，不显示小时部分
         if hours == 0:
-            # 如果不到10分钟，去掉分钟前导零
             if minutes < 10:
                 return f"{minutes}:{secs:02d}"
             else:
@@ -867,15 +869,18 @@ def format_time(
     except (ValueError, TypeError):
         return None
 
+
+
+
 # --------------训练效果相关函数--------------
-def estimate_calories_with_power(
+def estimate_calories_with_power( # ! 这个算法应该有点问题
     avg_power: int, 
     duration_seconds: int, 
     weight_kg: int
 ) -> Optional[int]:
     try:
-        # 功率转换为卡路里的系数（约0.24）
-        power_to_calories_factor = 0.24
+        # 功率转换为卡路里的系数（约1）
+        power_to_calories_factor = 1
         
         # 基础代谢率（BMR）贡献
         bmr_per_minute = 1.2  # 每分钟基础代谢消耗的卡路里
@@ -1228,7 +1233,7 @@ def get_activity_heartrate_zones(
             return None
         
         # 获取心率数据
-        heartrate_data = stream_data.get('heartrate', [])
+        heartrate_data = stream_data.get('heart_rate', [])
         if not heartrate_data:
             return None
         

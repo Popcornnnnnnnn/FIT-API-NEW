@@ -362,6 +362,7 @@ async def get_activity_all_data(
                 elif resolution == "medium":
                     resolution_enum = Resolution.MEDIUM
 
+                # print(available_streams)
                 # 使用全局数据管理器获取流数据
                 streams_data = activity_data_manager.get_activity_streams(db, activity_id, available_streams, resolution_enum)
 
@@ -372,6 +373,10 @@ async def get_activity_all_data(
                             stream["type"] = "temp"
                         if stream["type"] == "heart_rate":
                             stream["type"] = "heartrate"
+                        if stream["type"] == "power":
+                            stream["type"] = "watts"
+                        if stream["type"] == "timestamp":
+                            stream["type"] = "time"
 
                 response_data["streams"] = streams_data
             else:

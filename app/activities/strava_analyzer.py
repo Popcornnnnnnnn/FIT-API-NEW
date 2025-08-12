@@ -391,7 +391,7 @@ class StravaAnalyzer:
     @staticmethod
     def _calculate_heartrate_lag(
         stream_data: Dict[str, Any]
-    ) -> Optional[int]:
+    ) -> Optional[int]: # ! 算法设计有问题
         try:
             power_stream = stream_data.get("watts")
             heartrate_stream = stream_data.get("heartrate")
@@ -512,16 +512,9 @@ class StravaAnalyzer:
             return None
 
     @staticmethod
-    def _calculate_uphill_downhill_distance(stream_data: Dict[str, Any]) -> (float, float):
-        """
-        同时计算上升段和下降段的距离（单位：千米）
-
-        Args:
-            stream_data: 包含"altitude"和"distance"流的字典
-
-        Returns:
-            (float, float): (上升段距离, 下降段距离)，单位为千米，均保留两位小数
-        """
+    def _calculate_uphill_downhill_distance(
+        stream_data: Dict[str, Any]
+    ) -> (float, float):
         try:
             altitude_stream = stream_data.get("altitude", {})
             distance_stream = stream_data.get("distance", {})
@@ -533,52 +526,33 @@ class StravaAnalyzer:
 
             uphill_distance = 0.0
             downhill_distance = 0.0
-            in_uphill = False
-            in_downhill = False
-            start_uphill_distance = 0.0
-            start_downhill_distance = 0.0
+            
+            # 使用间隔更多的点计算上下坡距离，提高数据准确性
+            interval_points = 5  # 每5个点计算一次
+            min_distance_interval = 50  # 最小距离间隔（米）
+            
+            for i in range(interval_points, min(len(altitude_data), len(distance_data))):
+                # 获取当前点和间隔前的点
+                current_idx = i
+                previous_idx = i - interval_points
+                
+                if (altitude_data[current_idx] is not None and altitude_data[previous_idx] is not None and 
+                    distance_data[current_idx] is not None and distance_data[previous_idx] is not None):
+                    
+                    # 计算海拔差和距离差
+                    altitude_diff = altitude_data[current_idx] - altitude_data[previous_idx]
+                    distance_diff = distance_data[current_idx] - distance_data[previous_idx]
+                    
+                    # 如果是上坡（海拔增加）且距离间隔合理，累加上坡距离
+                    if altitude_diff > 1 and distance_diff > min_distance_interval:
+                        uphill_distance += distance_diff
+                    
+                    # 如果是下坡（海拔减少）且距离间隔合理，累加下坡距离
+                    elif altitude_diff < -1 and distance_diff > min_distance_interval:
+                        downhill_distance += distance_diff
 
-            for i in range(1, len(altitude_data)):
-                prev_alt = altitude_data[i - 1] if altitude_data[i - 1] is not None else 0
-                curr_alt = altitude_data[i] if altitude_data[i] is not None else 0
-                prev_dist = distance_data[i - 1] if distance_data[i - 1] is not None else 0
-                curr_dist = distance_data[i] if distance_data[i] is not None else 0
-
-                # 上升段逻辑
-                if curr_alt > prev_alt:
-                    if not in_uphill:
-                        in_uphill = True
-                        start_uphill_distance = prev_dist
-                    # 下降段结束
-                    if in_downhill:
-                        downhill_distance += prev_dist - start_downhill_distance
-                        in_downhill = False
-                # 下降段逻辑
-                elif curr_alt < prev_alt:
-                    if not in_downhill:
-                        in_downhill = True
-                        start_downhill_distance = prev_dist
-                    # 上升段结束
-                    if in_uphill:
-                        uphill_distance += prev_dist - start_uphill_distance
-                        in_uphill = False
-                else:
-                    # 持平，两个段都结束
-                    if in_uphill:
-                        uphill_distance += prev_dist - start_uphill_distance
-                        in_uphill = False
-                    if in_downhill:
-                        downhill_distance += prev_dist - start_downhill_distance
-                        in_downhill = False
-
-            # 如果最后是上升段结尾
-            if in_uphill:
-                uphill_distance += distance_data[-1] - start_uphill_distance
-            # 如果最后是下降段结尾
-            if in_downhill:
-                downhill_distance += distance_data[-1] - start_downhill_distance
-
-            return round(uphill_distance / 1000, 1), round(downhill_distance / 1000, 1)
+            # 转换为千米并保留两位小数
+            return round(uphill_distance / 1000, 2), round(downhill_distance / 1000, 2)
         except Exception as e:
             print(f"计算上坡/下坡距离时出错: {str(e)}")
             return 0.0, 0.0

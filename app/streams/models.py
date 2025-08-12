@@ -69,27 +69,35 @@ class TimeStream(BaseStream):
 
 class AltitudeStream(BaseStream):
     data: List[int] = Field(...)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class CadenceStream(BaseStream):
     data: List[int] = Field(...)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class HeartRateStream(BaseStream):
     data: List[int] = Field(...)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class SpeedStream(BaseStream):
     data: List[float] = Field(...)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class LatitudeStream(BaseStream):
     data: List[float] = Field(...)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class LongitudeStream(BaseStream):
     data: List[float] = Field(...)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class PowerStream(BaseStream):
     data: List[int] = Field(...)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class TemperatureStream(BaseStream):
     data: List[float] = Field(...)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class BestPowerStream(BaseStream):
     data: List[int] = Field(...)
@@ -97,47 +105,47 @@ class BestPowerStream(BaseStream):
 
 class PowerHrRatioStream(BaseStream):
     data: List[float] = Field(...)
-    series_type: SeriesType = Field(default=SeriesType.TIME)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class TorqueStream(BaseStream):
     data: List[int] = Field(...)
-    series_type: SeriesType = Field(default=SeriesType.TIME)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class SPIStream(BaseStream):
     data: List[float] = Field(...)
-    series_type: SeriesType = Field(default=SeriesType.TIME)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class WBalanceStream(BaseStream):
     data: List[float] = Field(...)
-    series_type: SeriesType = Field(default=SeriesType.TIME)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class VAMStream(BaseStream):
     data: List[int] = Field(...)
-    series_type: SeriesType = Field(default=SeriesType.TIME)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class LeftRightBalanceStream(BaseStream):
     data: List[float] = Field(...)
-    series_type: SeriesType = Field(default=SeriesType.TIME)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class LeftTorqueEffectivenessStream(BaseStream):
     data: List[float] = Field(...)
-    series_type: SeriesType = Field(default=SeriesType.TIME)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class RightTorqueEffectivenessStream(BaseStream):
     data: List[float] = Field(...)
-    series_type: SeriesType = Field(default=SeriesType.TIME)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class LeftPedalSmoothnessStream(BaseStream):
     data: List[float] = Field(...)
-    series_type: SeriesType = Field(default=SeriesType.TIME)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class RightPedalSmoothnessStream(BaseStream):
     data: List[float] = Field(...)
-    series_type: SeriesType = Field(default=SeriesType.TIME)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class ElapsedTimeStream(BaseStream):
     data: List[int] = Field(...)
-    series_type: SeriesType = Field(default=SeriesType.TIME)
+    series_type: SeriesType = Field(default=SeriesType.DISTANCE)
 
 class StreamData(BaseModel):
     """完整的流数据集合，用于存储FIT文件中的所有原始数据"""
@@ -170,7 +178,7 @@ class StreamData(BaseModel):
         self, 
         stream_type: str, 
         resolution: Resolution = Resolution.HIGH, 
-        series_type: SeriesType = SeriesType.TIME
+        series_type: SeriesType = SeriesType.TIME # !
     ) -> Optional[BaseStream]:
         available = self.get_available_streams()
         if stream_type not in available:
@@ -201,6 +209,7 @@ class StreamData(BaseModel):
         stream_classes = {
             'distance'                  : DistanceStream,
             'time'                      : TimeStream,
+            'timestamp'                 : TimeStream,  # 添加 timestamp 字段映射
             'altitude'                  : AltitudeStream,
             'cadence'                   : CadenceStream,
             'heart_rate'                : HeartRateStream,
@@ -228,7 +237,7 @@ class StreamData(BaseModel):
                 original_size = len(data) ,
                 resolution    = resolution ,
                 data          = resampled_data ,
-                series_type   = SeriesType.DISTANCE if stream_type == 'distance' else SeriesType.TIME
+                series_type   = series_type if series_type != SeriesType.TIME else SeriesType.DISTANCE # 除了best_power，其他默认都是distance
             )
         return None
     
