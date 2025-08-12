@@ -948,10 +948,12 @@ class StravaAnalyzer:
                 stream_item = stream_data['velocity_smooth']
                 if isinstance(stream_item, dict) and 'data' in stream_item:
                     raw_data = stream_item['data']
-                    speed_data = [round(v * 3.6, 1) for v in raw_data if v is not None]
+                    speed_data = [round(v * 3.6, 1) if v is not None else 0 for v in raw_data]
+                    # 根据 resolution 重新采样
+                    resampled_data = StravaAnalyzer._resample_strava_data(speed_data, resolution)
                     result.append({
                         'type': 'speed',
-                        'data': speed_data,
+                        'data': resampled_data,
                         'series_type': stream_item.get('series_type', 'time'),
                         'original_size': len(speed_data),
                         'resolution': resolution
@@ -960,12 +962,15 @@ class StravaAnalyzer:
             if field in stream_data:
                 stream_item = stream_data[field]
                 if isinstance(stream_item, dict) and 'data' in stream_item:
+                    raw_data = stream_item['data']
+                    # 根据 resolution 重新采样
+                    resampled_data = StravaAnalyzer._resample_strava_data(raw_data, resolution)
                     # 返回新的数组格式
                     result.append({
                         'type': field,
-                        'data': stream_item['data'],
+                        'data': resampled_data,
                         'series_type': stream_item.get('series_type', 'time'),
-                        'original_size': stream_item.get('original_size', len(stream_item['data'])),
+                        'original_size': stream_item.get('original_size', len(raw_data)),
                         'resolution': resolution
                     })
             elif field in ['latitude', 'longitude'] and 'latlng' in stream_data:
@@ -978,9 +983,11 @@ class StravaAnalyzer:
                     else:  # longitude
                         extracted_data = [point[1] if point and len(point) >= 2 else None for point in latlng_data]
                     
+                    # 根据 resolution 重新采样
+                    resampled_data = StravaAnalyzer._resample_strava_data(extracted_data, resolution)
                     result.append({
                         'type': field,
-                        'data': extracted_data,
+                        'data': resampled_data,
                         'series_type': stream_item.get('series_type', 'time'),
                         'original_size': stream_item.get('original_size', len(extracted_data)),
                         'resolution': resolution
@@ -991,9 +998,11 @@ class StravaAnalyzer:
                     watts_data = stream_data['watts'].get('data', [])
                     if watts_data:
                         best_powers = StravaAnalyzer._calculate_best_powers_from_stream(watts_data)
+                        # 根据 resolution 重新采样
+                        resampled_data = StravaAnalyzer._resample_strava_data(best_powers, resolution)
                         result.append({
                             'type': field,
-                            'data': best_powers,
+                            'data': resampled_data,
                             'series_type': 'time',
                             'original_size': len(best_powers),
                             'resolution': resolution
@@ -1011,9 +1020,11 @@ class StravaAnalyzer:
                                 torque_data.append(round(torque, 2))
                             else:
                                 torque_data.append(None)
+                        # 根据 resolution 重新采样
+                        resampled_data = StravaAnalyzer._resample_strava_data(torque_data, resolution)
                         result.append({
                             'type': field,
-                            'data': torque_data,
+                            'data': resampled_data,
                             'series_type': 'distance',
                             'original_size': len(torque_data),
                             'resolution': resolution
@@ -1031,9 +1042,11 @@ class StravaAnalyzer:
                                 spi_data.append(round(spi, 2))
                             else:
                                 spi_data.append(None)
+                        # 根据 resolution 重新采样
+                        resampled_data = StravaAnalyzer._resample_strava_data(spi_data, resolution)
                         result.append({
                             'type': field,
-                            'data': spi_data,
+                            'data': resampled_data,
                             'series_type': 'distance',
                             'original_size': len(spi_data),
                             'resolution': resolution
@@ -1051,9 +1064,11 @@ class StravaAnalyzer:
                                 ratio_data.append(round(ratio, 2))
                             else:
                                 ratio_data.append(None)
+                        # 根据 resolution 重新采样
+                        resampled_data = StravaAnalyzer._resample_strava_data(ratio_data, resolution)
                         result.append({
                             'type': field,
-                            'data': ratio_data,
+                            'data': resampled_data,
                             'series_type': 'time',
                             'original_size': len(ratio_data),
                             'resolution': resolution
@@ -1066,9 +1081,11 @@ class StravaAnalyzer:
                         try:
                             _, athlete_info = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
                             w_balance_data = StravaAnalyzer._calculate_w_balance_array(watts_data, athlete_info)
+                            # 根据 resolution 重新采样
+                            resampled_data = StravaAnalyzer._resample_strava_data(w_balance_data, resolution)
                             result.append({
                                 'type': field,
-                                'data': w_balance_data,
+                                'data': resampled_data,
                                 'series_type': 'time',
                                 'original_size': len(w_balance_data),
                                 'resolution': resolution
@@ -1126,15 +1143,55 @@ class StravaAnalyzer:
                         # 过滤VAM异常值，超过5000或低于-5000的设为0
                         vam = [v if -5000 <= v <= 5000 else 0 for v in vam]
                         
+                        # 根据 resolution 重新采样
+                        resampled_data = StravaAnalyzer._resample_strava_data(vam, resolution)
                         result.append({
                             'type': field,
-                            'data': vam,
+                            'data': resampled_data,
                             'series_type': 'distance',
                             'original_size': len(vam),
                             'resolution': resolution
                         })
         
         return result if result else None
+
+    @staticmethod
+    def _resample_strava_data(
+        data: List[Union[int, float, None]], 
+        resolution: str
+    ) -> List[Union[int, float, None]]:
+        """
+        根据 resolution 参数重新采样 Strava API 返回的高分辨率数据
+        
+        Args:
+            data: 原始高分辨率数据
+            resolution: 目标分辨率 ('low', 'medium', 'high')
+            
+        Returns:
+            重新采样后的数据
+        """
+        if not data:
+            return []
+        
+        original_size = len(data)
+        
+        if resolution == "high":
+            return data
+        elif resolution == "medium":
+            # 中等分辨率：保留25%的数据点
+            target_size = max(1, int(original_size * 0.25))
+            step = max(1, original_size // target_size)
+            result = data[::step]
+            return result[:target_size]
+        elif resolution == "low":
+            # 低分辨率：保留5%的数据点
+            target_size = max(1, int(original_size * 0.05))
+            step = max(1, original_size // target_size)
+            result = data[::step]
+            return result[:target_size]
+        else:
+            # 默认返回高分辨率
+            return data
 
     @staticmethod
     def _calculate_best_powers_from_stream(
@@ -1144,7 +1201,7 @@ class StravaAnalyzer:
             return []
         
         # 过滤掉 None 值
-        valid_watts = [w for w in watts_data if w is not None]
+        valid_watts = [w if w is not None else 0 for w in watts_data]
         n = len(valid_watts)
         if n == 0:
             return []

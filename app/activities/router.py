@@ -257,7 +257,7 @@ async def get_activity_all_data(
                     headers=headers, 
                     timeout=10)
                 stream_response = requests.get(
-                    f"https://www.strava.com/api/v3/activities/{activity_id}/streams?keys=time,distance,latlng,altitude,velocity_smooth,heartrate,cadence,watts,temp,moving,grade_smooth&key_by_type=true&resolution={resolution}", 
+                    f"https://www.strava.com/api/v3/activities/{activity_id}/streams?keys=time,distance,latlng,altitude,velocity_smooth,heartrate,cadence,watts,temp,moving,grade_smooth&key_by_type=true&resolution=high", 
                     headers=headers, 
                     timeout=10)
                 athlete_response = requests.get( 
