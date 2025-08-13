@@ -74,7 +74,7 @@ class StravaAnalyzer:
                 avg_power      = int(activity_data.get("average_watts")) if activity_data.get("average_watts") else None,
                 calories       = int(activity_data.get("calories")),
                 training_load  = StravaAnalyzer._get_tss_and_update(stream_data, external_id, db),
-                status         = StravaAnalyzer._get_status(external_id, db),
+                status         = StravaAnalyzer._get_status_from_crud(external_id, db),
                 avg_heartrate  = int(activity_data.get("average_heartrate")) if activity_data.get("average_heartrate") else None,
                 max_altitude   = int(activity_data.get("elev_high")),
             )
@@ -633,6 +633,11 @@ class StravaAnalyzer:
             r2 = (sum(second_half_powers) / len(second_half_powers)) / (sum(second_half_hr) / len(second_half_hr))
             decoupling_rate = r1 - r2
             decoupling_percentage = (decoupling_rate / r1) * 100
+            
+            # 如果解耦率超过±30%，返回None
+            if abs(decoupling_percentage) > 30:
+                return None
+                
             return f"{round(decoupling_percentage, 1)}%"
 
         except Exception as e:
@@ -731,6 +736,30 @@ class StravaAnalyzer:
             return athlete.tsb
         except Exception as e:
             print(f"获取状态时出错: {str(e)}")
+            return None
+
+    @staticmethod
+    def _get_status_from_crud(
+        external_id: int,
+        db: Session
+    ) -> Optional[int]:
+        try:
+            # 根据 external_id 获取 activity 对象
+            activity, _ = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
+            if not activity:
+                return None
+            
+            # 导入并调用 crud.py 中的 get_status 函数
+            from .crud import get_status
+            status = get_status(db, activity.id)
+            print(status)
+            if status:
+                return status['ctl'] - status['atl']
+            else:
+                return None
+                
+        except Exception as e:
+            print(f"从 crud 获取状态时出错: {str(e)}")
             return None
 
     @staticmethod

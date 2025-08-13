@@ -112,7 +112,12 @@ def get_activity_overall_info(
         else:
             result['training_load'] = None
     
-        result['status'] = athlete.tsb
+
+        status = get_status(db, activity_id)
+        if status:
+            result['status'] = round(status['ctl'] - status['atl'], 0)
+        else:
+            result['status'] = None
         
         if session_data and 'avg_heart_rate' in session_data:
             result['avg_heartrate'] = int(session_data['avg_heart_rate'])
@@ -312,6 +317,11 @@ def get_activity_heartrate_info(
                     decoupling_rate = first_half_ratio - second_half_ratio
                     # 转换为百分比
                     decoupling_percentage = (decoupling_rate / first_half_ratio) * 100
+                    
+                    # 如果解耦率超过±30%，返回None
+                    if abs(decoupling_percentage) > 30:
+                        return None
+                    
                     return f"{round(decoupling_percentage, 1)}%"
                 
                 return None
@@ -1290,3 +1300,54 @@ def get_session_data(
         return None
     except Exception as e:
         return None
+
+def get_status( # ! 为严格查验正确性
+    db: Session, 
+    activity_id: int
+) -> Optional[Dict[str, Any]]:
+    try:
+        activity = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
+        if not activity:
+            return None
+        athlete_id = activity.athlete_id
+
+        from datetime import datetime, timedelta
+        from sqlalchemy import func
+        
+        forty_two_days_ago = datetime.now() - timedelta(days=42)
+        seven_days_ago = datetime.now() - timedelta(days=7)
+        
+        avg_tss_42_days = db.query(
+            func.avg(TbActivity.tss)
+        ).filter(
+            TbActivity.athlete_id == athlete_id,
+            TbActivity.start_date >= forty_two_days_ago,
+            TbActivity.tss.isnot(None),
+            TbActivity.tss > 0
+        ).scalar()
+        
+        avg_tss_7_days = db.query(
+            func.avg(TbActivity.tss)
+        ).filter(
+            TbActivity.athlete_id == athlete_id,
+            TbActivity.start_date >= seven_days_ago,
+            TbActivity.tss.isnot(None),
+            TbActivity.tss > 0
+        ).scalar()
+        
+        # 处理查询结果，如果没有数据则设为0
+        avg_tss_42_days = round(avg_tss_42_days, 0) if avg_tss_42_days is not None else 0
+        avg_tss_7_days = round(avg_tss_7_days, 0) if avg_tss_7_days is not None else 0
+        
+        return {
+            "athlete_id": athlete_id,
+            "ctl": avg_tss_42_days,
+            "atl": avg_tss_7_days
+        }
+        
+    except Exception as e:
+        print(f"获取训练状态时出错: {str(e)}")
+        return None
+
+
+        
