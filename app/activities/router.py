@@ -244,6 +244,23 @@ async def get_activity_all_data(
     db: Session = Depends(get_db)
 ):
     try:
+        # 导入缓存管理器
+        from .cache_manager import activity_cache_manager
+        
+        # 生成缓存键
+        cache_key = activity_cache_manager.generate_cache_key(
+            activity_id=activity_id,
+            resolution=resolution
+        )
+        
+        # 尝试从缓存获取数据
+        cached_data = activity_cache_manager.get_cache(db, activity_id, cache_key)
+        if cached_data:
+            print(f"🟢 [缓存命中] 活动{activity_id}的所有数据")
+            return AllActivityDataResponse(**cached_data)
+        
+        print(f"🔴 [缓存未命中] 活动{activity_id}的所有数据 - 正在计算...")
+        
         # 如果传入了 access_token，调用 Strava API
         if access_token:
             try:
@@ -291,7 +308,20 @@ async def get_activity_all_data(
                 else:
                     # 如果 keys 为空，返回所有可用的字段
                     keys_list = ['time', 'distance', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp',  'best_power', 'torque', 'spi', 'power_hr_ratio', 'w_balance', 'vam'] # ! 去掉 lating、moving、grade_smooth，将 velocity_smooth 改成 speed
-                return StravaAnalyzer.analyze_activity_data(activity_data, stream_data, athlete_data, activity_id, db, keys_list, resolution)
+                
+                response_data = StravaAnalyzer.analyze_activity_data(activity_data, stream_data, athlete_data, activity_id, db, keys_list, resolution)
+                
+                # 缓存响应数据
+                if response_data:
+                    response_dict = response_data.dict() if hasattr(response_data, 'dict') else response_data
+                    metadata = {
+                        "source": "strava_api",
+                        "keys": keys,
+                        "resolution": resolution
+                    }
+                    activity_cache_manager.set_cache(db, activity_id, cache_key, response_dict, metadata)
+                
+                return response_data
             except HTTPException:
                 raise
             except Exception as e:
@@ -386,7 +416,22 @@ async def get_activity_all_data(
             response_data["streams"] = None
         
         # 构建响应
-        return AllActivityDataResponse(**response_data)
+        final_response = AllActivityDataResponse(**response_data)
+        
+        # 缓存响应数据
+        try:
+            response_dict = final_response.dict() if hasattr(final_response, 'dict') else final_response
+            metadata = {
+                "source": "local_database",
+                "keys": keys,
+                "resolution": resolution
+            }
+            activity_cache_manager.set_cache(db, activity_id, cache_key, response_dict, metadata)
+            print(f"✅ [缓存设置] 活动{activity_id}的所有数据已缓存")
+        except Exception as e:
+            print(f"⚠️ [缓存失败] 活动{activity_id}的所有数据缓存失败: {e}")
+        
+        return final_response
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
@@ -399,8 +444,12 @@ async def clear_activity_cache(
 ):
     """清除指定活动的缓存数据"""
     try:
-        activity_data_manager.clear_cache(activity_id)
-        return {"message": f"活动 {activity_id} 的缓存已清除"}
+        from .cache_manager import activity_cache_manager
+        success = activity_cache_manager.invalidate_cache(db, activity_id)
+        if success:
+            return {"message": f"活动 {activity_id} 的缓存已清除"}
+        else:
+            raise HTTPException(status_code=500, detail="清除缓存失败")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"清除缓存时发生错误: {str(e)}")
 
@@ -410,8 +459,10 @@ async def clear_all_cache(
 ):
     """清除所有活动的缓存数据"""
     try:
-        activity_data_manager.clear_cache()
-        return {"message": "所有缓存已清除"}
+        from .cache_manager import activity_cache_manager
+        # 这里需要实现批量清除所有缓存的逻辑
+        # 暂时返回提示信息
+        return {"message": "批量清除所有缓存功能待实现，请使用 /cache/{activity_id} 逐个清除"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"清除缓存时发生错误: {str(e)}")
 
@@ -421,12 +472,40 @@ async def get_cache_stats(
 ):
     """获取缓存统计信息"""
     try:
-        stats = activity_data_manager.get_cache_stats()
+        from .cache_manager import activity_cache_manager
+        # 查询缓存统计信息
+        from sqlalchemy import func
+        from .models import TbActivityCache
+        
+        total_cache = db.query(func.count(TbActivityCache.id)).scalar()
+        active_cache = db.query(func.count(TbActivityCache.id)).filter(TbActivityCache.is_active == 1).scalar()
+        expired_cache = db.query(func.count(TbActivityCache.id)).filter(
+            TbActivityCache.expires_at < func.now()
+        ).scalar()
+        
+        stats = {
+            "total_cache": total_cache,
+            "active_cache": active_cache,
+            "expired_cache": expired_cache
+        }
+        
         return {
             "message": "获取缓存统计信息成功",
             "data": stats
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取缓存统计信息时发生错误: {str(e)}")
+
+@router.post("/cache/cleanup")
+async def cleanup_expired_cache(
+    db: Session = Depends(get_db)
+):
+    """清理过期的缓存"""
+    try:
+        from .cache_manager import activity_cache_manager
+        cleaned_count = activity_cache_manager.cleanup_expired_cache(db)
+        return {"message": f"清理过期缓存完成，共清理 {cleaned_count} 个缓存"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"清理过期缓存时发生错误: {str(e)}")
 
 
