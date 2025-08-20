@@ -496,16 +496,6 @@ async def get_cache_stats(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取缓存统计信息时发生错误: {str(e)}")
 
-@router.post("/cache/cleanup")
-async def cleanup_expired_cache(
-    db: Session = Depends(get_db)
-):
-    """清理过期的缓存"""
-    try:
-        from .cache_manager import activity_cache_manager
-        cleaned_count = activity_cache_manager.cleanup_expired_cache(db)
-        return {"message": f"清理过期缓存完成，共清理 {cleaned_count} 个缓存"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"清理过期缓存时发生错误: {str(e)}")
+
 
 

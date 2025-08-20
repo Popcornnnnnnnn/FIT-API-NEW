@@ -45,4 +45,4 @@ class TbActivityCache(Base):
     updated_at = Column(DateTime, nullable=False, comment="缓存更新时间")
     expires_at = Column(DateTime, comment="缓存过期时间")
     is_active = Column(Integer, default=1, comment="是否激活（1=激活，0=禁用）")
-    metadata = Column(Text, comment="缓存元数据（JSON格式）") 
+    cache_metadata = Column(Text, comment="缓存元数据（JSON格式）") 

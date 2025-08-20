@@ -10,7 +10,7 @@
 import os
 import json
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
@@ -23,16 +23,14 @@ logger = logging.getLogger(__name__)
 class ActivityCacheManager:
     """活动数据缓存管理器"""
     
-    def __init__(self, storage_base_path: str = "/data/activity_cache", cache_ttl_days: int = 30):
+    def __init__(self, storage_base_path: str = "/data/activity_cache"):
         """
         初始化缓存管理器
         
         Args:
             storage_base_path: 服务器存储基础路径
-            cache_ttl_days: 缓存生存时间（天）
         """
         self.storage_base_path = storage_base_path
-        self.cache_ttl_days = cache_ttl_days
         
         # 确保存储目录存在
         os.makedirs(storage_base_path, exist_ok=True)
@@ -83,10 +81,7 @@ class ActivityCacheManager:
             if not cache_record:
                 return None
             
-            # 检查是否过期
-            if cache_record.expires_at and datetime.now() > cache_record.expires_at:
-                logger.info(f"缓存已过期: activity_id={activity_id}, cache_key={cache_key}")
-                return None
+            # 不检查过期时间，缓存永久有效
             
             # 检查文件是否存在
             if not os.path.exists(cache_record.file_path):
@@ -136,8 +131,8 @@ class ActivityCacheManager:
             # 获取文件大小
             file_size = os.path.getsize(file_path)
             
-            # 计算过期时间
-            expires_at = datetime.now() + timedelta(days=self.cache_ttl_days)
+            # 不设置过期时间，缓存永久有效
+            expires_at = None
             
             # 更新或插入缓存记录
             cache_record = db.query(TbActivityCache).filter(
@@ -151,7 +146,7 @@ class ActivityCacheManager:
                 cache_record.file_size = file_size
                 cache_record.updated_at = datetime.now()
                 cache_record.expires_at = expires_at
-                cache_record.metadata = json.dumps(metadata) if metadata else None
+                cache_record.cache_metadata = json.dumps(metadata) if metadata else None
             else:
                 # 创建新记录
                 cache_record = TbActivityCache(
@@ -162,7 +157,7 @@ class ActivityCacheManager:
                     created_at=datetime.now(),
                     updated_at=datetime.now(),
                     expires_at=expires_at,
-                    metadata=json.dumps(metadata) if metadata else None
+                    cache_metadata=json.dumps(metadata) if metadata else None
                 )
                 db.add(cache_record)
             
@@ -212,46 +207,7 @@ class ActivityCacheManager:
             db.rollback()
             return False
     
-    def cleanup_expired_cache(self, db: Session) -> int:
-        """
-        清理过期的缓存
-        
-        Args:
-            db: 数据库会话
-        
-        Returns:
-            清理的缓存数量
-        """
-        try:
-            expired_records = db.query(TbActivityCache).filter(
-                and_(
-                    TbActivityCache.expires_at < datetime.now(),
-                    TbActivityCache.is_active == 1
-                )
-            ).all()
-            
-            cleaned_count = 0
-            for record in expired_records:
-                # 删除文件
-                if os.path.exists(record.file_path):
-                    try:
-                        os.remove(record.file_path)
-                    except OSError:
-                        pass
-                
-                # 标记为无效
-                record.is_active = 0
-                record.updated_at = datetime.now()
-                cleaned_count += 1
-            
-            db.commit()
-            logger.info(f"清理过期缓存完成，共清理 {cleaned_count} 个缓存")
-            return cleaned_count
-            
-        except Exception as e:
-            logger.error(f"清理过期缓存失败: error: {e}")
-            db.rollback()
-            return 0
+
 
 # 全局缓存管理器实例
 activity_cache_manager = ActivityCacheManager()
