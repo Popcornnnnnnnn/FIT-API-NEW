@@ -46,8 +46,8 @@ class ActivityCacheManager:
         Returns:
             缓存键字符串
         """
-        # 只考虑 resolution 参数，忽略 access_token
-        filtered_kwargs = {k: v for k, v in kwargs.items() if k in ['resolution'] and v is not None}
+        # 考虑 resolution 和 keys 参数，忽略 access_token
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k in ['resolution', 'keys'] and v is not None}
         
         # 将参数排序并组合
         param_str = "&".join([f"{k}={v}" for k, v in sorted(filtered_kwargs.items())])
@@ -207,7 +207,10 @@ class ActivityCacheManager:
             db.rollback()
             return False
     
-
+'''
+5
+1 2 2 3 5
+'''
 
 # 全局缓存管理器实例
 activity_cache_manager = ActivityCacheManager()

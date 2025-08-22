@@ -39,6 +39,20 @@ class StravaAnalyzer:
         resolution: str = "high",
     ) -> AllActivityDataResponse:
 
+        # 数据补齐：如果stream_data是低精度，补齐到高精度
+        if stream_data:
+            # 检测是否为低精度数据
+            is_low_resolution = StravaAnalyzer._is_low_resolution_data(stream_data)
+            if is_low_resolution:
+                print("检测到低精度数据，正在补齐到高精度...")
+                # 准备时间参考信息
+                prepared_data = StravaAnalyzer._prepare_stream_data_for_upsampling(stream_data)
+                # 补齐数据 - 使用实际运动时长
+                stream_data = StravaAnalyzer._upsample_low_resolution_data(prepared_data, activity_data.get("moving_time", 0))
+                print("数据补齐完成")
+                
+
+
         # 处理流数据
         streams = None
         if keys and stream_data:
@@ -679,16 +693,32 @@ class StravaAnalyzer:
         power_stream = stream_data.get("watts", {})
         if not power_stream:
             return None
+        
         try:
             power_data = power_stream.get("data", [])
+            if not power_data:
+                return None
+                
             power_data = [p if p is not None else 0 for p in power_data]
+            
             activity, athlete = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
+            if not activity or not athlete:
+                return None
+                
             ftp = int(athlete.ftp)
 
             np = StravaAnalyzer._calculate_normalized_power(power_data)
             intensity_factor = np / ftp
-            tss = (len(power_data) * np * intensity_factor) / (ftp * 3600) * 100
+            
+            # 根据数据精度调整时间计算
+            # 如果数据已经补齐到高精度，每秒一个数据点
+            time_factor = 1.0
+            adjusted_time = len(power_data) * time_factor
+            
+            tss = (adjusted_time * np * intensity_factor) / (ftp * 3600) * 100
+            
             return int(round(tss, 0))
+            
         except Exception as e:
             print(f"计算训练负荷时出错: {str(e)}")
             return None
@@ -705,17 +735,25 @@ class StravaAnalyzer:
             activity, athlete = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
             if not activity or not athlete:
                 return None
+                
             if activity.tss_updated == 0:
                 tss = StravaAnalyzer._calculate_training_load(stream_data, external_id, db)
+                if tss is None:
+                    return None
+                
+                # 更新数据库
                 update_database_field(db, TbActivity, activity.id, "tss", tss)
                 ctl = athlete.ctl
                 atl = athlete.atl
                 new_ctl = ctl + (tss - ctl) / 42
                 new_atl = atl + (tss - atl) / 7
+                
+
                 update_database_field(db, TbAthlete, activity.athlete_id, "ctl", round(new_ctl, 0))
                 update_database_field(db, TbAthlete, activity.athlete_id, "atl", round(new_atl, 0))
                 update_database_field(db, TbActivity, activity.id, "tss_updated", 1)
                 update_database_field(db, TbAthlete, activity.athlete_id, "tsb", round(new_atl - new_ctl, 0))
+                
                 return tss
             else:
                 return activity.tss
@@ -978,29 +1016,30 @@ class StravaAnalyzer:
                 if isinstance(stream_item, dict) and 'data' in stream_item:
                     raw_data = stream_item['data']
                     speed_data = [round(v * 3.6, 1) if v is not None else 0 for v in raw_data]
-                    # 根据 resolution 重新采样
-                    resampled_data = StravaAnalyzer._resample_strava_data(speed_data, resolution)
+                    # 数据已经补齐到高精度，直接使用
                     result.append({
                         'type': 'speed',
-                        'data': resampled_data,
+                        'data': speed_data,
                         'series_type': stream_item.get('series_type', 'time'),
                         'original_size': len(speed_data),
-                        'resolution': resolution
+                        'resolution': 'high',
+                        'sampling_interval': 1.0,
+                        'note': '数据已补齐到高精度（每秒1个数据点）'
                     })
                 continue
             if field in stream_data:
                 stream_item = stream_data[field]
                 if isinstance(stream_item, dict) and 'data' in stream_item:
                     raw_data = stream_item['data']
-                    # 根据 resolution 重新采样
-                    resampled_data = StravaAnalyzer._resample_strava_data(raw_data, resolution)
-                    # 返回新的数组格式
+                    # 数据已经补齐到高精度，直接使用
                     result.append({
                         'type': field,
-                        'data': resampled_data,
+                        'data': raw_data,
                         'series_type': stream_item.get('series_type', 'time'),
                         'original_size': stream_item.get('original_size', len(raw_data)),
-                        'resolution': resolution
+                        'resolution': 'high',
+                        'sampling_interval': 1.0,
+                        'note': '数据已补齐到高精度（每秒1个数据点）'
                     })
             elif field in ['latitude', 'longitude'] and 'latlng' in stream_data:
                 # 对于经纬度，需要从 latlng 数组中提取对应的值
@@ -1012,14 +1051,15 @@ class StravaAnalyzer:
                     else:  # longitude
                         extracted_data = [point[1] if point and len(point) >= 2 else None for point in latlng_data]
                     
-                    # 根据 resolution 重新采样
-                    resampled_data = StravaAnalyzer._resample_strava_data(extracted_data, resolution)
+                    # 数据已经补齐到高精度，直接使用
                     result.append({
                         'type': field,
-                        'data': resampled_data,
+                        'data': extracted_data,
                         'series_type': stream_item.get('series_type', 'time'),
                         'original_size': stream_item.get('original_size', len(extracted_data)),
-                        'resolution': resolution
+                        'resolution': 'high',
+                        'sampling_interval': 1.0,
+                        'note': '数据已补齐到高精度（每秒1个数据点）'
                     })
             elif field == 'best_power':
                 # 计算最佳功率数据
@@ -1027,14 +1067,15 @@ class StravaAnalyzer:
                     watts_data = stream_data['watts'].get('data', [])
                     if watts_data:
                         best_powers = StravaAnalyzer._calculate_best_powers_from_stream(watts_data)
-                        # 根据 resolution 重新采样
-                        resampled_data = StravaAnalyzer._resample_strava_data(best_powers, resolution)
+                        # 数据已经补齐到高精度，直接使用
                         result.append({
                             'type': field,
-                            'data': resampled_data,
+                            'data': best_powers,
                             'series_type': 'time',
                             'original_size': len(best_powers),
-                            'resolution': resolution
+                            'resolution': 'high',
+                            'sampling_interval': 1.0,
+                            'note': '数据已补齐到高精度（每秒1个数据点）'
                         })
             elif field == 'torque':
                 # 计算扭矩数据（功率/踏频）
@@ -1049,14 +1090,15 @@ class StravaAnalyzer:
                                 torque_data.append(round(torque, 2))
                             else:
                                 torque_data.append(None)
-                        # 根据 resolution 重新采样
-                        resampled_data = StravaAnalyzer._resample_strava_data(torque_data, resolution)
+                        # 数据已经补齐到高精度，直接使用
                         result.append({
                             'type': field,
-                            'data': resampled_data,
+                            'data': torque_data,
                             'series_type': 'distance',
                             'original_size': len(torque_data),
-                            'resolution': resolution
+                            'resolution': 'high',
+                            'sampling_interval': 1.0,
+                            'note': '数据已补齐到高精度（每秒1个数据点）'
                         })
             elif field == 'spi':
                 # 计算 SPI (Speed Power Index) - 速度功率指数（功率/踏频）
@@ -1071,14 +1113,15 @@ class StravaAnalyzer:
                                 spi_data.append(round(spi, 2))
                             else:
                                 spi_data.append(None)
-                        # 根据 resolution 重新采样
-                        resampled_data = StravaAnalyzer._resample_strava_data(spi_data, resolution)
+                        # 数据已经补齐到高精度，直接使用
                         result.append({
                             'type': field,
-                            'data': resampled_data,
+                            'data': spi_data,
                             'series_type': 'distance',
                             'original_size': len(spi_data),
-                            'resolution': resolution
+                            'resolution': 'high',
+                            'sampling_interval': 1.0,
+                            'note': '数据已补齐到高精度（每秒1个数据点）'
                         })
             elif field == 'power_hr_ratio':
                 # 计算功率心率比
@@ -1093,14 +1136,15 @@ class StravaAnalyzer:
                                 ratio_data.append(round(ratio, 2))
                             else:
                                 ratio_data.append(None)
-                        # 根据 resolution 重新采样
-                        resampled_data = StravaAnalyzer._resample_strava_data(ratio_data, resolution)
+                        # 数据已经补齐到高精度，直接使用
                         result.append({
                             'type': field,
-                            'data': resampled_data,
+                            'data': ratio_data,
                             'series_type': 'time',
                             'original_size': len(ratio_data),
-                            'resolution': resolution
+                            'resolution': 'high',
+                            'sampling_interval': 1.0,
+                            'note': '数据已补齐到高精度（每秒1个数据点）'
                         })
             elif field == 'w_balance':
                 # 计算 W平衡数据
@@ -1110,14 +1154,15 @@ class StravaAnalyzer:
                         try:
                             _, athlete_info = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
                             w_balance_data = StravaAnalyzer._calculate_w_balance_array(watts_data, athlete_info)
-                            # 根据 resolution 重新采样
-                            resampled_data = StravaAnalyzer._resample_strava_data(w_balance_data, resolution)
+                            # 数据已经补齐到高精度，直接使用
                             result.append({
                                 'type': field,
-                                'data': resampled_data,
+                                'data': w_balance_data,
                                 'series_type': 'time',
                                 'original_size': len(w_balance_data),
-                                'resolution': resolution
+                                'resolution': 'high',
+                                'sampling_interval': 1.0,
+                                'note': '数据已补齐到高精度（每秒1个数据点）'
                             })
                         except Exception:
                             pass
@@ -1172,14 +1217,15 @@ class StravaAnalyzer:
                         # 过滤VAM异常值，超过5000或低于-5000的设为0
                         vam = [v if -5000 <= v <= 5000 else 0 for v in vam]
                         
-                        # 根据 resolution 重新采样
-                        resampled_data = StravaAnalyzer._resample_strava_data(vam, resolution)
+                        # 数据已经补齐到高精度，直接使用
                         result.append({
                             'type': field,
-                            'data': resampled_data,
+                            'data': vam,
                             'series_type': 'distance',
                             'original_size': len(vam),
-                            'resolution': resolution
+                            'resolution': 'high',
+                            'sampling_interval': 1.0,
+                            'note': '数据已补齐到高精度（每秒1个数据点）'
                         })
         
         return result if result else None
@@ -1249,3 +1295,240 @@ class StravaAnalyzer:
                         max_avg = avg
             best_powers.append(int(round(max_avg)))
         return best_powers
+
+    @staticmethod
+    def _upsample_low_resolution_data(stream_data: Dict[str, Any], actual_moving_time: int) -> Dict[str, Any]:
+        """
+        将低精度数据补齐到高精度，通过复制重复值的方式
+        
+        Args:
+            stream_data: Strava API返回的低精度流数据
+            actual_moving_time: 实际运动时长（秒）
+            
+        Returns:
+            补齐后的高精度流数据
+        """
+        if not stream_data:
+            return stream_data
+        
+        upsampled_data = {}
+        
+        for key, stream_item in stream_data.items():
+            if not isinstance(stream_item, dict) or 'data' not in stream_item:
+                upsampled_data[key] = stream_item
+                continue
+            
+            original_data = stream_item['data']
+            series_type = stream_item.get('series_type', 'time')
+            
+            if not original_data or len(original_data) <= 1:
+                upsampled_data[key] = stream_item
+                continue
+            
+            # 根据字段类型决定如何补齐
+            if key == 'time':
+                # 时间字段：补齐到每秒一个数据点
+                upsampled_data[key] = StravaAnalyzer._upsample_time_series(stream_item, actual_moving_time)
+            elif key in ['distance', 'altitude', 'grade_smooth']:
+                # 距离、海拔、坡度：线性插值补齐
+                upsampled_data[key] = StravaAnalyzer._upsample_with_interpolation(stream_item, actual_moving_time)
+            elif key in ['velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp', 'moving']:
+                # 速度、心率、踏频、功率、温度、移动状态：复制重复值补齐
+                upsampled_data[key] = StravaAnalyzer._upsample_with_repetition(stream_item, actual_moving_time)
+            elif key == 'latlng':
+                # 经纬度：复制重复值补齐
+                upsampled_data[key] = StravaAnalyzer._upsample_latlng(stream_item, actual_moving_time)
+            else:
+                # 其他字段：保持原样
+                upsampled_data[key] = stream_item
+        
+        return upsampled_data
+
+    @staticmethod
+    def _upsample_time_series(stream_item: Dict[str, Any], actual_moving_time: int) -> Dict[str, Any]:
+        """补齐时间序列到每秒一个数据点，基于实际运动时长"""
+        data = stream_item['data']
+        if len(data) <= 1:
+            return stream_item
+        
+        # 使用实际运动时长，补齐到每秒一个数据点
+        target_size = actual_moving_time + 1  # 从0秒到moving_time秒，共moving_time+1个点
+        
+        if len(data) >= target_size:
+            # 如果数据点已经足够，不需要补齐
+            return stream_item
+        
+        # 补齐到每秒一个数据点
+        upsampled_data = []
+        for t in range(target_size):
+            upsampled_data.append(t)
+        
+        result = stream_item.copy()
+        result['data'] = upsampled_data
+        result['original_size'] = len(data)
+        result['upsampled_size'] = len(upsampled_data)
+        result['upsampling_factor'] = len(upsampled_data) / len(data)
+        
+        return result
+
+    @staticmethod
+    def _upsample_with_interpolation(stream_item: Dict[str, Any], actual_moving_time: int) -> Dict[str, Any]:
+        """通过线性插值补齐数值序列，基于实际运动时长"""
+        data = stream_item['data']
+        if len(data) <= 1:
+            return stream_item
+        
+        # 获取对应的时间序列用于插值
+        time_data = None
+        if 'time' in stream_item.get('_time_reference', {}):
+            time_data = stream_item['_time_reference']['time']
+        
+        if not time_data or len(time_data) != len(data):
+            # 如果没有时间参考，使用复制重复值的方式
+            return StravaAnalyzer._upsample_with_repetition(stream_item, actual_moving_time)
+        
+        # 使用实际运动时长补齐
+        target_size = actual_moving_time + 1
+        
+        if len(data) >= target_size:
+            # 如果数据点已经足够，不需要补齐
+            return stream_item
+        
+        # 线性插值补齐
+        upsampled_data = []
+        step = len(data) / target_size
+        
+        for i in range(target_size):
+            if i < len(data):
+                upsampled_data.append(data[i])
+            else:
+                # 对于超出原始数据范围的点，使用最后一个值
+                upsampled_data.append(data[-1])
+        
+        result = stream_item.copy()
+        result['data'] = upsampled_data
+        result['original_size'] = len(data)
+        result['upsampled_size'] = len(upsampled_data)
+        result['upsampling_factor'] = len(upsampled_data) / len(data)
+        
+        return result
+
+    @staticmethod
+    def _upsample_with_repetition(stream_item: Dict[str, Any], actual_moving_time: int) -> Dict[str, Any]:
+        """通过复制重复值补齐数值序列，基于实际运动时长"""
+        data = stream_item['data']
+        if len(data) <= 1:
+            return stream_item
+        
+        # 使用实际运动时长补齐
+        target_size = actual_moving_time + 1
+        
+        if len(data) >= target_size:
+            # 如果数据点已经足够，不需要补齐
+            return stream_item
+        
+        # 补齐到每秒一个数据点
+        upsampled_data = []
+        step = len(data) / target_size
+        
+        for i in range(target_size):
+            idx = min(int(i * step), len(data) - 1)
+            upsampled_data.append(data[idx])
+        
+        result = stream_item.copy()
+        result['data'] = upsampled_data
+        result['original_size'] = len(data)
+        result['upsampled_size'] = len(upsampled_data)
+        result['upsampling_factor'] = len(upsampled_data) / len(data)
+        
+        return result
+
+    @staticmethod
+    def _upsample_latlng(stream_item: Dict[str, Any], actual_moving_time: int) -> Dict[str, Any]:
+        """补齐经纬度数据，基于实际运动时长"""
+        data = stream_item['data']
+        if len(data) <= 1:
+            return stream_item
+        
+        # 使用实际运动时长补齐
+        target_size = actual_moving_time + 1
+        
+        if len(data) >= target_size:
+            # 如果数据点已经足够，不需要补齐
+            return stream_item
+        
+        # 补齐到每秒一个数据点
+        upsampled_data = []
+        step = len(data) / target_size
+        
+        for i in range(target_size):
+            idx = min(int(i * step), len(data) - 1)
+            upsampled_data.append(data[idx])
+        
+        result = stream_item.copy()
+        result['data'] = upsampled_data
+        result['original_size'] = len(data)
+        result['upsampled_size'] = len(upsampled_data)
+        result['upsampling_factor'] = len(upsampled_data) / len(data)
+        
+        return result
+
+    @staticmethod
+    def _prepare_stream_data_for_upsampling(stream_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        为数据补齐准备时间参考信息
+        
+        Args:
+            stream_data: 原始流数据
+            
+        Returns:
+            添加了时间参考的流数据
+        """
+        if not stream_data or 'time' not in stream_data:
+            return stream_data
+        
+        time_data = stream_data['time'].get('data', [])
+        if not time_data:
+            return stream_data
+        
+        # 为每个字段添加时间参考
+        prepared_data = stream_data.copy()
+        for key, stream_item in prepared_data.items():
+            if key != 'time' and isinstance(stream_item, dict) and 'data' in stream_item:
+                stream_item['_time_reference'] = {'time': time_data}
+        
+        return prepared_data
+
+    @staticmethod
+    def _is_low_resolution_data(stream_data: Dict[str, Any]) -> bool:
+        """
+        检测是否为低精度数据
+        
+        Args:
+            stream_data: Strava API返回的流数据
+            
+        Returns:
+            True表示低精度数据，False表示高精度数据
+        """
+        if not stream_data or 'time' not in stream_data:
+            return False
+        
+        time_data = stream_data['time'].get('data', [])
+        if len(time_data) <= 1:
+            return False
+        
+        # 计算前几个时间间隔的平均值
+        time_intervals = []
+        for i in range(1, min(len(time_data), 5)):  # 检查前5个间隔
+            if time_data[i] is not None and time_data[i-1] is not None:
+                interval = time_data[i] - time_data[i-1]
+                if interval > 0:
+                    time_intervals.append(interval)
+        
+        if not time_intervals:
+            return False
+        
+        avg_interval = sum(time_intervals) / len(time_intervals)
+        
+        # 如果平均间隔大于5秒，认为是低精度数据
+        return avg_interval > 5.0

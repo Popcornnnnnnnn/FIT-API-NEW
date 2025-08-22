@@ -7,6 +7,7 @@ Activities模块的路由
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import and_
 from typing import List, Optional, Dict, Any
 import requests
 import logging
@@ -247,10 +248,11 @@ async def get_activity_all_data(
         # 导入缓存管理器
         from .cache_manager import activity_cache_manager
         
-        # 生成缓存键
+        # 生成缓存键 - 包含数据精度和字段信息
         cache_key = activity_cache_manager.generate_cache_key(
             activity_id=activity_id,
-            resolution=resolution
+            resolution=resolution,
+            keys=keys
         )
         
         # 尝试从缓存获取数据
@@ -260,21 +262,40 @@ async def get_activity_all_data(
             return AllActivityDataResponse(**cached_data)
         
         print(f"🔴 [缓存未命中] 活动{activity_id}的所有数据 - 正在计算...")
-        
+
         # 如果传入了 access_token，调用 Strava API
         if access_token:
             try:
-                # 调用 Strava API，使用 activity_id 作为 external_id
                 headers = {
                     "Authorization": f"Bearer {access_token}",
                     "Content-Type": "application/json"
                 }
+                # 根据活动时长动态选择精度，避免超过10000个数据点
                 activity_response = requests.get(
                     f"https://www.strava.com/api/v3/activities/{activity_id}", 
                     headers=headers, 
                     timeout=10)
+                
+                if activity_response.status_code != 200:
+                    raise HTTPException(
+                        status_code=activity_response.status_code,
+                        detail=f"Strava API 活动信息获取失败: {activity_response.text}"
+                    )
+                
+                activity_data = activity_response.json()
+                
+                # 计算活动时长（秒）并决定API精度
+                moving_time = activity_data.get("moving_time", 0)
+                # 如果活动时长超过8000秒（约2.2小时），使用低精度API
+                # 低精度：每20秒一个数据点，高精度：每1秒一个数据点
+                if moving_time > 8000:
+                    api_resolution = "medium"
+                    print(f"活动时长 {moving_time}秒，使用低精度API避免数据截断")
+                else:
+                    api_resolution = "high"
+                
                 stream_response = requests.get(
-                    f"https://www.strava.com/api/v3/activities/{activity_id}/streams?keys=time,distance,latlng,altitude,velocity_smooth,heartrate,cadence,watts,temp,moving,grade_smooth&key_by_type=true&resolution=high", 
+                    f"https://www.strava.com/api/v3/activities/{activity_id}/streams?keys=time,distance,latlng,altitude,velocity_smooth,heartrate,cadence,watts,temp,moving,grade_smooth&key_by_type=true&resolution={api_resolution}", 
                     headers=headers, 
                     timeout=10)
                 athlete_response = requests.get( 
@@ -287,17 +308,11 @@ async def get_activity_all_data(
                         status_code=athlete_response.status_code,
                         detail=f"Strava API 运动员信息获取失败: {athlete_response.text}"
                     )
-                if activity_response.status_code != 200:
-                    raise HTTPException(
-                        status_code=activity_response.status_code,
-                        detail=f"Strava API 活动信息获取失败: {activity_response.text}"
-                    )
                 if stream_response.status_code != 200:
                     raise HTTPException(
                         status_code=stream_response.status_code,
                         detail=f"Strava API 流数据获取失败: {stream_response.text}"
                     )
-                activity_data = activity_response.json()
                 stream_data = stream_response.json()
                 athlete_data = athlete_response.json()
                 # print(athlete_data["ftp"])
@@ -311,15 +326,19 @@ async def get_activity_all_data(
                 
                 response_data = StravaAnalyzer.analyze_activity_data(activity_data, stream_data, athlete_data, activity_id, db, keys_list, resolution)
                 
-                # 缓存响应数据
+                # 缓存响应数据 - 包含补齐后的高精度数据
                 if response_data:
                     response_dict = response_data.dict() if hasattr(response_data, 'dict') else response_data
                     metadata = {
                         "source": "strava_api",
                         "keys": keys,
-                        "resolution": resolution
+                        "resolution": resolution,
+                        "data_upsampled": True,  # 标记数据已补齐到高精度
+                        "api_resolution": api_resolution,  # 记录原始API精度
+                        "moving_time": moving_time  # 记录实际运动时长
                     }
                     activity_cache_manager.set_cache(db, activity_id, cache_key, response_dict, metadata)
+                    print(f"✅ [缓存设置] 活动{activity_id}的Strava API数据已缓存（补齐后）")
                 
                 return response_data
             except HTTPException:
@@ -418,18 +437,21 @@ async def get_activity_all_data(
         # 构建响应
         final_response = AllActivityDataResponse(**response_data)
         
-        # 缓存响应数据
+        # 缓存响应数据 - 本地数据库查询结果
         try:
             response_dict = final_response.dict() if hasattr(final_response, 'dict') else final_response
             metadata = {
                 "source": "local_database",
                 "keys": keys,
-                "resolution": resolution
+                "resolution": resolution,
+                "data_upsampled": False,  # 本地数据不需要补齐
+                "api_resolution": None,  # 本地数据没有API精度
+                "moving_time": None  # 本地数据没有运动时长信息
             }
             activity_cache_manager.set_cache(db, activity_id, cache_key, response_dict, metadata)
-            print(f"✅ [缓存设置] 活动{activity_id}的所有数据已缓存")
+            print(f"✅ [缓存设置] 活动{activity_id}的本地数据库数据已缓存")
         except Exception as e:
-            print(f"⚠️ [缓存失败] 活动{activity_id}的所有数据缓存失败: {e}")
+            print(f"⚠️ [缓存失败] 活动{activity_id}的本地数据库数据缓存失败: {e}")
         
         return final_response
         
@@ -479,14 +501,31 @@ async def get_cache_stats(
         
         total_cache = db.query(func.count(TbActivityCache.id)).scalar()
         active_cache = db.query(func.count(TbActivityCache.id)).filter(TbActivityCache.is_active == 1).scalar()
-        expired_cache = db.query(func.count(TbActivityCache.id)).filter(
-            TbActivityCache.expires_at < func.now()
+        
+        # 由于缓存永久有效，expired_cache 始终为 0
+        expired_cache = 0
+        
+        # 获取缓存来源统计
+        strava_cache = db.query(func.count(TbActivityCache.id)).filter(
+            and_(
+                TbActivityCache.is_active == 1,
+                TbActivityCache.cache_metadata.like('%"source": "strava_api"%')
+            )
+        ).scalar()
+        
+        local_cache = db.query(func.count(TbActivityCache.id)).filter(
+            and_(
+                TbActivityCache.is_active == 1,
+                TbActivityCache.cache_metadata.like('%"source": "local_database"%')
+            )
         ).scalar()
         
         stats = {
             "total_cache": total_cache,
             "active_cache": active_cache,
-            "expired_cache": expired_cache
+            "expired_cache": expired_cache,
+            "strava_api_cache": strava_cache,
+            "local_database_cache": local_cache
         }
         
         return {
