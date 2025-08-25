@@ -21,6 +21,22 @@ from ..streams.crud import stream_crud
 from .data_manager import activity_data_manager
 import json
 
+def _is_cache_enabled():
+    """检查缓存是否启用"""
+    import os
+    
+    # 优先检查配置文件
+    if os.path.exists('.cache_config'):
+        try:
+            with open('.cache_config', 'r') as f:
+                content = f.read().strip()
+                return "enabled=true" in content
+        except:
+            pass
+    
+    # 检查环境变量
+    return os.environ.get('CACHE_ENABLED', 'true').lower() == 'true'
+
 router = APIRouter(prefix="/activities", tags=["活动"])
 
 @router.get("/{activity_id}/zones", response_model=ZoneResponse)
@@ -256,10 +272,13 @@ async def get_activity_all_data(
         )
         
         # 尝试从缓存获取数据
-        cached_data = activity_cache_manager.get_cache(db, activity_id, cache_key)
-        if cached_data:
-            print(f"🟢 [缓存命中] 活动{activity_id}的所有数据")
-            return AllActivityDataResponse(**cached_data)
+        if _is_cache_enabled():
+            cached_data = activity_cache_manager.get_cache(db, activity_id, cache_key)
+            if cached_data:
+                print(f"🟢 [缓存命中] 活动{activity_id}的所有数据")
+                return AllActivityDataResponse(**cached_data)
+        else:
+            print(f"🔴 [缓存已禁用] 跳过缓存查询")
         
         print(f"🔴 [缓存未命中] 活动{activity_id}的所有数据 - 正在计算...")
 
@@ -349,7 +368,7 @@ async def get_activity_all_data(
                 response_data = StravaAnalyzer.analyze_activity_data(activity_data, stream_data, athlete_data, activity_id, db, keys_list, resolution)
                 
                 # 缓存响应数据 - 包含补齐后的高精度数据
-                if response_data:
+                if response_data and _is_cache_enabled():
                     response_dict = response_data.dict() if hasattr(response_data, 'dict') else response_data
                     metadata = {
                         "source": "strava_api",
@@ -361,6 +380,8 @@ async def get_activity_all_data(
                     }
                     activity_cache_manager.set_cache(db, activity_id, cache_key, response_dict, metadata)
                     print(f"✅ [缓存设置] 活动{activity_id}的Strava API数据已缓存（补齐后）")
+                elif not _is_cache_enabled():
+                    print(f"🔴 [缓存已禁用] 跳过Strava API数据缓存")
                 
                 return response_data
             except HTTPException:
@@ -460,20 +481,23 @@ async def get_activity_all_data(
         final_response = AllActivityDataResponse(**response_data)
         
         # 缓存响应数据 - 本地数据库查询结果
-        try:
-            response_dict = final_response.dict() if hasattr(final_response, 'dict') else final_response
-            metadata = {
-                "source": "local_database",
-                "keys": keys,
-                "resolution": resolution,
-                "data_upsampled": False,  # 本地数据不需要补齐
-                "api_resolution": None,  # 本地数据没有API精度
-                "moving_time": None  # 本地数据没有运动时长信息
-            }
-            activity_cache_manager.set_cache(db, activity_id, cache_key, response_dict, metadata)
-            print(f"✅ [缓存设置] 活动{activity_id}的本地数据库数据已缓存")
-        except Exception as e:
-            print(f"⚠️ [缓存失败] 活动{activity_id}的本地数据库数据缓存失败: {e}")
+        if _is_cache_enabled():
+            try:
+                response_dict = final_response.dict() if hasattr(final_response, 'dict') else final_response
+                metadata = {
+                    "source": "local_database",
+                    "keys": keys,
+                    "resolution": resolution,
+                    "data_upsampled": False,  # 本地数据不需要补齐
+                    "api_resolution": None,  # 本地数据没有API精度
+                    "moving_time": None  # 本地数据没有运动时长信息
+                }
+                activity_cache_manager.set_cache(db, activity_id, cache_key, response_dict, metadata)
+                print(f"✅ [缓存设置] 活动{activity_id}的本地数据库数据已缓存")
+            except Exception as e:
+                print(f"⚠️ [缓存失败] 活动{activity_id}的本地数据库数据缓存失败: {e}")
+        else:
+            print(f"🔴 [缓存已禁用] 跳过本地数据库数据缓存")
         
         return final_response
         
@@ -567,6 +591,60 @@ async def get_cache_stats(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取缓存统计信息时发生错误: {str(e)}")
+
+@router.post("/cache/toggle")
+async def toggle_cache_status(
+    enable: bool = Query(..., description="是否启用缓存：true为启用，false为禁用"),
+    db: Session = Depends(get_db)
+):
+    """启用或禁用缓存功能"""
+    try:
+        import os
+        cache_config_file = ".cache_config"
+        
+        if enable:
+            # 启用缓存
+            with open(cache_config_file, 'w') as f:
+                f.write("enabled=true")
+            os.environ['CACHE_ENABLED'] = 'true'
+            status = "启用"
+        else:
+            # 禁用缓存
+            with open(cache_config_file, 'w') as f:
+                f.write("enabled=false")
+            os.environ['CACHE_ENABLED'] = 'false'
+            status = "禁用"
+        
+        return {
+            "message": f"缓存功能已{status}",
+            "data": {
+                "cache_enabled": enable,
+                "status": "success",
+                "method": "environment_variable"
+            }
+        }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"切换缓存状态时发生错误: {str(e)}")
+
+@router.get("/cache/status")
+async def get_cache_status(
+    db: Session = Depends(get_db)
+):
+    """获取当前缓存功能状态"""
+    try:
+        cache_enabled = _is_cache_enabled()
+        
+        return {
+            "message": "获取缓存状态成功",
+            "data": {
+                "cache_enabled": cache_enabled,
+                "status": "enabled" if cache_enabled else "disabled"
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取缓存状态时发生错误: {str(e)}")
 
 
 

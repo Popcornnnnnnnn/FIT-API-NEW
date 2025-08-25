@@ -396,7 +396,8 @@ class StravaAnalyzer:
         for i in range(n - window):
             start_hr = heartrate_data[i]
             end_hr = heartrate_data[i + window]
-            if start_hr is not None and end_hr is not None:
+            # 跳过无效的心率点（None或低于30），但时间窗口继续推移
+            if start_hr is not None and start_hr >= 30 and end_hr is not None and end_hr >= 30:
                 drop = start_hr - end_hr
                 if drop > max_drop:
                     max_drop = drop
