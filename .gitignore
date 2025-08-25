@@ -51,3 +51,12 @@ uploads/
 .env
 .env.local
 .env.production 
+
+# 临时文件
+y.pub
+y
+webhook-listener.py
+git-auto-deploy.sh
+env.example
+CHCHE_RENAME.md
+CACHE_RESTORATION.md

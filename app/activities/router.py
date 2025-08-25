@@ -286,9 +286,9 @@ async def get_activity_all_data(
                 
                 # 计算活动时长（秒）并决定API精度
                 moving_time = activity_data.get("moving_time", 0)
-                # 如果活动时长超过8000秒（约2.2小时），使用低精度API
+                # 如果活动时长超过10000秒（约2.78小时），使用低精度API
                 # 低精度：每20秒一个数据点，高精度：每1秒一个数据点
-                if moving_time > 8000:
+                if moving_time > 10000:
                     api_resolution = "medium"
                     print(f"活动时长 {moving_time}秒，使用低精度API避免数据截断")
                 else:
@@ -297,11 +297,11 @@ async def get_activity_all_data(
                 stream_response = requests.get(
                     f"https://www.strava.com/api/v3/activities/{activity_id}/streams?keys=time,distance,latlng,altitude,velocity_smooth,heartrate,cadence,watts,temp,moving,grade_smooth&key_by_type=true&resolution={api_resolution}", 
                     headers=headers, 
-                    timeout=10)
+                    timeout=5)
                 athlete_response = requests.get( 
                     "https://www.strava.com/api/v3/athlete",
                     headers=headers,
-                    timeout=10
+                    timeout=5
                 )
                 if athlete_response.status_code != 200:
                     raise HTTPException(
@@ -316,6 +316,28 @@ async def get_activity_all_data(
                 stream_data = stream_response.json()
                 athlete_data = athlete_response.json()
                 # print(athlete_data["ftp"])
+
+                # 检查Strava数据有效性
+                if (activity_data.get("distance", 0) <= 0 or 
+                    activity_data.get("average_speed", 0) <= 0 or 
+                    activity_data.get("moving_time", 0) <= 0 or
+                    activity_data.get("max_speed", 0) <= 0):
+                    print(f"⚠️ [数据无效] 活动{activity_id}的Strava数据无效，返回全null响应")
+                    # 返回全null的响应
+                    null_response = AllActivityDataResponse(
+                        overall=None,
+                        power=None,
+                        heartrate=None,
+                        cadence=None,
+                        speed=None,
+                        training_effect=None,
+                        altitude=None,
+                        temp=None,
+                        zones=None,
+                        best_powers=None,
+                        streams=None
+                    )
+                    return null_response
 
                 # 处理 keys 参数：如果为空则返回所有字段，否则按逗号分割
                 if keys:
@@ -482,10 +504,21 @@ async def clear_all_cache(
     """清除所有活动的缓存数据"""
     try:
         from .cache_manager import activity_cache_manager
-        # 这里需要实现批量清除所有缓存的逻辑
-        # 暂时返回提示信息
-        return {"message": "批量清除所有缓存功能待实现，请使用 /cache/{activity_id} 逐个清除"}
+        from .models import TbActivityCache
+        
+        # 批量清除所有缓存
+        deleted_count = db.query(TbActivityCache).delete()
+        db.commit()
+        
+        return {
+            "message": f"批量清除缓存成功",
+            "data": {
+                "deleted_count": deleted_count,
+                "status": "success"
+            }
+        }
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"清除缓存时发生错误: {str(e)}")
 
 @router.get("/cache/stats")
