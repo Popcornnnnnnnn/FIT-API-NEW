@@ -736,24 +736,53 @@ class StravaAnalyzer:
             activity, athlete = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
             if not activity or not athlete:
                 return None
-                
+
             if activity.tss_updated == 0:
                 tss = StravaAnalyzer._calculate_training_load(stream_data, external_id, db)
+                print(f"tss: {tss}")
                 if tss is None:
                     return None
                 
                 # 更新数据库
                 update_database_field(db, TbActivity, activity.id, "tss", tss)
-                ctl = athlete.ctl
-                atl = athlete.atl
-                new_ctl = ctl + (tss - ctl) / 42
-                new_atl = atl + (tss - atl) / 7
                 
-
-                update_database_field(db, TbAthlete, activity.athlete_id, "ctl", round(new_ctl, 0))
-                update_database_field(db, TbAthlete, activity.athlete_id, "atl", round(new_atl, 0))
+                # 使用 _get_status_from_crud 中的逻辑计算新的 CTL 和 ATL
+                from datetime import datetime, timedelta
+                from sqlalchemy import func
+                
+                athlete_id = activity.athlete_id
+                forty_two_days_ago = datetime.now() - timedelta(days=42)
+                seven_days_ago = datetime.now() - timedelta(days=7)
+                
+                # 查询42天平均TSS（包括新计算的TSS）
+                avg_tss_42_days = db.query(
+                    func.avg(TbActivity.tss)
+                ).filter(
+                    TbActivity.athlete_id == athlete_id,
+                    TbActivity.start_date >= forty_two_days_ago,
+                    TbActivity.tss.isnot(None),
+                    TbActivity.tss > 0
+                ).scalar()
+                
+                # 查询7天平均TSS（包括新计算的TSS）
+                avg_tss_7_days = db.query(
+                    func.avg(TbActivity.tss)
+                ).filter(
+                    TbActivity.athlete_id == athlete_id,
+                    TbActivity.start_date >= seven_days_ago,
+                    TbActivity.tss.isnot(None),
+                    TbActivity.tss > 0
+                ).scalar()
+                
+                # 处理查询结果，如果没有数据则设为0
+                new_ctl = round(avg_tss_42_days, 0) if avg_tss_42_days is not None else 0
+                new_atl = round(avg_tss_7_days, 0) if avg_tss_7_days is not None else 0
+                
+                # 更新数据库
+                update_database_field(db, TbAthlete, activity.athlete_id, "ctl", new_ctl)
+                update_database_field(db, TbAthlete, activity.athlete_id, "atl", new_atl)
                 update_database_field(db, TbActivity, activity.id, "tss_updated", 1)
-                update_database_field(db, TbAthlete, activity.athlete_id, "tsb", round(new_atl - new_ctl, 0))
+                update_database_field(db, TbAthlete, activity.athlete_id, "tsb", new_atl - new_ctl)
                 
                 return tss
             else:
@@ -764,41 +793,21 @@ class StravaAnalyzer:
             return None
 
     @staticmethod
-    def _get_status(
-        external_id: int,
-        db: Session
-    ) -> Optional[int]:
-        try:
-            activity, athlete = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
-            if not activity or not athlete:
-                return None
-            return athlete.tsb
-        except Exception as e:
-            print(f"获取状态时出错: {str(e)}")
-            return None
-
-    @staticmethod
     def _get_status_from_crud(
         external_id: int,
         db: Session
     ) -> Optional[int]:
         try:
             # 根据 external_id 获取 activity 对象
-            activity, _ = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
-            if not activity:
+            activity, athlete = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
+            if not activity or not athlete:
                 return None
             
-            # 导入并调用 crud.py 中的 get_status 函数
-            from .crud import get_status
-            status = get_status(db, activity.id)
-            print(status)
-            if status:
-                return status['ctl'] - status['atl']
-            else:
-                return None
+            # 直接从数据库读取已计算的TSB值
+            return athlete.tsb
                 
         except Exception as e:
-            print(f"从 crud 获取状态时出错: {str(e)}")
+            print(f"获取状态时出错: {str(e)}")
             return None
 
     @staticmethod

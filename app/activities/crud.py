@@ -939,14 +939,45 @@ def calculate_and_save_training_load(
         if activity.tss_updated == 0:
             tss = calculate_training_load(avg_power, ftp, duration_seconds)
             update_database_field(db, TbActivity, activity_id, 'tss', tss)
-            ctl = athlete.ctl
-            atl = athlete.atl
-            new_ctl = ctl + (tss - ctl) / 42
-            new_atl = atl + (tss - atl) / 7
-            update_database_field(db, TbAthlete, activity.athlete_id, "ctl", round(new_ctl, 0))
-            update_database_field(db, TbAthlete, activity.athlete_id, "atl", round(new_atl, 0))
+            
+            # 使用与 strava_analyzer 中相同的逻辑计算新的 CTL 和 ATL
+            from datetime import datetime, timedelta
+            from sqlalchemy import func
+            from ..streams.models import TbActivity
+            
+            athlete_id = activity.athlete_id
+            forty_two_days_ago = datetime.now() - timedelta(days=42)
+            seven_days_ago = datetime.now() - timedelta(days=7)
+            
+            # 查询42天平均TSS（包括新计算的TSS）
+            avg_tss_42_days = db.query(
+                func.avg(TbActivity.tss)
+            ).filter(
+                TbActivity.athlete_id == athlete_id,
+                TbActivity.start_date >= forty_two_days_ago,
+                TbActivity.tss.isnot(None),
+                TbActivity.tss > 0
+            ).scalar()
+            
+            # 查询7天平均TSS（包括新计算的TSS）
+            avg_tss_7_days = db.query(
+                func.avg(TbActivity.tss)
+            ).filter(
+                TbActivity.athlete_id == athlete_id,
+                TbActivity.start_date >= seven_days_ago,
+                TbActivity.tss.isnot(None),
+                TbActivity.tss > 0
+            ).scalar()
+            
+            # 处理查询结果，如果没有数据则设为0
+            new_ctl = round(avg_tss_42_days, 0) if avg_tss_42_days is not None else 0
+            new_atl = round(avg_tss_7_days, 0) if avg_tss_7_days is not None else 0
+            
+            # 更新数据库
+            update_database_field(db, TbAthlete, activity.athlete_id, "ctl", new_ctl)
+            update_database_field(db, TbAthlete, activity.athlete_id, "atl", new_atl)
             update_database_field(db, TbActivity, activity_id, "tss_updated", 1)
-            update_database_field(db, TbAthlete, activity.athlete_id, "tsb", round(new_atl - new_ctl, 0))
+            update_database_field(db, TbAthlete, activity.athlete_id, "tsb", new_atl - new_ctl)
             return tss  
         else:
             return activity.tss
@@ -1301,7 +1332,7 @@ def get_session_data(
     except Exception as e:
         return None
 
-def get_status( # ! 为严格查验正确性
+def get_status( # ! 未严格查验正确性
     db: Session, 
     activity_id: int
 ) -> Optional[Dict[str, Any]]:
