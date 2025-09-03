@@ -367,6 +367,35 @@ async def get_activity_all_data(
                 
                 response_data = StravaAnalyzer.analyze_activity_data(activity_data, stream_data, athlete_data, activity_id, db, keys_list, resolution)
                 
+                # 更新最佳成绩记录（Strava API数据）
+                best_efforts_result = None
+                try:
+                    print(f"🔄 [最佳成绩检查] 开始检查活动{activity_id}的Strava最佳成绩...")
+                    best_efforts_result = activity_data_manager.update_best_efforts(db, activity_id)
+                except Exception as e:
+                    print(f"⚠️ [最佳成绩检查失败] 活动{activity_id}: {str(e)}")
+                    best_efforts_result = {
+                        "success": False,
+                        "new_records": {"power_records": {}, "speed_records": {}},
+                        "message": f"最佳成绩检查失败: {str(e)}"
+                    }
+                
+                # 如果有新的最佳成绩记录，添加到响应中
+                if best_efforts_result and best_efforts_result.get("success") and best_efforts_result.get("new_records"):
+                    new_records = best_efforts_result["new_records"]
+                    if new_records["power_records"] or new_records["speed_records"]:
+                        # 将最佳成绩信息添加到响应中
+                        if hasattr(response_data, 'dict'):
+                            response_dict = response_data.dict()
+                        else:
+                            response_dict = response_data
+                        response_dict["best_efforts_update"] = {
+                            "success": True,
+                            "new_records": new_records,
+                            "message": best_efforts_result.get("message", "最佳成绩已更新")
+                        }
+                        response_data = AllActivityDataResponse(**response_dict)
+                
                 # 缓存响应数据 - 包含补齐后的高精度数据
                 if response_data and _is_cache_enabled():
                     response_dict = response_data.dict() if hasattr(response_data, 'dict') else response_data
@@ -477,8 +506,33 @@ async def get_activity_all_data(
             print(f"获取流数据时发生错误: {str(e)}")
             response_data["streams"] = None
         
+        # 更新最佳成绩记录（仅在本地数据库查询时执行，避免重复更新）
+        best_efforts_result = None
+        try:
+            print(f"🔄 [最佳成绩检查] 开始检查活动{activity_id}的最佳成绩...")
+            best_efforts_result = activity_data_manager.update_best_efforts(db, activity_id)
+        except Exception as e:
+            print(f"⚠️ [最佳成绩检查失败] 活动{activity_id}: {str(e)}")
+            best_efforts_result = {
+                "success": False,
+                "new_records": {"power_records": {}, "speed_records": {}},
+                "message": f"最佳成绩检查失败: {str(e)}"
+            }
+        
         # 构建响应
         final_response = AllActivityDataResponse(**response_data)
+        
+        # 如果有新的最佳成绩记录，添加到响应中
+        if best_efforts_result and best_efforts_result.get("success") and best_efforts_result.get("new_records"):
+            new_records = best_efforts_result["new_records"]
+            if new_records["power_records"] or new_records["speed_records"]:
+                # 将最佳成绩信息添加到响应中
+                response_data["best_efforts_update"] = {
+                    "success": True,
+                    "new_records": new_records,
+                    "message": best_efforts_result.get("message", "最佳成绩已更新")
+                }
+                final_response = AllActivityDataResponse(**response_data)
         
         # 缓存响应数据 - 本地数据库查询结果
         if _is_cache_enabled():
@@ -645,6 +699,115 @@ async def get_cache_status(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取缓存状态时发生错误: {str(e)}")
+
+@router.post("/{activity_id}/update-best-efforts")
+async def update_activity_best_efforts(
+    activity_id: int,
+    db: Session = Depends(get_db)
+):
+    """手动更新指定活动的最佳成绩记录"""
+    try:
+        print(f"🔄 [手动触发] 开始更新活动{activity_id}的最佳成绩...")
+        result = activity_data_manager.update_best_efforts(db, activity_id)
+        
+        if result.get("success"):
+            return {
+                "message": f"活动 {activity_id} 的最佳成绩更新成功",
+                "data": {
+                    "activity_id": activity_id,
+                    "status": "success",
+                    "new_records": result.get("new_records", {})
+                }
+            }
+        else:
+            return {
+                "message": result.get("message", f"活动 {activity_id} 未刷新任何最佳成绩记录"),
+                "data": {
+                    "activity_id": activity_id,
+                    "status": "no_new_records",
+                    "new_records": result.get("new_records", {})
+                }
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"更新最佳成绩时发生错误: {str(e)}")
+
+@router.get("/{athlete_id}/athlete-best-efforts")
+async def get_athlete_best_efforts(
+    athlete_id: int,
+    db: Session = Depends(get_db)
+):
+    """按 athlete_id 获取运动员的最佳成绩记录"""
+    try:
+        # 查询最佳成绩记录
+        from ..streams.models import TbAthleteBestEfforts, TbAthlete
+        # 可选：校验运动员存在
+        athlete = db.query(TbAthlete).filter(TbAthlete.id == athlete_id).first()
+        if not athlete:
+            raise HTTPException(status_code=404, detail="运动员不存在")
+
+        best_efforts = db.query(TbAthleteBestEfforts).filter(
+            TbAthleteBestEfforts.athlete_id == athlete_id
+        ).first()
+        
+        if not best_efforts:
+            return {
+                "message": "该运动员暂无最佳成绩记录",
+                "data": {
+                    "athlete_id": athlete_id,
+                    "best_efforts": None
+                }
+            }
+        
+        # 构建响应数据
+        power_records = {}
+        speed_records = {}
+        
+        # 分段时间功率记录
+        time_intervals = ['5s', '10s', '15s', '20s', '30s', '40s', '60s', '2m', '3m', '5m', '10m', '15m', '20m', '30m', '40m', '1h', '2h', '3h', '4h']
+        for interval in time_intervals:
+            power_field = f"best_power_{interval}"
+            activity_field = f"best_power_{interval}_activity_id"
+            
+            power_value = getattr(best_efforts, power_field, None)
+            activity_id_value = getattr(best_efforts, activity_field, None)
+            
+            if power_value is not None:
+                power_records[interval] = {
+                    "power": int(power_value),
+                    "activity_id": int(activity_id_value) if activity_id_value is not None else None
+                }
+        
+        # 分段距离速度记录
+        distance_intervals = ['5km', '10km', '20km', '30km', '40km', '50km', '60km', '70km', '80km', '90km', '100km']
+        for distance in distance_intervals:
+            speed_field = f"best_speed_{distance}"
+            activity_field = f"best_speed_{distance}_activity_id"
+            
+            speed_value = getattr(best_efforts, speed_field, None)
+            activity_id_value = getattr(best_efforts, activity_field, None)
+            
+            if speed_value is not None:
+                speed_records[distance] = {
+                    "speed": float(speed_value),
+                    "activity_id": int(activity_id_value) if activity_id_value is not None else None
+                }
+        
+        return {
+            "message": "获取最佳成绩记录成功",
+            "data": {
+                "athlete_id": athlete_id,
+                "power_records": power_records,
+                "speed_records": speed_records,
+                "created_at": best_efforts.created_at,
+                "updated_at": best_efforts.updated_at
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取最佳成绩记录时发生错误: {str(e)}")
 
 
 

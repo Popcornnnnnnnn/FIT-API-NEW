@@ -60,3 +60,4 @@ git-auto-deploy.sh
 env.example
 CHCHE_README.md
 CACHE_RESTORATION.md
+icu.json

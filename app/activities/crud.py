@@ -1332,6 +1332,235 @@ def get_session_data(
     except Exception as e:
         return None
 
+def get_lap_data(
+    fit_url: str
+) -> Optional[List[Dict[str, Any]]]: # ! 新增函数：解析FIT文件中的lap数据
+    try:
+        # 下载FIT文件
+        response = requests.get(fit_url)
+        if response.status_code != 200:
+            return None
+        
+        fit_data = response.content
+        
+        # 解析FIT文件
+        fitfile = FitFile(BytesIO(fit_data))
+        
+        laps_data = []
+        
+        # 查找lap消息
+        for message in fitfile.get_messages('lap'):
+            lap_data = {}
+            
+            # 提取lap段中的字段
+            fields = [
+                'total_elapsed_time', 'total_timer_time', 'total_distance',
+                'avg_power', 'max_power', 'avg_heart_rate', 'max_heart_rate',
+                'avg_cadence', 'max_cadence', 'avg_speed', 'max_speed',
+                'total_calories', 'total_ascent', 'total_descent',
+                'start_time', 'end_time', 'event', 'event_type',
+                'lap_trigger', 'sport', 'sub_sport'
+            ]
+            
+            for field in fields:
+                value = message.get_value(field)
+                if value is not None:
+                    lap_data[field] = value
+            
+            if lap_data:  # 只添加有数据的lap
+                laps_data.append(lap_data)
+        
+        return laps_data if laps_data else None
+        
+    except Exception as e:
+        print(f"解析lap数据时出错: {str(e)}")
+        return None
+
+def calculate_and_update_best_efforts(
+    db: Session,
+    activity_id: int,
+    athlete_id: int,
+    stream_data: Dict[str, Any],
+    lap_data: Optional[List[Dict[str, Any]]] = None
+) -> Dict[str, Any]:
+    """计算并更新运动员最佳成绩记录"""
+    try:
+        from ..streams.models import TbAthleteBestEfforts
+        
+        # 获取或创建运动员最佳成绩记录
+        best_efforts = db.query(TbAthleteBestEfforts).filter(
+            TbAthleteBestEfforts.athlete_id == athlete_id
+        ).first()
+        
+        if not best_efforts:
+            # 创建新的最佳成绩记录
+            best_efforts = TbAthleteBestEfforts(athlete_id=athlete_id)
+            db.add(best_efforts)
+            db.flush()  # 获取ID但不提交
+        
+        updated = False
+        new_records = {
+            "power_records": {},
+            "speed_records": {}
+        }
+        
+        # 从流数据计算分段时间功率
+        power_data = stream_data.get('power', [])
+        if power_data:
+            # 计算分段时间功率
+            time_intervals = {
+                '5s': 5, '10s': 10, '15s': 15, '20s': 20, '30s': 30, '40s': 40, '60s': 60,
+                '2m': 120, '3m': 180, '5m': 300, '10m': 600, '15m': 900, '20m': 1200,
+                '30m': 1800, '40m': 2400, '1h': 3600, '2h': 7200, '3h': 10800, '4h': 14400
+            }
+            
+            for interval_name, interval_seconds in time_intervals.items():
+                if len(power_data) >= interval_seconds:
+                    # 计算滑动窗口平均功率（浮点），再按整数比较，避免浮点微差误判
+                    max_avg_power = 0.0
+                    for i in range(len(power_data) - interval_seconds + 1):
+                        window_power = power_data[i:i + interval_seconds]
+                        avg_power = sum(window_power) / len(window_power)
+                        if avg_power > max_avg_power:
+                            max_avg_power = avg_power
+                    # 检查是否刷新记录（用四舍五入后的整数与数据库一致的离散值比较）
+                    field_name = f"best_power_{interval_name}"
+                    activity_field_name = f"best_power_{interval_name}_activity_id"
+                    current_best = getattr(best_efforts, field_name, 0) or 0
+                    computed_value = int(round(max_avg_power))
+                    if computed_value > int(current_best):
+                        setattr(best_efforts, field_name, computed_value)
+                        setattr(best_efforts, activity_field_name, activity_id)
+                        updated = True
+                        new_records["power_records"][interval_name] = {
+                            "power": computed_value,
+                            "previous": int(current_best) if current_best else None
+                        }
+                        print(f"🏆 [新记录] {interval_name} 功率: {computed_value}W (活动{activity_id})")
+        
+        # 从流数据计算分段距离速度
+        speed_data = stream_data.get('speed', [])
+        distance_data = stream_data.get('distance', [])
+        
+        if speed_data and distance_data and len(speed_data) == len(distance_data):
+            # 计算分段距离速度
+            distance_intervals = {
+                '5km': 5000, '10km': 10000, '20km': 20000, '30km': 30000, '40km': 40000,
+                '50km': 50000, '60km': 60000, '70km': 70000, '80km': 80000, '90km': 90000, '100km': 100000
+            }
+            
+            for distance_name, distance_meters in distance_intervals.items():
+                max_distance = max(distance_data) if distance_data else 0
+                if max_distance >= distance_meters:
+                    # 找到达到目标距离的时间点
+                    target_time_idx = None
+                    for i, dist in enumerate(distance_data):
+                        if dist >= distance_meters:
+                            target_time_idx = i
+                            break
+                    
+                    if target_time_idx is not None:
+                        # 计算从开始到目标距离的平均速度
+                        segment_speed = distance_meters / float(target_time_idx + 1)  # 假设每秒一个数据点
+                        # 检查是否刷新记录（用保留三位小数后的值比较）
+                        field_name = f"best_speed_{distance_name}"
+                        activity_field_name = f"best_speed_{distance_name}_activity_id"
+                        current_best = getattr(best_efforts, field_name, None)
+                        prev_speed = float(current_best) if current_best is not None else 0.0
+                        computed_speed = round(float(segment_speed), 3)
+                        if computed_speed > round(prev_speed, 3):
+                            setattr(best_efforts, field_name, computed_speed)
+                            setattr(best_efforts, activity_field_name, activity_id)
+                            updated = True
+                            new_records["speed_records"][distance_name] = {
+                                "speed": computed_speed,
+                                "previous": round(prev_speed, 3) if current_best is not None else None
+                            }
+                            print(f"🏆 [新记录] {distance_name} 速度: {computed_speed}m/s (活动{activity_id})")
+        
+        # 从lap数据计算最佳成绩（如果有lap数据）
+        if lap_data:
+            for lap in lap_data:
+                lap_time = lap.get('total_elapsed_time', 0)
+                lap_distance = lap.get('total_distance', 0)
+                lap_avg_power = lap.get('avg_power', 0)
+                lap_avg_speed = lap.get('avg_speed', 0)
+                
+                if lap_time and lap_avg_power is not None:
+                    # 检查lap时间是否匹配我们的时间间隔
+                    time_intervals = {
+                        '5s': 5, '10s': 10, '15s': 15, '20s': 20, '30s': 30, '40s': 40, '60s': 60,
+                        '2m': 120, '3m': 180, '5m': 300, '10m': 600, '15m': 900, '20m': 1200,
+                        '30m': 1800, '40m': 2400, '1h': 3600, '2h': 7200, '3h': 10800, '4h': 14400
+                    }
+                    
+                    for interval_name, interval_seconds in time_intervals.items():
+                        if abs(lap_time - interval_seconds) <= 5:  # 允许5秒误差
+                            field_name = f"best_power_{interval_name}"
+                            activity_field_name = f"best_power_{interval_name}_activity_id"
+                            
+                            current_best = getattr(best_efforts, field_name, 0) or 0
+                            computed_value = int(round(float(lap_avg_power)))
+                            if computed_value > int(current_best):
+                                setattr(best_efforts, field_name, computed_value)
+                                setattr(best_efforts, activity_field_name, activity_id)
+                                updated = True
+                                new_records["power_records"][interval_name] = {
+                                    "power": computed_value,
+                                    "previous": int(current_best) if current_best else None
+                                }
+                                print(f"🏆 [Lap新记录] {interval_name} 功率: {computed_value}W (活动{activity_id})")
+                
+                if lap_distance and lap_avg_speed is not None:
+                    # 检查lap距离是否匹配我们的距离间隔
+                    distance_intervals = {
+                        '5km': 5000, '10km': 10000, '20km': 20000, '30km': 30000, '40km': 40000,
+                        '50km': 50000, '60km': 60000, '70km': 70000, '80km': 80000, '90km': 90000, '100km': 100000
+                    }
+                    
+                    for distance_name, distance_meters in distance_intervals.items():
+                        if abs(lap_distance - distance_meters) <= 100:  # 允许100米误差
+                            field_name = f"best_speed_{distance_name}"
+                            activity_field_name = f"best_speed_{distance_name}_activity_id"
+                            
+                            current_best = getattr(best_efforts, field_name, None)
+                            prev_speed = float(current_best) if current_best is not None else 0.0
+                            computed_speed = round(float(lap_avg_speed), 3)
+                            if computed_speed > round(prev_speed, 3):
+                                setattr(best_efforts, field_name, computed_speed)
+                                setattr(best_efforts, activity_field_name, activity_id)
+                                updated = True
+                                new_records["speed_records"][distance_name] = {
+                                    "speed": computed_speed,
+                                    "previous": round(prev_speed, 3) if current_best is not None else None
+                                }
+                                print(f"🏆 [Lap新记录] {distance_name} 速度: {computed_speed}m/s (活动{activity_id})")
+        
+        if updated:
+            db.commit()
+            print(f"✅ [最佳成绩更新] 活动{activity_id}的最佳成绩记录已更新")
+            return {
+                "success": True,
+                "new_records": new_records,
+                "message": f"活动{activity_id}的最佳成绩记录已更新"
+            }
+        else:
+            print(f"ℹ️ [无新记录] 活动{activity_id}未刷新任何最佳成绩")
+            return {
+                "success": False,
+                "new_records": new_records,
+                "message": f"活动{activity_id}未刷新任何最佳成绩"
+            }
+            
+    except Exception as e:
+        db.rollback()
+        print(f"❌ [最佳成绩更新失败] 活动{activity_id}: {str(e)}")
+        return {
+            "success": False,
+            "new_records": {"power_records": {}, "speed_records": {}},
+            "message": f"最佳成绩更新失败: {str(e)}"
+        }
+
 def get_status( # ! 未严格查验正确性
     db: Session, 
     activity_id: int

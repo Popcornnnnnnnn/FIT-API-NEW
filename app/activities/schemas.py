@@ -145,3 +145,4 @@ class AllActivityDataResponse(BaseModel):
     zones          : Optional[List[ZoneData]]         = Field(None, description="区间分析信息")
     best_powers    : Optional[Dict[str, int]]         = Field(None, description="最佳功率信息")
     streams        : Optional[List[Dict[str, Any]]]   = Field(None, description="流数据，数组格式，每个元素包含type、data、series_type、original_size、resolution字段")
+    best_efforts_update: Optional[Dict[str, Any]]    = Field(None, description="最佳成绩更新信息，包含新刷新的功率和速度记录")

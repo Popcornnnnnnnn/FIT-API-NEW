@@ -12,7 +12,7 @@ from typing import List, Optional, Union, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
 import sys
-from sqlalchemy import BIGINT, VARCHAR, Column, Integer, String, Float, Text, DateTime
+from sqlalchemy import BIGINT, VARCHAR, Column, Integer, String, Float, Text, DateTime, DECIMAL, ForeignKey
 from ..db_base import Base
 
 class Resolution(str, Enum):
@@ -288,3 +288,77 @@ class StreamData(BaseModel):
             if data and any(x is not None and x != 0 for x in data):
                 available.append(field_name)
         return available
+
+class TbAthleteBestEfforts(Base):
+    """运动员最佳成绩记录表模型"""
+    __tablename__ = "tb_athlete_best_efforts"
+    
+    athlete_id = Column(BIGINT, ForeignKey('tb_athlete.id', ondelete='CASCADE'), primary_key=True)
+    
+    # 分段时间功率记录 (单位：瓦特) 及对应活动ID
+    best_power_5s = Column(Integer, default=None)
+    best_power_5s_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_10s = Column(Integer, default=None)
+    best_power_10s_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_15s = Column(Integer, default=None)
+    best_power_15s_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_20s = Column(Integer, default=None)
+    best_power_20s_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_30s = Column(Integer, default=None)
+    best_power_30s_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_40s = Column(Integer, default=None)
+    best_power_40s_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_60s = Column(Integer, default=None)
+    best_power_60s_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_2m = Column(Integer, default=None)
+    best_power_2m_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_3m = Column(Integer, default=None)
+    best_power_3m_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_5m = Column(Integer, default=None)
+    best_power_5m_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_10m = Column(Integer, default=None)
+    best_power_10m_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_15m = Column(Integer, default=None)
+    best_power_15m_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_20m = Column(Integer, default=None)
+    best_power_20m_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_30m = Column(Integer, default=None)
+    best_power_30m_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_40m = Column(Integer, default=None)
+    best_power_40m_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_1h = Column(Integer, default=None)
+    best_power_1h_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_2h = Column(Integer, default=None)
+    best_power_2h_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_3h = Column(Integer, default=None)
+    best_power_3h_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_power_4h = Column(Integer, default=None)
+    best_power_4h_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    
+    # 分段距离速度记录 (单位：米/秒) 及对应活动ID
+    best_speed_5km = Column(DECIMAL(8,3), default=None)
+    best_speed_5km_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_speed_10km = Column(DECIMAL(8,3), default=None)
+    best_speed_10km_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_speed_20km = Column(DECIMAL(8,3), default=None)
+    best_speed_20km_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_speed_30km = Column(DECIMAL(8,3), default=None)
+    best_speed_30km_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_speed_40km = Column(DECIMAL(8,3), default=None)
+    best_speed_40km_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_speed_50km = Column(DECIMAL(8,3), default=None)
+    best_speed_50km_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_speed_60km = Column(DECIMAL(8,3), default=None)
+    best_speed_60km_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_speed_70km = Column(DECIMAL(8,3), default=None)
+    best_speed_70km_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_speed_80km = Column(DECIMAL(8,3), default=None)
+    best_speed_80km_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_speed_90km = Column(DECIMAL(8,3), default=None)
+    best_speed_90km_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    best_speed_100km = Column(DECIMAL(8,3), default=None)
+    best_speed_100km_activity_id = Column(BIGINT, ForeignKey('tb_activity.id', ondelete='SET NULL'), default=None)
+    
+    # 记录时间戳
+    created_at = Column(DateTime, default=None)
+    updated_at = Column(DateTime, default=None)

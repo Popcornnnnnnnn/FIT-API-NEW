@@ -198,6 +198,77 @@ class ActivityDataManager:
         
         return self._session_cache[cache_key]
     
+    def get_activity_lap_data(
+        self, 
+        db: Session, 
+        activity_id: int,
+        fit_url: str
+    ) -> Optional[List[Dict[str, Any]]]:
+        """获取活动lap数据，如果已缓存则直接返回"""
+        cache_key = f"lap_{activity_id}"
+        
+        with self._lock:
+            current_time = time.time()
+            
+            # 检查缓存是否存在且未过期
+            if (cache_key in self._session_cache and 
+                cache_key in self._cache_timestamps and
+                current_time - self._cache_timestamps[cache_key] <= self._cache_ttl):
+                print(f"🟢 [缓存命中] 活动{activity_id}的lap数据")
+                return self._session_cache[cache_key]
+            
+            # 首次获取或缓存过期，调用get_lap_data
+            print(f"🔴 [缓存未命中] 活动{activity_id}的lap数据 - 正在下载FIT文件...")
+            from .crud import get_lap_data
+            self._session_cache[cache_key] = get_lap_data(fit_url)
+            self._cache_timestamps[cache_key] = current_time
+            print(f"✅ [下载完成] 活动{activity_id}的lap数据已缓存")
+        
+        return self._session_cache[cache_key]
+    
+    def update_best_efforts(
+        self,
+        db: Session,
+        activity_id: int
+    ) -> Dict[str, Any]:
+        """更新运动员最佳成绩记录"""
+        try:
+            # 获取活动信息
+            activity, athlete = self.get_athlete_info(db, activity_id)
+            if not activity or not athlete:
+                return {
+                    "success": False,
+                    "new_records": {"power_records": {}, "speed_records": {}},
+                    "message": "活动或运动员信息不存在"
+                }
+            
+            # 获取流数据
+            stream_data = self.get_activity_stream_data(db, activity_id)
+            if not stream_data:
+                return {
+                    "success": False,
+                    "new_records": {"power_records": {}, "speed_records": {}},
+                    "message": "活动流数据不存在"
+                }
+            
+            # 获取lap数据
+            lap_data = self.get_activity_lap_data(db, activity_id, activity.upload_fit_url)
+            
+            # 调用最佳成绩更新函数
+            from .crud import calculate_and_update_best_efforts
+            result = calculate_and_update_best_efforts(
+                db, activity_id, athlete.id, stream_data, lap_data
+            )
+            return result
+            
+        except Exception as e:
+            print(f"❌ [最佳成绩更新失败] 活动{activity_id}: {str(e)}")
+            return {
+                "success": False,
+                "new_records": {"power_records": {}, "speed_records": {}},
+                "message": f"最佳成绩更新失败: {str(e)}"
+            }
+    
     def clear_cache(
         self, 
         activity_id: Optional[int] = None
@@ -224,6 +295,13 @@ class ActivityDataManager:
                     del self._session_cache[session_key]
                 if session_key in self._cache_timestamps:
                     del self._cache_timestamps[session_key]
+                
+                # 清除lap缓存
+                lap_key = f"lap_{activity_id}"
+                if lap_key in self._session_cache:
+                    del self._session_cache[lap_key]
+                if lap_key in self._cache_timestamps:
+                    del self._cache_timestamps[lap_key]
                 
                 if activity_id in self._athlete_cache:
                     del self._athlete_cache[activity_id]
