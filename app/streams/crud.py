@@ -80,9 +80,24 @@ class StreamCRUD:
         activity_id: int
     ) -> Dict[str, Any]:
         activity = db.query(models.TbActivity).filter(models.TbActivity.id == activity_id).first()
+        if not activity:
+            return {
+                "status": "failed",
+                "message": "活动不存在",
+                "available_streams": [],
+                "total_streams": 0
+            }
+
         stream_data = self._get_or_parse_stream_data(db, activity)
+        if not stream_data:
+            return {
+                "status": "failed",
+                "message": "流数据解析失败",
+                "available_streams": [],
+                "total_streams": 0
+            }
+
         available_streams = stream_data.get_available_streams()
-        
         return {
             "status": "success",
             "message": "获取成功",

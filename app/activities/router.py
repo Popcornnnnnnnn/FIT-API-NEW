@@ -263,24 +263,36 @@ async def get_activity_all_data(
     try:
         # 导入缓存管理器
         from .cache_manager import activity_cache_manager
-        
+
+        # 针对 Strava（带 access_token）场景，将 external_id 映射为内部 tb_activity.id 作为缓存ID
+        cache_activity_id = activity_id
+        if access_token:
+            try:
+                from ..streams.models import TbActivity
+                _internal = db.query(TbActivity).filter(TbActivity.external_id == activity_id).first()
+                if _internal and _internal.id:
+                    cache_activity_id = _internal.id
+            except Exception as _:
+                # 映射失败则回退使用传入的 activity_id
+                cache_activity_id = activity_id
+
         # 生成缓存键 - 包含数据精度和字段信息
         cache_key = activity_cache_manager.generate_cache_key(
-            activity_id=activity_id,
+            activity_id=cache_activity_id,
             resolution=resolution,
             keys=keys
         )
         
         # 尝试从缓存获取数据
         if _is_cache_enabled():
-            cached_data = activity_cache_manager.get_cache(db, activity_id, cache_key)
+            cached_data = activity_cache_manager.get_cache(db, cache_activity_id, cache_key)
             if cached_data:
-                print(f"🟢 [缓存命中] 活动{activity_id}的所有数据")
+                print(f"🟢 [缓存命中] 活动{cache_activity_id}的所有数据")
                 return AllActivityDataResponse(**cached_data)
         else:
             print(f"🔴 [缓存已禁用] 跳过缓存查询")
         
-        print(f"🔴 [缓存未命中] 活动{activity_id}的所有数据 - 正在计算...")
+        print(f"🔴 [缓存未命中] 活动{cache_activity_id}的所有数据 - 正在计算...")
 
         # 如果传入了 access_token，调用 Strava API
         if access_token:
@@ -371,7 +383,18 @@ async def get_activity_all_data(
                 best_efforts_result = None
                 try:
                     print(f"🔄 [最佳成绩检查] 开始检查活动{activity_id}的Strava最佳成绩...")
-                    best_efforts_result = activity_data_manager.update_best_efforts(db, activity_id)
+                    # external_id -> internal_id，并用数据管理器获取 (activity, athlete)
+                    from ..streams.models import TbActivity
+                    internal_activity = db.query(TbActivity).filter(TbActivity.external_id == activity_id).first()
+                    if not internal_activity:
+                        raise Exception("未找到对应的本地活动记录")
+
+                    # 通过全局数据管理器获取 (activity, athlete)，保证统一返回值和缓存
+                    local_activity, local_athlete = activity_data_manager.get_athlete_info(db, internal_activity.id)
+                    if not local_activity or not local_athlete:
+                        raise Exception("本地活动或运动员信息不存在，无法更新最佳成绩")
+
+                    best_efforts_result = activity_data_manager.update_best_efforts(db, local_activity.id)
                 except Exception as e:
                     print(f"⚠️ [最佳成绩检查失败] 活动{activity_id}: {str(e)}")
                     best_efforts_result = {
@@ -407,7 +430,7 @@ async def get_activity_all_data(
                         "api_resolution": api_resolution,  # 记录原始API精度
                         "moving_time": moving_time  # 记录实际运动时长
                     }
-                    activity_cache_manager.set_cache(db, activity_id, cache_key, response_dict, metadata)
+                    activity_cache_manager.set_cache(db, cache_activity_id, cache_key, response_dict, metadata)
                     print(f"✅ [缓存设置] 活动{activity_id}的Strava API数据已缓存（补齐后）")
                 elif not _is_cache_enabled():
                     print(f"🔴 [缓存已禁用] 跳过Strava API数据缓存")
@@ -668,6 +691,13 @@ async def toggle_cache_status(
                 f.write("enabled=false")
             os.environ['CACHE_ENABLED'] = 'false'
             status = "禁用"
+            # 同步清空内存缓存（ActivityDataManager）
+            try:
+                from .data_manager import activity_data_manager
+                activity_data_manager.clear_cache()
+                print("🧹 [缓存清空] 已清空内存中的活动/会话/运动员缓存")
+            except Exception as ce:
+                print(f"⚠️ [缓存清空失败] {ce}")
         
         return {
             "message": f"缓存功能已{status}",

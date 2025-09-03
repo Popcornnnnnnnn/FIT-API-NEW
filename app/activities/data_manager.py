@@ -7,6 +7,7 @@
 import time
 import threading
 from typing import List, Optional, Dict, Any
+import os
 from sqlalchemy.orm import Session
 from ..streams.models import Resolution
 from ..streams.crud import stream_crud
@@ -33,6 +34,17 @@ class ActivityDataManager:
         
         # 启动定时清理任务
         self._start_cleanup_task()
+
+    def _is_cache_enabled(self) -> bool:
+        """与路由保持一致的缓存开关检测"""
+        try:
+            if os.path.exists('.cache_config'):
+                with open('.cache_config', 'r') as f:
+                    content = f.read().strip()
+                    return "enabled=true" in content
+        except Exception:
+            pass
+        return os.environ.get('CACHE_ENABLED', 'true').lower() == 'true'
     
     def _start_cleanup_task(self):
         """启动定时清理任务"""
@@ -89,6 +101,10 @@ class ActivityDataManager:
     ) -> List[Dict[str, Any]]:
         """获取活动数据流，如果已缓存则直接返回"""
         cache_key = f"{activity_id}_{resolution.value}_{','.join(sorted(keys))}"
+        # 缓存禁用则直接透传底层获取，不读写内存缓存
+        if not self._is_cache_enabled():
+            print(f"🔴 [缓存已禁用] 直接获取活动{activity_id}的流数据 (keys: {keys})")
+            return stream_crud.get_activity_streams(db, activity_id, keys, resolution)
         
         with self._lock:
             current_time = time.time()
@@ -115,6 +131,17 @@ class ActivityDataManager:
     ) -> Dict[str, Any]:
         """获取活动的原始流数据，用于区间分析等"""
         cache_key = f"{activity_id}_raw"
+        if not self._is_cache_enabled():
+            print(f"🔴 [缓存已禁用] 直接获取活动{activity_id}的原始流数据")
+            available_result = stream_crud.get_available_streams(db, activity_id)
+            if available_result.get("status") == "success":
+                available_streams = available_result.get("available_streams", [])
+                streams_data = stream_crud.get_activity_streams(db, activity_id, available_streams, Resolution.HIGH)
+                stream_dict: Dict[str, Any] = {}
+                for stream in streams_data:
+                    stream_dict[stream["type"]] = stream["data"]
+                return stream_dict
+            return {}
         
         with self._lock:
             current_time = time.time()
@@ -154,6 +181,10 @@ class ActivityDataManager:
         activity_id: int
     ) -> tuple:
         """获取运动员信息，如果已缓存则直接返回"""
+        if not self._is_cache_enabled():
+            from .crud import get_activity_athlete
+            result = get_activity_athlete(db, activity_id)
+            return result if result else (None, None)
         with self._lock:
             current_time = time.time()
             
@@ -161,14 +192,50 @@ class ActivityDataManager:
             if (activity_id in self._athlete_cache and 
                 f"athlete_{activity_id}" in self._cache_timestamps and
                 current_time - self._cache_timestamps[f"athlete_{activity_id}"] <= self._cache_ttl):
-                return self._athlete_cache[activity_id]
+                # 缓存中仅存储 ID，使用当前会话重新查询，避免返回脱管对象
+                cached_value = self._athlete_cache[activity_id]
+                try:
+                    from ..streams.models import TbActivity, TbAthlete
+                    is_tuple_ids = (
+                        isinstance(cached_value, tuple)
+                        and len(cached_value) == 2
+                        and all((isinstance(x, int) or x is None) for x in cached_value)
+                    )
+                    if is_tuple_ids:
+                        cached_activity_id, cached_athlete_id = cached_value
+                        activity_obj = (
+                            db.query(TbActivity).filter(TbActivity.id == cached_activity_id).first()
+                            if cached_activity_id else None
+                        )
+                        athlete_obj = (
+                            db.query(TbAthlete).filter(TbAthlete.id == cached_athlete_id).first()
+                            if cached_athlete_id else None
+                        )
+                        return (activity_obj, athlete_obj)
+                    # 兼容旧缓存（如果历史上曾缓存过 ORM 对象），则直接丢弃并继续走查询路径
+                except Exception:
+                    pass
             
             # 获取运动员信息（在函数内部导入避免循环导入）
             from .crud import get_activity_athlete
-            self._athlete_cache[activity_id] = get_activity_athlete(db, activity_id)
+            # 统一返回二元组，避免调用侧解包 None 报错
+            result = get_activity_athlete(db, activity_id)
+            if not result:
+                normalized = (None, None)
+            else:
+                normalized = result
+            # 仅缓存 ID，避免跨会话返回脱管 ORM 对象
+            try:
+                activity_obj, athlete_obj = normalized
+                activity_pk = getattr(activity_obj, 'id', None) if activity_obj is not None else None
+                athlete_pk = getattr(athlete_obj, 'id', None) if athlete_obj is not None else None
+                self._athlete_cache[activity_id] = (activity_pk, athlete_pk)
+            except Exception:
+                self._athlete_cache[activity_id] = (None, None)
             self._cache_timestamps[f"athlete_{activity_id}"] = current_time
         
-        return self._athlete_cache[activity_id]
+        # 返回新查询到的 ORM 对象
+        return normalized
     
     def get_session_data(
         self, 
@@ -178,6 +245,10 @@ class ActivityDataManager:
     ) -> Optional[Dict[str, Any]]:
         """获取session数据，如果已缓存则直接返回"""
         cache_key = f"session_{activity_id}"
+        if not self._is_cache_enabled():
+            print(f"🔴 [缓存已禁用] 直接获取活动{activity_id}的session数据")
+            from .crud import get_session_data
+            return get_session_data(fit_url)
         
         with self._lock:
             current_time = time.time()
@@ -206,6 +277,10 @@ class ActivityDataManager:
     ) -> Optional[List[Dict[str, Any]]]:
         """获取活动lap数据，如果已缓存则直接返回"""
         cache_key = f"lap_{activity_id}"
+        if not self._is_cache_enabled():
+            print(f"🔴 [缓存已禁用] 直接获取活动{activity_id}的lap数据")
+            from .crud import get_lap_data
+            return get_lap_data(fit_url)
         
         with self._lock:
             current_time = time.time()
