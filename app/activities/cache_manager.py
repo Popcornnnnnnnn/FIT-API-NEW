@@ -77,7 +77,6 @@ class ActivityCacheManager:
                     TbActivityCache.is_active == 1
                 )
             ).first()
-            
             if not cache_record:
                 return None
             
@@ -146,6 +145,7 @@ class ActivityCacheManager:
                 cache_record.file_size = file_size
                 cache_record.updated_at = datetime.now()
                 cache_record.expires_at = expires_at
+                cache_record.is_active = 1
                 cache_record.cache_metadata = json.dumps(metadata) if metadata else None
             else:
                 # 创建新记录

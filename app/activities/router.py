@@ -294,7 +294,6 @@ async def get_activity_all_data(
                     f"https://www.strava.com/api/v3/activities/{activity_id}", 
                     headers=headers, 
                     timeout=10)
-                
                 if activity_response.status_code != 200:
                     raise HTTPException(
                         status_code=activity_response.status_code,
