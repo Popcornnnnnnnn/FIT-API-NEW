@@ -77,7 +77,7 @@ class StreamCRUD:
                 if key == 'best_power':
                     try:
                         # 避免循环依赖：在函数内部延迟导入
-                        from ..activities.strava_analyzer import StravaAnalyzer
+                        from ..analyzers.strava_analyzer import StravaAnalyzer
                         # 组装 activity_data
                         distance_m = 0
                         if stream_data.distance:

@@ -28,7 +28,6 @@ def compute_heartrate_info(stream_data: Dict[str, Any], power_data_present: bool
     else:
         result['max_heartrate'] = int(max(valid_hr))
 
-    # optional metrics if power is present
     if power_data_present:
         power_data = stream_data.get('power', [])
         result['heartrate_recovery_rate'] = recovery_rate(hr_data)

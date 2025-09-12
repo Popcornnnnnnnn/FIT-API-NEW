@@ -39,4 +39,3 @@ def compute_power_info(stream_data: Dict[str, Any], ftp: int, session_data: Opti
     result['w_balance_decline'] = w_balance_decline(w_balance) if w_balance else None
 
     return result
-

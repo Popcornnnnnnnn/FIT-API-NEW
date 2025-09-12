@@ -1,12 +1,5 @@
 """
-Slim CRUD layer retained for compatibility.
-
-Provides only the minimal helpers still referenced by other modules:
-- update_database_field (delegates to repository)
-- get_activity_athlete (delegates to repository)
-- get_session_data (FIT session extract)
-- get_status (CTL/ATL from TSS averages)
-- get_activity_best_power_info (reads precomputed best_power stream)
+Slim CRUD helpers moved from app/activities/crud.py
 """
 
 from typing import Optional, Tuple, Dict, Any
@@ -17,7 +10,7 @@ from io import BytesIO
 
 from ..db.models import TbActivity, TbAthlete
 from ..repositories.activity_repo import update_field as repo_update_field, get_activity_athlete as repo_get_activity_athlete
-from .data_manager import activity_data_manager
+from ..infrastructure.data_manager import activity_data_manager
 
 
 def update_database_field(db: Session, table_class, record_id: int, field_name: str, value: Any) -> bool:

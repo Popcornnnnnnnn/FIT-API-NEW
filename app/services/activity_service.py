@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 import logging
 
 from ..clients.strava_client import StravaClient, StravaApiError
-from ..activities.schemas import AllActivityDataResponse, ZoneData
-from ..activities.crud import (
+from ..schemas.activities import AllActivityDataResponse, ZoneData
+from ..services.activity_crud import (
     get_activity_overall_info,
     get_activity_power_info,
     get_activity_heartrate_info,
@@ -24,8 +24,8 @@ from ..activities.crud import (
 )
 from ..streams.crud import stream_crud
 from ..streams.models import Resolution
-from ..activities.data_manager import activity_data_manager
-from ..activities.strava_analyzer import StravaAnalyzer
+from ..infrastructure.data_manager import activity_data_manager
+from ..analyzers.strava_analyzer import StravaAnalyzer
 
 
 logger = logging.getLogger(__name__)
@@ -124,9 +124,9 @@ class ActivityService:
 
     # Individual metric endpoints (local DB path)
     def get_overall(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
-        from ..activities.metrics.overall import compute_overall_info
+        from ..metrics.activities.overall import compute_overall_info
         from ..repositories.activity_repo import get_activity_athlete
-        from ..activities.data_manager import activity_data_manager
+        from ..infrastructure.data_manager import activity_data_manager
         pair = get_activity_athlete(db, activity_id)
         if not pair:
             return None
@@ -136,7 +136,7 @@ class ActivityService:
         result = compute_overall_info(stream_data, session_data, athlete)
         # add status
         try:
-            from ..activities.crud import get_status
+            from ..services.activity_crud import get_status
             status = get_status(db, activity_id)
             if status:
                 result['status'] = round(status['ctl'] - status['atl'], 0)
@@ -145,9 +145,9 @@ class ActivityService:
         return result
 
     def get_power(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
-        from ..activities.metrics.power import compute_power_info
+        from ..metrics.activities.power import compute_power_info
         from ..repositories.activity_repo import get_activity_athlete
-        from ..activities.data_manager import activity_data_manager
+        from ..infrastructure.data_manager import activity_data_manager
         pair = get_activity_athlete(db, activity_id)
         if not pair:
             return None
@@ -157,9 +157,9 @@ class ActivityService:
         return compute_power_info(stream_data, int(athlete.ftp), session_data)
 
     def get_heartrate(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
-        from ..activities.metrics.heartrate import compute_heartrate_info
+        from ..metrics.activities.heartrate import compute_heartrate_info
         from ..repositories.activity_repo import get_activity_athlete
-        from ..activities.data_manager import activity_data_manager
+        from ..infrastructure.data_manager import activity_data_manager
         pair = get_activity_athlete(db, activity_id)
         if not pair:
             return None
@@ -169,9 +169,9 @@ class ActivityService:
         return compute_heartrate_info(stream_data, bool(stream_data.get('power')), session_data)
 
     def get_speed(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
-        from ..activities.metrics.speed import compute_speed_info
+        from ..metrics.activities.speed import compute_speed_info
         from ..repositories.activity_repo import get_activity_athlete
-        from ..activities.data_manager import activity_data_manager
+        from ..infrastructure.data_manager import activity_data_manager
         pair = get_activity_athlete(db, activity_id)
         if not pair:
             return None
@@ -181,9 +181,9 @@ class ActivityService:
         return compute_speed_info(stream_data, session_data)
 
     def get_altitude(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
-        from ..activities.metrics.altitude import compute_altitude_info
+        from ..metrics.activities.altitude import compute_altitude_info
         from ..repositories.activity_repo import get_activity_athlete
-        from ..activities.data_manager import activity_data_manager
+        from ..infrastructure.data_manager import activity_data_manager
         pair = get_activity_athlete(db, activity_id)
         if not pair:
             return None
@@ -193,14 +193,14 @@ class ActivityService:
         return compute_altitude_info(stream_data, session_data)
 
     def get_temperature(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
-        from ..activities.metrics.temperature import compute_temperature_info
-        from ..activities.data_manager import activity_data_manager
+        from ..metrics.activities.temperature import compute_temperature_info
+        from ..infrastructure.data_manager import activity_data_manager
         stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
         return compute_temperature_info(stream_data)
 
     def get_training_effect(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
         from ..repositories.activity_repo import get_activity_athlete
-        from ..activities.data_manager import activity_data_manager
+        from ..infrastructure.data_manager import activity_data_manager
         from ..core.analytics.training import (
             aerobic_effect, anaerobic_effect, power_zone_percentages,
             power_zone_times, calculate_training_load
