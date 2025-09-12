@@ -1,5 +1,8 @@
 """Thin facade for Strava analysis delegating to split modules."""
 
+"""Strava 分析器门面类，负责协调各子模块进行数据分析。
+本模块主要用于统一入口，调用分离的分析逻辑。"""
+
 from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
 import logging

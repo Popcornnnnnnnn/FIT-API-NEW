@@ -1,6 +1,13 @@
+"""
+Strava 最佳功率分析模块。
+用于计算不同区间的最佳平均功率，并可更新运动员功率记录。
+"""
+"""Strava 最佳功率分析与个人记录写库（简化实现）。"""
 from typing import Dict, Any, Optional, Tuple, List
 from sqlalchemy.orm import Session
 from ...db.models import TbActivity, TbAthlete, TbAthletePowerRecords
+from ...repositories.power_records_repo import update_best_powers as repo_update_best_powers
+from ...schemas.activities import SegmentRecord
 
 
 def _get_activity_athlete_by_external_id(db: Session, external_id: int) -> Optional[Tuple[TbActivity, TbAthlete]]:
@@ -25,7 +32,7 @@ def _best_avg_over_window(vals: List[int], window: int) -> int:
     return int(round(m/window))
 
 
-def analyze_best_powers(activity_data: Dict[str, Any], stream_data: Dict[str, Any], external_id: Optional[int], db: Optional[Session], athlete_id: Optional[int]) -> Tuple[Optional[Dict[str, int]], Optional[List[Any]]]:
+def analyze_best_powers(activity_data: Dict[str, Any], stream_data: Dict[str, Any], external_id: Optional[int], db: Optional[Session], athlete_id: Optional[int]) -> Tuple[Optional[Dict[str, int]], Optional[List[SegmentRecord]]]:
     if 'watts' not in stream_data:
         return None, None
     try:
@@ -36,8 +43,21 @@ def analyze_best_powers(activity_data: Dict[str, Any], stream_data: Dict[str, An
         best_powers: Dict[str, int] = {}
         for k, sec in intervals.items():
             best_powers[k] = _best_avg_over_window(vals, sec)
-        # Optionally update athlete records (simplified: skip ranking updates here)
-        return best_powers, []
+        # Optionally update athlete records and produce segment records
+        segment_records: List[SegmentRecord] = []
+        if db is not None:
+            # Determine athlete_id if not provided
+            if athlete_id is None and external_id is not None:
+                pair = db.query(TbActivity).filter(TbActivity.external_id == external_id).first()
+                if pair:
+                    athlete_id = pair.athlete_id
+            if athlete_id is not None:
+                try:
+                    sr_dicts = repo_update_best_powers(db, athlete_id, best_powers, activity_data.get('activity_id') or external_id or 0)
+                    for sd in sr_dicts:
+                        segment_records.append(SegmentRecord(**sd))
+                except Exception:
+                    pass
+        return best_powers, segment_records or None
     except Exception:
         return None, None
-

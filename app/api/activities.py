@@ -116,7 +116,11 @@ async def get_activity_heartrate(activity_id: int, db: Session = Depends(get_db)
 @router.get("/{activity_id}/cadence", response_model=CadenceResponse)
 async def get_activity_cadence(activity_id: int, db: Session = Depends(get_db)) -> CadenceResponse:
     try:
-        raise HTTPException(status_code=404, detail="活动踏频信息不存在或无法解析")
+        from ..services.activity_service import activity_service
+        data = activity_service.get_cadence(db, activity_id)
+        if not data:
+            raise HTTPException(status_code=404, detail="活动踏频信息不存在或无法解析")
+        return CadenceResponse(**data)
     except HTTPException:
         raise
     except Exception as e:

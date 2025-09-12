@@ -1,3 +1,4 @@
+"""本地流海拔指标装配（爬升/下降/坡度/上下坡距离）。"""
 from typing import Dict, Any, Optional
 from ...core.analytics.altitude import elevation_gain, total_descent, max_grade_percent, uphill_downhill_distance_km
 
@@ -20,4 +21,3 @@ def compute_altitude_info(stream_data: Dict[str, Any], session_data: Optional[Di
     res['uphill_distance'] = up_km
     res['downhill_distance'] = down_km
     return res
-

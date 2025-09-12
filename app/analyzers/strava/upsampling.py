@@ -1,3 +1,16 @@
+"""
+Strava 低精度流数据补齐模块
+
+功能：
+- is_low_resolution：检测 Strava 流是否为低精度（时间间隔较大，可能触发 10k 限制）
+- prepare_for_upsampling：在每个流项中注入时间参考，便于后续补齐
+- upsample_low_resolution：将低精度流补齐到 1Hz（按 moving_time 推断目标长度）
+
+说明：
+- 本模块不追求高精度数值插值，仅使用“重复采样/就近取值”，避免引入额外噪声；
+- 适用于需要统一粒度进行分析的场景（比如功率曲线、节奏分析等）。
+"""
+
 from typing import Dict, Any
 
 
@@ -62,4 +75,3 @@ def upsample_low_resolution(stream_data: Dict[str, Any], moving_time_seconds: in
             up = _upsample_series(data, target_size)
             result[key] = dict(item, data=up, original_size=len(data), upsampled_size=len(up))
     return result
-

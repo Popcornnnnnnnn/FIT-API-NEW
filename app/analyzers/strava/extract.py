@@ -1,3 +1,15 @@
+"""
+Strava 流数据抽取模块
+
+功能：
+- 将 Strava API 返回的流（key_by_type=true）转换为内部统一格式；
+- 支持将 velocity_smooth 转换为 speed（KM/H）；
+- 支持生成 best_power 曲线（时间窗最大均值）。
+
+返回格式约定：
+    [{ 'type': 字段名, 'data': 列表, 'series_type': 'time'|'distance', 'original_size': N, 'resolution': 'high' }]
+"""
+
 from typing import Dict, Any, List, Optional
 
 
@@ -75,4 +87,3 @@ def extract_stream_data(stream_data: Dict[str, Any], keys: List[str], resolution
                 'resolution': 'high'
             })
     return result
-

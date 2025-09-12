@@ -1,3 +1,4 @@
+"""本地流心率指标装配（平均/最大/恢复/滞后/解耦）。"""
 from typing import Dict, Any, Optional
 from ...core.analytics.hr import (
     filter_hr_smooth,
@@ -41,4 +42,3 @@ def compute_heartrate_info(stream_data: Dict[str, Any], power_data_present: bool
         result['decoupling_rate'] = None
 
     return result
-

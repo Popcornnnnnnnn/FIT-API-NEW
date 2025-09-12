@@ -1,3 +1,4 @@
+"""本地流 Power 指标装配（平均/最大/NP/IF/WA/W′ 等）。"""
 from typing import Dict, Any, List, Optional
 from ...core.analytics.power import normalized_power, work_above_ftp, w_balance_decline
 

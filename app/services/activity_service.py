@@ -1,6 +1,9 @@
-"""
-Activity service: orchestrates data retrieval (Strava or local) and analytics,
-returning response models defined in activities.schemas.
+"""Activity Service（活动服务编排层）
+
+职责：
+- 统一编排数据来源（Strava 或 本地数据流）与分析逻辑（metrics/core）；
+- 组合多种单项结果，返回 AllActivityDataResponse（对外响应模型）；
+- 暴露 get_overall/get_power/... 单项装配方法，便于路由端直接复用。
 """
 
 from typing import Optional, List
@@ -8,20 +11,7 @@ from sqlalchemy.orm import Session
 import logging
 
 from ..clients.strava_client import StravaClient, StravaApiError
-from ..schemas.activities import AllActivityDataResponse, ZoneData
-from ..services.activity_crud import (
-    get_activity_overall_info,
-    get_activity_power_info,
-    get_activity_heartrate_info,
-    get_activity_cadence_info,
-    get_activity_speed_info,
-    get_activity_altitude_info,
-    get_activity_temperature_info,
-    get_activity_training_effect_info,
-    get_activity_best_power_info,
-    get_activity_power_zones,
-    get_activity_heartrate_zones,
-)
+from ..schemas.activities import AllActivityDataResponse
 from ..streams.crud import stream_crud
 from ..streams.models import Resolution
 from ..infrastructure.data_manager import activity_data_manager
@@ -59,24 +49,40 @@ class ActivityService:
 
             return StravaAnalyzer.analyze_activity_data(activity_data, stream_data, athlete_data, activity_id, db, keys_list, resolution)
 
-        # Local DB path
+        # Local DB path: compose using service methods and metrics
         response_data = {}
-        info_funcs = [
-            ("overall", get_activity_overall_info),
-            ("power", get_activity_power_info),
-            ("heartrate", get_activity_heartrate_info),
-            ("cadence", get_activity_cadence_info),
-            ("speed", get_activity_speed_info),
-            ("training_effect", get_activity_training_effect_info),
-            ("altitude", get_activity_altitude_info),
-            ("temp", get_activity_temperature_info),
-        ]
-        for key_name, func in info_funcs:
-            try:
-                info = func(db, activity_id)
-                response_data[key_name] = info
-            except Exception:
-                response_data[key_name] = None
+        try:
+            response_data["overall"] = self.get_overall(db, activity_id)
+        except Exception:
+            response_data["overall"] = None
+        try:
+            response_data["power"] = self.get_power(db, activity_id)
+        except Exception:
+            response_data["power"] = None
+        try:
+            response_data["heartrate"] = self.get_heartrate(db, activity_id)
+        except Exception:
+            response_data["heartrate"] = None
+        try:
+            response_data["cadence"] = self.get_cadence(db, activity_id)
+        except Exception:
+            response_data["cadence"] = None
+        try:
+            response_data["speed"] = self.get_speed(db, activity_id)
+        except Exception:
+            response_data["speed"] = None
+        try:
+            response_data["training_effect"] = self.get_training_effect(db, activity_id)
+        except Exception:
+            response_data["training_effect"] = None
+        try:
+            response_data["altitude"] = self.get_altitude(db, activity_id)
+        except Exception:
+            response_data["altitude"] = None
+        try:
+            response_data["temp"] = self.get_temperature(db, activity_id)
+        except Exception:
+            response_data["temp"] = None
 
         # zones
         zones_data = []
@@ -179,6 +185,18 @@ class ActivityService:
         stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
         session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         return compute_speed_info(stream_data, session_data)
+
+    def get_cadence(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+        from ..metrics.activities.cadence import compute_cadence_info
+        from ..repositories.activity_repo import get_activity_athlete
+        from ..infrastructure.data_manager import activity_data_manager
+        pair = get_activity_athlete(db, activity_id)
+        if not pair:
+            return None
+        activity, _athlete = pair
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
+        return compute_cadence_info(stream_data, session_data)
 
     def get_altitude(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
         from ..metrics.activities.altitude import compute_altitude_info

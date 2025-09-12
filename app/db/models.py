@@ -1,6 +1,4 @@
-"""
-SQLAlchemy ORM models for application tables.
-"""
+"""应用数据库 ORM 模型定义：活动/运动员/功率纪录/缓存等。"""
 
 from sqlalchemy import BIGINT, VARCHAR, Column, Integer, String, Float, Text, DateTime
 from ..db_base import Base
@@ -143,4 +141,3 @@ class TbActivityCache(Base):
     expires_at = Column(DateTime, comment="缓存过期时间")
     is_active = Column(Integer, default=1, comment="是否激活（1=激活，0=禁用）")
     cache_metadata = Column(Text, comment="缓存元数据（JSON格式）")
-

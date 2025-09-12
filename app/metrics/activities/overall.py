@@ -1,3 +1,4 @@
+"""本地流 Overall 指标装配（距离/时间/速度/爬升/功率/卡路里等）。"""
 from typing import Dict, Any, Optional
 from ...core.analytics.time_utils import format_time
 from ...core.analytics.altitude import elevation_gain
@@ -65,4 +66,3 @@ def compute_overall_info(stream_data: Dict[str, Any], session_data: Optional[Dic
     else:
         res['calories'] = None
     return res
-

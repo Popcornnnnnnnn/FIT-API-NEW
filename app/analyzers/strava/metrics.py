@@ -1,3 +1,4 @@
+"""Strava 分项分析（整体/功率/心率/速度/海拔/温度/区间/训练效果）。"""
 from typing import Dict, Any, Optional, List, Tuple
 from sqlalchemy.orm import Session
 from ...core.analytics.time_utils import format_time as _fmt
@@ -12,6 +13,7 @@ from ...core.analytics.training import (
     primary_training_benefit as _primary_benefit,
 )
 from ...db.models import TbActivity, TbAthlete
+from ...core.analytics import zones as _zones
 
 
 def _get_activity_athlete_by_external_id(db: Session, external_id: int) -> Optional[Tuple[TbActivity, TbAthlete]]:
@@ -88,13 +90,23 @@ def analyze_heartrate(activity_data: Dict[str, Any], stream_data: Dict[str, Any]
 
 def analyze_speed(activity_data: Dict[str, Any], stream_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     try:
+        # compute coasting_time from velocity_smooth and watts if available
+        vel = stream_data.get('velocity_smooth', {}).get('data', [])
+        watts = stream_data.get('watts', {}).get('data', []) if 'watts' in stream_data else []
+        coasting = 0
+        if vel:
+            for i in range(len(vel)):
+                v = vel[i] or 0.0
+                p = (watts[i] if i < len(watts) else 0) or 0.0
+                if v < 0.27778 or p < 10:
+                    coasting += 1
         return {
             'avg_speed': round(activity_data.get('average_speed') * 3.6, 1),
             'max_speed': round(activity_data.get('max_speed') * 3.6, 1),
             'moving_time': _fmt(int(activity_data.get('moving_time'))),
             'total_time': _fmt(int(activity_data.get('elapsed_time'))),
             'pause_time': _fmt(int(activity_data.get('elapsed_time')) - int(activity_data.get('moving_time'))),
-            'coasting_time': _fmt(0),
+            'coasting_time': _fmt(coasting),
         }
     except Exception:
         return None
@@ -167,16 +179,15 @@ def analyze_zones(activity_data: Dict[str, Any], stream_data: Dict[str, Any], ex
         if 'watts' in stream_data and int(athlete.ftp) > 0:
             ftp = int(athlete.ftp)
             pd = [p if p is not None else 0 for p in stream_data.get('watts', {}).get('data', [])]
-            buckets = __import__('app.core.analytics.zones', fromlist=['']).analyze_power_zones(pd, ftp)  # lazy import
+            buckets = _zones.analyze_power_zones(pd, ftp)
             if buckets:
                 zones_data.append({'distribution_buckets': buckets, 'type': 'power'})
         if 'heartrate' in stream_data and getattr(athlete, 'max_heartrate', None):
             mhr = int(athlete.max_heartrate)
             hd = [h if h is not None else 0 for h in stream_data.get('heartrate', {}).get('data', [])]
-            buckets = __import__('app.core.analytics.zones', fromlist=['']).analyze_heartrate_zones(hd, mhr)
+            buckets = _zones.analyze_heartrate_zones(hd, mhr)
             if buckets:
                 zones_data.append({'distribution_buckets': buckets, 'type': 'heartrate'})
         return zones_data or None
     except Exception:
         return None
-

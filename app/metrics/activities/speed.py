@@ -1,3 +1,4 @@
+"""本地流速度指标装配（平均/最大/移动/总时长/暂停/滑行）。"""
 from typing import Dict, Any, Optional
 from ...core.analytics.time_utils import format_time
 
@@ -50,4 +51,3 @@ def compute_speed_info(stream_data: Dict[str, Any], session_data: Optional[Dict[
 
     result['coasting_time'] = calculate_coasting_time()
     return result
-
