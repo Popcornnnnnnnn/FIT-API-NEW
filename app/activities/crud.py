@@ -7,6 +7,7 @@ Activities模块的数据库操作函数
 from sqlalchemy.orm import Session
 from typing import Optional, Tuple, Dict, Any, List
 from ..db.models import TbActivity, TbAthlete
+from ..repositories import activity_repo
 from .data_manager import activity_data_manager
 import requests
 from fitparse import FitFile
@@ -15,44 +16,20 @@ import numpy as np
 from ..core.analytics.power import normalized_power as _core_normalized_power, w_balance_decline as _core_w_balance_decline
 from ..core.analytics.altitude import elevation_gain as _core_elevation_gain
 from ..core.analytics.time_utils import format_time as _core_format_time
+from ..core.analytics.training import (
+    calculate_training_load as _core_training_load,
+    estimate_calories_with_power as _core_calories_power,
+    estimate_calories_with_heartrate as _core_calories_hr,
+)
 
 # --------------数据库相关--------------
-def update_database_field(
-    db: Session, 
-    table_class, 
-    record_id: int, 
-    field_name: str, 
-    value: Any
-) -> bool:
-    try:
-        record = db.query(table_class).filter(table_class.id == record_id).first()
-        if not record:
-            return False
-        if not hasattr(record, field_name):
-            return False
-        setattr(record, field_name, value)
-        db.commit()
-        return True
-        
-    except Exception as e:
-        # 回滚事务
-        db.rollback()
-        return False
+def update_database_field(db: Session, table_class, record_id: int, field_name: str, value: Any) -> bool:
+    """Compat wrapper delegating to repository layer."""
+    return activity_repo.update_field(db, table_class, record_id, field_name, value)
 
-def get_activity_athlete(
-    db: Session, 
-    activity_id: int
-) -> Optional[Tuple[TbActivity, TbAthlete]]:
-    # 查询活动信息（返回 tb_activity 的一整行内容）
-    activity = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
-    if not activity:
-        return None
-
-    # 查询运动员信息（返回 tb_athlete 的一整行内容）
-    athlete = db.query(TbAthlete).filter(TbAthlete.id == activity.athlete_id).first()
-    if not athlete:
-        return None
-    return activity, athlete
+def get_activity_athlete(db: Session, activity_id: int) -> Optional[Tuple[TbActivity, TbAthlete]]:
+    """Compat wrapper delegating to repository layer."""
+    return activity_repo.get_activity_athlete(db, activity_id)
 
 
 
@@ -843,42 +820,21 @@ def estimate_calories_with_power( # ! 这个算法应该有点问题
     duration_seconds: int, 
     weight_kg: int
 ) -> Optional[int]:
-    try:
-        # 功率转换为卡路里的系数（约1）
-        power_to_calories_factor = 1
-        
-        # 基础代谢率（BMR）贡献
-        bmr_per_minute = 1.2  # 每分钟基础代谢消耗的卡路里
-        
-        # 计算总卡路里
-        power_calories = avg_power * duration_seconds * power_to_calories_factor / 3600  # 转换为小时
-        bmr_calories = bmr_per_minute * duration_seconds / 60  # 基础代谢消耗
-        total_calories = power_calories + bmr_calories
-        return int(total_calories)
-    except Exception as e:
-        print(f"计算卡路里时出错: {str(e)}")
-        return None
+    return _core_calories_power(avg_power, duration_seconds, weight_kg)
 
 def estimate_calories_with_heartrate(
     avg_heartrate: int, 
     duration_seconds: int, 
     weight_kg: int
 ) -> Optional[int]: # ! 理论上 6 应该替换成 0.2017 * 年龄，基于 Keytel 公式，适合中等强度运动估算
-    try:
-        return round((duration_seconds / 60) * (0.6309 * avg_heartrate + 0.1988 * weight_kg + 6 - 55.0969) / 4.184, 0)
-    except Exception as e:
-        print(f"计算卡路里时出错: {str(e)}")
-        return None
+    return _core_calories_hr(avg_heartrate, duration_seconds, weight_kg)
 
 def calculate_training_load(
     avg_power: int, 
     ftp: int, 
     duration_seconds: int
 ) -> int:
-    intensity_factor = avg_power / ftp
-    duration_hours = duration_seconds / 3600.0
-    training_load = (intensity_factor ** 2) * duration_hours
-    return int(training_load * 100)
+    return _core_training_load(avg_power, ftp, duration_seconds)
 
 def calculate_and_save_training_load(
     db: Session, 
