@@ -272,6 +272,28 @@ async def get_activity_all_data(
             logger.info("[cache-disabled] skip cache lookup")
         logger.info(f"[cache-miss] computing all data for activity id={activity_id}")
 
+        # 使用 service 层统一获取数据（Strava 或本地）
+        final_response = activity_service.get_all_data(db, activity_id, access_token, keys, resolution)
+
+        # 缓存响应数据
+        try:
+            if _is_cache_enabled():
+                response_dict = final_response.dict() if hasattr(final_response, 'dict') else final_response
+                metadata = {
+                    "source": "strava_api" if access_token else "local_database",
+                    "keys": keys,
+                    "resolution": resolution,
+                    "data_upsampled": bool(access_token),
+                    "api_resolution": None,
+                    "moving_time": None,
+                }
+                activity_cache_manager.set_cache(db, activity_id, cache_key, response_dict, metadata)
+                logger.info(f"[cache-set] activity id={activity_id} cached")
+        except Exception as e:
+            logger.warning(f"[cache-failed] cache set failed for id={activity_id}: {e}")
+
+        return final_response
+
         # 如果传入了 access_token，调用 Strava API
         if access_token:
             try:
@@ -480,7 +502,7 @@ async def clear_all_cache(
     """清除所有活动的缓存数据"""
     try:
         from .cache_manager import activity_cache_manager
-        from .models import TbActivityCache
+        from ..db.models import TbActivityCache
         
         # 批量清除所有缓存
         deleted_count = db.query(TbActivityCache).delete()
@@ -506,7 +528,7 @@ async def get_cache_stats(
         from .cache_manager import activity_cache_manager
         # 查询缓存统计信息
         from sqlalchemy import func
-        from .models import TbActivityCache
+        from ..db.models import TbActivityCache
         
         total_cache = db.query(func.count(TbActivityCache.id)).scalar()
         active_cache = db.query(func.count(TbActivityCache.id)).filter(TbActivityCache.is_active == 1).scalar()
@@ -597,6 +619,4 @@ async def get_cache_status(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取缓存状态时发生错误: {str(e)}")
-
-
 

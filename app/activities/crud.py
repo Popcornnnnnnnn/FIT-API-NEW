@@ -6,7 +6,7 @@ Activities模块的数据库操作函数
 
 from sqlalchemy.orm import Session
 from typing import Optional, Tuple, Dict, Any, List
-from ..streams.models import TbActivity, TbAthlete
+from ..db.models import TbActivity, TbAthlete
 from .data_manager import activity_data_manager
 import requests
 from fitparse import FitFile
@@ -944,7 +944,7 @@ def calculate_and_save_training_load(
             # 使用与 strava_analyzer 中相同的逻辑计算新的 CTL 和 ATL
             from datetime import datetime, timedelta
             from sqlalchemy import func
-            from ..streams.models import TbActivity
+            from ..db.models import TbActivity
             
             athlete_id = activity.athlete_id
             forty_two_days_ago = datetime.now() - timedelta(days=42)

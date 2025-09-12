@@ -24,7 +24,7 @@ from .zone_analyzer import ZoneAnalyzer
 from ..utils import get_db
 from sqlalchemy.orm import Session
 from .crud import get_activity_athlete, update_database_field
-from ..streams.models import TbActivity, TbAthlete
+from ..db.models import TbActivity, TbAthlete, TbAthletePowerRecords
 
 
 class StravaAnalyzer:
@@ -404,7 +404,7 @@ class StravaAnalyzer:
             # 更新数据库记录
             if db is not None and athlete_id is not None and activity_id_for_record is not None:
                 from sqlalchemy import select, update
-                from ..streams.models import TbAthletePowerRecords
+                from ..db.models import TbAthletePowerRecords
                 
                 # 查询或创建运动员记录
                 stmt = select(TbAthletePowerRecords).where(

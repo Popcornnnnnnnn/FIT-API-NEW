@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
-from .models import TbActivityCache
+from ..db.models import TbActivityCache
 from ..db_base import Base
 import logging
 from ..config import CACHE_DIR

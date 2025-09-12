@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from . import models
 from .fit_parser import FitParser
 from .models import SeriesType
+from ..db.models import TbActivity, TbAthlete
 
 class StreamCRUD:
     """流数据CRUD操作类"""
@@ -31,7 +32,7 @@ class StreamCRUD:
         resolution: models.Resolution = models.Resolution.HIGH
     ) -> List[Dict[str, Any]]:
         # 检查活动是否存在
-        activity = db.query(models.TbActivity).filter(models.TbActivity.id == activity_id).first()
+        activity = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
         if not activity:
             return []
         
@@ -138,7 +139,7 @@ class StreamCRUD:
         self, db: Session, 
         activity_id: int
     ) -> Dict[str, Any]:
-        activity = db.query(models.TbActivity).filter(models.TbActivity.id == activity_id).first()
+        activity = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
         stream_data = self._get_or_parse_stream_data(db, activity)
         available_streams = stream_data.get_available_streams()
         
@@ -160,7 +161,7 @@ class StreamCRUD:
             file_data = response.content
             
             
-            athlete = db.query(models.TbAthlete).filter(models.TbAthlete.id == activity.athlete_id).first()
+            athlete = db.query(TbAthlete).filter(TbAthlete.id == activity.athlete_id).first()
             athlete_info = {
                 'ftp': int(athlete.ftp),
                 'wj': athlete.w_balance

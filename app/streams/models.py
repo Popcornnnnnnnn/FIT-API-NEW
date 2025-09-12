@@ -12,8 +12,6 @@ from typing import List, Optional, Union, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
 import sys
-from sqlalchemy import BIGINT, VARCHAR, Column, Integer, String, Float, Text, DateTime
-from ..db_base import Base
 
 class Resolution(str, Enum):
     """数据分辨率枚举"""
@@ -27,128 +25,7 @@ class SeriesType(str, Enum):
     TIME = "time"
     NONE = "none"
 
-class TbActivity(Base):
-    """活动表模型"""
-    __tablename__ = "tb_activity"
-    
-    id                    = Column(BIGINT, primary_key=True, index=True)
-    athlete_id            = Column(BIGINT)
-    upload_fit_url        = Column(VARCHAR(255))
-    name                  = Column(VARCHAR(255))
-    external_id           = Column(VARCHAR(255))
-    tss                   = Column(Integer)
-    tss_updated           = Column(Integer, default=0)
-    start_date            = Column(DateTime)
-
-class TbAthlete(Base):
-    """运动员表模型"""
-    __tablename__ = "tb_athlete"
-    
-    id            = Column(BIGINT, primary_key=True, index=True)
-    max_heartrate = Column(Integer)
-    ftp           = Column(VARCHAR(255))
-    w_balance     = Column(Integer)
-    weight        = Column(Integer)
-    tsb           = Column(Integer)
-    ctl           = Column(Integer)
-    atl           = Column(Integer)
-
-class TbAthletePowerRecords(Base):
-    __tablename__ = "tb_athlete_power_records"
-    
-    athlete_id = Column(BIGINT, primary_key=True, index=True)
-    power_5s_1st = Column(Integer)
-    power_5s_1st_activity_id = Column(BIGINT)
-    power_5s_2nd = Column(Integer)
-    power_5s_2nd_activity_id = Column(BIGINT)
-    power_5s_3rd = Column(Integer)
-    power_5s_3rd_activity_id = Column(BIGINT)
-    power_15s_1st = Column(Integer)
-    power_15s_1st_activity_id = Column(BIGINT)
-    power_15s_2nd = Column(Integer)
-    power_15s_2nd_activity_id = Column(BIGINT)
-    power_15s_3rd = Column(Integer)
-    power_15s_3rd_activity_id = Column(BIGINT)
-    power_30s_1st = Column(Integer)
-    power_30s_1st_activity_id = Column(BIGINT)
-    power_30s_2nd = Column(Integer)
-    power_30s_2nd_activity_id = Column(BIGINT)
-    power_30s_3rd = Column(Integer)
-    power_30s_3rd_activity_id = Column(BIGINT)
-    power_1m_1st = Column(Integer)
-    power_1m_1st_activity_id = Column(BIGINT)
-    power_1m_2nd = Column(Integer)
-    power_1m_2nd_activity_id = Column(BIGINT)
-    power_1m_3rd = Column(Integer)
-    power_1m_3rd_activity_id = Column(BIGINT)
-    power_2m_1st = Column(Integer)
-    power_2m_1st_activity_id = Column(BIGINT)
-    power_2m_2nd = Column(Integer)
-    power_2m_2nd_activity_id = Column(BIGINT)
-    power_2m_3rd = Column(Integer)
-    power_2m_3rd_activity_id = Column(BIGINT)
-    power_3m_1st = Column(Integer)
-    power_3m_1st_activity_id = Column(BIGINT)
-    power_3m_2nd = Column(Integer)
-    power_3m_2nd_activity_id = Column(BIGINT)
-    power_3m_3rd = Column(Integer)
-    power_3m_3rd_activity_id = Column(BIGINT)
-    power_5m_1st = Column(Integer)
-    power_5m_1st_activity_id = Column(BIGINT)
-    power_5m_2nd = Column(Integer)
-    power_5m_2nd_activity_id = Column(BIGINT)
-    power_5m_3rd = Column(Integer)
-    power_5m_3rd_activity_id = Column(BIGINT)
-    power_10m_1st = Column(Integer)
-    power_10m_1st_activity_id = Column(BIGINT)
-    power_10m_2nd = Column(Integer)
-    power_10m_2nd_activity_id = Column(BIGINT)
-    power_10m_3rd = Column(Integer)
-    power_10m_3rd_activity_id = Column(BIGINT)
-    power_15m_1st = Column(Integer)
-    power_15m_1st_activity_id = Column(BIGINT)
-    power_15m_2nd = Column(Integer)
-    power_15m_2nd_activity_id = Column(BIGINT)
-    power_15m_3rd = Column(Integer)
-    power_15m_3rd_activity_id = Column(BIGINT)
-    power_20m_1st = Column(Integer)
-    power_20m_1st_activity_id = Column(BIGINT)
-    power_20m_2nd = Column(Integer)
-    power_20m_2nd_activity_id = Column(BIGINT)
-    power_20m_3rd = Column(Integer)
-    power_20m_3rd_activity_id = Column(BIGINT)
-    power_30m_1st = Column(Integer)
-    power_30m_1st_activity_id = Column(BIGINT)
-    power_30m_2nd = Column(Integer)
-    power_30m_2nd_activity_id = Column(BIGINT)
-    power_30m_3rd = Column(Integer)
-    power_30m_3rd_activity_id = Column(BIGINT)
-    power_45m_1st = Column(Integer)
-    power_45m_1st_activity_id = Column(BIGINT)
-    power_45m_2nd = Column(Integer)
-    power_45m_2nd_activity_id = Column(BIGINT)
-    power_45m_3rd = Column(Integer)
-    power_45m_3rd_activity_id = Column(BIGINT)
-    power_60m_1st = Column(Integer)
-    power_60m_1st_activity_id = Column(BIGINT)
-    power_60m_2nd = Column(Integer)
-    power_60m_2nd_activity_id = Column(BIGINT)
-    power_60m_3rd = Column(Integer)
-    power_60m_3rd_activity_id = Column(BIGINT)
-    longest_ride_1st = Column(Integer)
-    longest_ride_1st_activity_id = Column(BIGINT)
-    longest_ride_2nd = Column(Integer)
-    longest_ride_2nd_activity_id = Column(BIGINT)
-    longest_ride_3rd = Column(Integer)
-    longest_ride_3rd_activity_id = Column(BIGINT)
-    max_elevation_1st = Column(Integer)
-    max_elevation_1st_activity_id = Column(BIGINT)
-    max_elevation_2nd = Column(Integer)
-    max_elevation_2nd_activity_id = Column(BIGINT)
-    max_elevation_3rd = Column(Integer)
-    max_elevation_3rd_activity_id = Column(BIGINT)
-    created_at = Column(DateTime)
-    updated_at = Column(DateTime)
+from ..db.models import TbActivity, TbAthlete, TbAthletePowerRecords  # re-export for compatibility if needed
 
 # 流数据模型
 class BaseStream(BaseModel):
