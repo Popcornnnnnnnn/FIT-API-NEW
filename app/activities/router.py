@@ -19,23 +19,14 @@ from .strava_analyzer import StravaAnalyzer
 from ..streams.models import Resolution
 from ..streams.crud import stream_crud
 from .data_manager import activity_data_manager
+from ..config import is_cache_enabled
+from ..clients.strava_client import StravaClient, StravaApiError
+logger = logging.getLogger(__name__)
 import json
 
 def _is_cache_enabled():
-    """检查缓存是否启用"""
-    import os
-    
-    # 优先检查配置文件
-    if os.path.exists('.cache_config'):
-        try:
-            with open('.cache_config', 'r') as f:
-                content = f.read().strip()
-                return "enabled=true" in content
-        except:
-            pass
-    
-    # 检查环境变量
-    return os.environ.get('CACHE_ENABLED', 'true').lower() == 'true'
+    """检查缓存是否启用（兼容原有函数名）"""
+    return is_cache_enabled()
 
 router = APIRouter(prefix="/activities", tags=["活动"])
 
@@ -275,73 +266,33 @@ async def get_activity_all_data(
         if _is_cache_enabled():
             cached_data = activity_cache_manager.get_cache(db, activity_id, cache_key)
             if cached_data:
-                print(f"🟢 [缓存命中] 活动{activity_id}的所有数据")
+                logger.info(f"[cache-hit] all activity data id={activity_id}")
                 return AllActivityDataResponse(**cached_data)
         else:
-            print(f"🔴 [缓存已禁用] 跳过缓存查询")
-        
-        print(f"🔴 [缓存未命中] 活动{activity_id}的所有数据 - 正在计算...")
+            logger.info("[cache-disabled] skip cache lookup")
+        logger.info(f"[cache-miss] computing all data for activity id={activity_id}")
 
         # 如果传入了 access_token，调用 Strava API
         if access_token:
             try:
-                headers = {
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json"
-                }
-                # 根据活动时长动态选择精度，避免超过10000个数据点
-                activity_response = requests.get(
-                    f"https://www.strava.com/api/v3/activities/{activity_id}", 
-                    headers=headers, 
-                    timeout=10)
-                if activity_response.status_code != 200:
-                    raise HTTPException(
-                        status_code=activity_response.status_code,
-                        detail=f"Strava API 活动信息获取失败: {activity_response.text}"
-                    )
-                
-                activity_data = activity_response.json()
-                
-                # 计算活动时长（秒）并决定API精度
-                moving_time = activity_data.get("moving_time", 0)
-                # 如果活动时长超过10000秒（约2.78小时），使用低精度API
-                # 低精度：每20秒一个数据点，高精度：每1秒一个数据点
-                if moving_time > 10000:
-                    api_resolution = "medium"
-                    print(f"活动时长 {moving_time}秒，使用低精度API避免数据截断")
-                else:
-                    api_resolution = "high"
-                
-                stream_response = requests.get(
-                    f"https://www.strava.com/api/v3/activities/{activity_id}/streams?keys=time,distance,latlng,altitude,velocity_smooth,heartrate,cadence,watts,temp,moving,grade_smooth&key_by_type=true&resolution={api_resolution}", 
-                    headers=headers, 
-                    timeout=5)
-                # print(stream_response.text)
-                athlete_response = requests.get( 
-                    "https://www.strava.com/api/v3/athlete",
-                    headers=headers,
-                    timeout=5
-                )
-                if athlete_response.status_code != 200:
-                    raise HTTPException(
-                        status_code=athlete_response.status_code,
-                        detail=f"Strava API 运动员信息获取失败: {athlete_response.text}"
-                    )
-                if stream_response.status_code != 200:
-                    raise HTTPException(
-                        status_code=stream_response.status_code,
-                        detail=f"Strava API 流数据获取失败: {stream_response.text}"
-                    )
-                stream_data = stream_response.json()
-                athlete_data = athlete_response.json()
-                # print(athlete_data["ftp"])
+                client = StravaClient(access_token)
+                keys_list_all = [
+                    'time', 'distance', 'latlng', 'altitude', 'velocity_smooth',
+                    'heartrate', 'cadence', 'watts', 'temp', 'moving', 'grade_smooth'
+                ]
+                full = client.fetch_full(activity_id, keys=keys_list_all, resolution=None)
+                activity_data = full['activity']
+                stream_data = full['streams']
+                athlete_data = full['athlete']
+                api_resolution = full['resolution']
+                moving_time = activity_data.get('moving_time', 0)
 
                 # 检查Strava数据有效性
                 if (activity_data.get("distance", 0) <= 0 or 
                     activity_data.get("average_speed", 0) <= 0 or 
                     activity_data.get("moving_time", 0) <= 0 or
                     activity_data.get("max_speed", 0) <= 0):
-                    print(f"⚠️ [数据无效] 活动{activity_id}的Strava数据无效，返回全null响应")
+                    logger.warning(f"[invalid-strava] activity_id={activity_id}, returning null response")
                     # 返回全null的响应
                     null_response = AllActivityDataResponse(
                         overall=None,
@@ -362,8 +313,7 @@ async def get_activity_all_data(
                 if keys:
                     keys_list = [key.strip() for key in keys.split(',') if key.strip()]
                 else:
-                    # 如果 keys 为空，返回所有可用的字段
-                    keys_list = ['time', 'distance', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp',  'best_power', 'torque', 'spi', 'power_hr_ratio', 'w_balance', 'vam'] # ! 去掉 lating、moving、grade_smooth，将 velocity_smooth 改成 speed
+                    keys_list = ['time', 'distance', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp',  'best_power', 'torque', 'spi', 'power_hr_ratio', 'w_balance', 'vam']
                 
                 response_data = StravaAnalyzer.analyze_activity_data(activity_data, stream_data, athlete_data, activity_id, db, keys_list, resolution)
                 
@@ -379,11 +329,13 @@ async def get_activity_all_data(
                         "moving_time": moving_time  # 记录实际运动时长
                     }
                     activity_cache_manager.set_cache(db, activity_id, cache_key, response_dict, metadata)
-                    print(f"✅ [缓存设置] 活动{activity_id}的Strava API数据已缓存（补齐后）")
+                    logger.info(f"[cache-set] strava activity id={activity_id} cached")
                 elif not _is_cache_enabled():
-                    print(f"🔴 [缓存已禁用] 跳过Strava API数据缓存")
+                    logger.info("[cache-disabled] skip strava cache set")
                 
                 return response_data
+            except StravaApiError as e:
+                raise HTTPException(status_code=e.status_code, detail=e.message)
             except HTTPException:
                 raise
             except Exception as e:
@@ -474,7 +426,7 @@ async def get_activity_all_data(
             else:
                 response_data["streams"] = None
         except Exception as e:
-            print(f"获取流数据时发生错误: {str(e)}")
+            logger.error(f"get streams error: {str(e)}")
             response_data["streams"] = None
         
         # 构建响应
@@ -493,11 +445,11 @@ async def get_activity_all_data(
                     "moving_time": None  # 本地数据没有运动时长信息
                 }
                 activity_cache_manager.set_cache(db, activity_id, cache_key, response_dict, metadata)
-                print(f"✅ [缓存设置] 活动{activity_id}的本地数据库数据已缓存")
+                logger.info(f"[cache-set] local activity id={activity_id} cached")
             except Exception as e:
-                print(f"⚠️ [缓存失败] 活动{activity_id}的本地数据库数据缓存失败: {e}")
+                logger.warning(f"[cache-failed] local cache set failed for id={activity_id}: {e}")
         else:
-            print(f"🔴 [缓存已禁用] 跳过本地数据库数据缓存")
+            logger.info("[cache-disabled] skip local cache set")
         
         return final_response
         
@@ -645,7 +597,6 @@ async def get_cache_status(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取缓存状态时发生错误: {str(e)}")
-
 
 
 

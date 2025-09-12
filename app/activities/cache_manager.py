@@ -17,13 +17,14 @@ from sqlalchemy import and_
 from .models import TbActivityCache
 from ..db_base import Base
 import logging
+from ..config import CACHE_DIR
 
 logger = logging.getLogger(__name__)
 
 class ActivityCacheManager:
     """活动数据缓存管理器"""
     
-    def __init__(self, storage_base_path: str = "/data/activity_cache"):
+    def __init__(self, storage_base_path: str = CACHE_DIR):
         """
         初始化缓存管理器
         

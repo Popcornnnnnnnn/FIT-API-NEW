@@ -12,6 +12,7 @@ import requests
 from fitparse import FitFile
 from io import BytesIO 
 import numpy as np
+from ..core.analytics.power import normalized_power as _core_normalized_power, w_balance_decline as _core_w_balance_decline
 
 # --------------数据库相关--------------
 def update_database_field(
@@ -1195,37 +1196,14 @@ def _get_primary_training_benefit(
 def calculate_normalized_power(
     powers: list
 ) -> int:
-    window_size = 30
-    rolling_averages = []   
-    for i in range(len(powers)):
-        start_idx = max(0, i - window_size + 1)
-        window_powers = powers[start_idx:i+1]
-        avg_power = sum(window_powers) / len(window_powers)
-        rolling_averages.append(avg_power)
-    fourth_powers = [avg ** 4 for avg in rolling_averages]
-    mean_fourth_power = sum(fourth_powers) / len(fourth_powers)
-    normalized_power = mean_fourth_power ** 0.25
-    
-    return round(normalized_power, 0)
+    # Delegate to optimized implementation
+    return round(_core_normalized_power(powers), 0)
 
 
 def calculate_w_balance_decline(
     w_balance_data: list
 ) -> float:
-    if not w_balance_data:
-        return None
-    
-    # 过滤有效数据
-    valid_w_balance = [w for w in w_balance_data if w is not None]
-    if not valid_w_balance:
-        return None
-    
-    # 初始值减去最小值
-    initial_value = valid_w_balance[0]
-    min_value = min(valid_w_balance)
-    decline = initial_value - min_value
-    
-    return round(decline, 1) 
+    return _core_w_balance_decline(w_balance_data)
 
 
 # --------------其他文件中使用到的函数--------------
@@ -1317,8 +1295,7 @@ def get_session_data(
                 'left_torque_effectiveness', 'right_torque_effectiveness',
                 'left_pedal_smoothness', 'right_pedal_smoothness',
                 'avg_speed', 'max_speed', 'avg_temperature', 'max_temperature', 'min_temperature',
-                'normalized_power', "training_stress_score","avg_speed", "max_speed"
-                "intensity_factor"
+                'normalized_power', 'training_stress_score', 'intensity_factor'
             ]
             
             for field in fields:

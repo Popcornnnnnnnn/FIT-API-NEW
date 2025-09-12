@@ -9,10 +9,13 @@ FIT文件分析API主应用文件。
 """
 
 from fastapi import FastAPI
+from .logging_config import setup_logging
+from .config import LOG_LEVEL
 
 from .streams.router import router as streams_router
 from .activities.router import router as activities_router
 
+setup_logging(LOG_LEVEL)
 app = FastAPI(title="FIT 文件分析 API")
 
 # 路由注册
