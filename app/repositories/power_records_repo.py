@@ -1,3 +1,4 @@
+"""运动员最佳功率纪录写库仓库（Repository）。"""
 from typing import Dict, List, Optional, Tuple
 from sqlalchemy.orm import Session
 
@@ -11,6 +12,7 @@ INTERVAL_FIELD_MAP: Dict[str, str] = {
 
 
 def get_or_create_records(db: Session, athlete_id: int) -> TbAthletePowerRecords:
+    """按 athlete_id 获取或创建功率纪录行。"""
     rec = db.query(TbAthletePowerRecords).filter(TbAthletePowerRecords.athlete_id == athlete_id).first()
     if not rec:
         rec = TbAthletePowerRecords(athlete_id=athlete_id)
@@ -21,6 +23,7 @@ def get_or_create_records(db: Session, athlete_id: int) -> TbAthletePowerRecords
 
 
 def _field_names(interval_key: str) -> Tuple[str, str, str, str, str, str]:
+    """将时间窗键转为 ORM 字段名（Top3）。"""
     suf = INTERVAL_FIELD_MAP.get(interval_key)
     if not suf:
         raise ValueError(f"Unsupported interval: {interval_key}")
@@ -39,10 +42,10 @@ def update_best_powers(
     best_powers: Dict[str, int],
     activity_id_for_record: int,
 ) -> List[Dict[str, object]]:
-    """Update athlete best powers top-3 for provided intervals.
+    """按给定 best_powers 更新某运动员各时间窗的 Top3。
 
-    Returns a list of segment record dicts with fields:
-      segment_name, current_value, rank, activity_id, record_type, unit, previous_record, improvement
+    返回：包含以下键的字典列表：
+        segment_name/current_value/rank/activity_id/record_type/unit/previous_record/improvement
     """
     rec = get_or_create_records(db, athlete_id)
     segment_records: List[Dict[str, object]] = []
@@ -98,4 +101,3 @@ def update_best_powers(
 
     db.commit()
     return segment_records
-

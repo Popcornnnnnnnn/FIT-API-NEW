@@ -24,6 +24,17 @@ class StravaAnalyzer:
         keys: Optional[List[str]] = None,
         resolution: str = "high",
     ) -> AllActivityDataResponse:
+        """整合 Strava 活动/流数据，返回聚合响应。
+
+        参数：
+            activity_data: 活动详情（Strava /activities/{id}）
+            stream_data: 流数据（Strava streams，key_by_type=true）
+            athlete_data: 运动员信息（当前未使用，预留）
+            external_id: 外部活动 ID
+            db: 数据库会话（用于查询/可选写库）
+            keys: 需要返回的流键（可选）
+            resolution: 目标分辨率（保留字段，无强制影响）
+        """
         if stream_data and _ups.is_low_resolution(stream_data):
             prepared = _ups.prepare_for_upsampling(stream_data)
             stream_data = _ups.upsample_low_resolution(prepared, activity_data.get('moving_time', 0))
@@ -54,5 +65,5 @@ class StravaAnalyzer:
         db: Optional[Session] = None,
         athlete_id: Optional[int] = None,
     ):
+        """提取最佳功率曲线并尝试更新个人纪录（安全失败）。"""
         return _best.analyze_best_powers(activity_data, stream_data, external_id, db, athlete_id)
-

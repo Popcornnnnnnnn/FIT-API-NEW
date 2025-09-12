@@ -1,3 +1,11 @@
+"""训练效果与区间分析核心算法
+
+说明：
+- 本模块提供训练负荷（TSS 类似指标）、卡路里估算、有氧/无氧效果、功率区间统计等通用算法；
+- 这些算法既可用于 Strava 流，也可用于本地 FIT 解析后的流，输入为简单的列表/标量；
+- 不依赖数据库或网络，便于单元测试与复用。
+"""
+
 from typing import Optional, List, Dict, Any, Tuple
 from .power import normalized_power
 from .zones import analyze_power_zones
@@ -5,6 +13,16 @@ from .time_utils import parse_time_str
 
 
 def calculate_training_load(avg_power: int, ftp: int, duration_seconds: int) -> int:
+    """计算训练负荷（类似 TSS 的量纲），简化实现。
+
+    参数：
+        avg_power: 平均功率（W）
+        ftp: 功能阈值功率（W）
+        duration_seconds: 训练时长（秒）
+
+    返回：
+        训练负荷整数值，若输入不合法返回 0
+    """
     if not ftp or ftp <= 0 or not avg_power or avg_power <= 0 or duration_seconds <= 0:
         return 0
     intensity_factor = avg_power / ftp
@@ -14,6 +32,10 @@ def calculate_training_load(avg_power: int, ftp: int, duration_seconds: int) -> 
 
 
 def estimate_calories_with_power(avg_power: int, duration_seconds: int, weight_kg: int) -> Optional[int]:
+    """使用功率估算卡路里（简化）：功率做功 + 轻量 BMR 贡献。
+
+    注意：此估算非常粗略，仅用于近似展示。
+    """
     try:
         # Simplified: power (W) over time + small BMR component
         power_calories = avg_power * duration_seconds / 3600  # Wh approx to kcal (roughly comparable)
@@ -26,6 +48,7 @@ def estimate_calories_with_power(avg_power: int, duration_seconds: int, weight_k
 
 
 def estimate_calories_with_heartrate(avg_heartrate: int, duration_seconds: int, weight_kg: int) -> Optional[int]:
+    """使用心率估算卡路里（简化版 Keytel 近似）。"""
     try:
         # Keytel-like rough estimate for moderate intensity (male, approximated constants)
         return round((duration_seconds / 60) * (0.6309 * avg_heartrate + 0.1988 * weight_kg + 6 - 55.0969) / 4.184, 0)
@@ -34,6 +57,7 @@ def estimate_calories_with_heartrate(avg_heartrate: int, duration_seconds: int, 
 
 
 def aerobic_effect(power_data: List[int], ftp: int) -> float:
+    """有氧效果（AE）：基于 NP 与训练时长的简化刻画（0.0~5.0）。"""
     try:
         np = normalized_power(power_data)
         if not ftp:
@@ -45,6 +69,7 @@ def aerobic_effect(power_data: List[int], ftp: int) -> float:
 
 
 def anaerobic_effect(power_data: List[int], ftp: int) -> float:
+    """无氧效果（NE）：结合 30s 峰值与高于 FTP 的做功量（0.0~4.0）。"""
     try:
         if not power_data or not ftp:
             return 0.0
@@ -68,6 +93,7 @@ def anaerobic_effect(power_data: List[int], ftp: int) -> float:
 
 
 def power_zone_percentages(power_data: List[int], ftp: int) -> List[float]:
+    """功率区间百分比（0~6 区间，对应 Z1~Z7）"""
     zones = analyze_power_zones(power_data, ftp)
     out = []
     for z in zones:
@@ -80,6 +106,7 @@ def power_zone_percentages(power_data: List[int], ftp: int) -> List[float]:
 
 
 def power_zone_times(power_data: List[int], ftp: int) -> List[int]:
+    """功率区间时长（秒）"""
     zones = analyze_power_zones(power_data, ftp)
     out = []
     for z in zones:
@@ -96,6 +123,10 @@ def primary_training_benefit(
     ftp: int,
     max_power: int,
 ) -> Tuple[str, List[str]]:
+    """综合评估主要训练收益类型（返回主/副类型）。
+
+    规则基于区间分布/时长与 AE/NE 的经验条件组合，结果仅供参考。
+    """
     if duration_min < 5:
         return "时间过短, 无法判断", []
 
@@ -192,4 +223,3 @@ def primary_training_benefit(
     if not matched:
         return "Mixed", []
     return matched[0], matched[1:]
-
