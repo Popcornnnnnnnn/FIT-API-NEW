@@ -4,7 +4,7 @@ Strava 数据分析器
 处理从 Strava API 获取的活动数据和流数据，转换为应用内部的数据结构。
 """
 
-from cgi import print_arguments
+# from cgi import print_arguments  # 移除未使用的导入
 from typing import Dict, Any, Optional, List, Tuple, Union
 import numpy as np
 from .schemas import (
@@ -18,6 +18,7 @@ from .schemas import (
     AltitudeResponse,
     TemperatureResponse,
     ZoneData,
+    SegmentRecord,
 )
 from .zone_analyzer import ZoneAnalyzer
 from ..utils import get_db
@@ -27,6 +28,8 @@ from ..streams.models import TbActivity, TbAthlete
 
 
 class StravaAnalyzer:
+
+
 
     @staticmethod
     def analyze_activity_data(
@@ -39,25 +42,24 @@ class StravaAnalyzer:
         resolution: str = "high",
     ) -> AllActivityDataResponse:
 
-        # 数据补齐：如果stream_data是低精度，补齐到高精度
         if stream_data:
-            # 检测是否为低精度数据
             is_low_resolution = StravaAnalyzer._is_low_resolution_data(stream_data)
             if is_low_resolution:
-                print("检测到低精度数据，正在补齐到高精度...")
-                # 准备时间参考信息
+                # print("检测到低精度数据，正在补齐到高精度...")
                 prepared_data = StravaAnalyzer._prepare_stream_data_for_upsampling(stream_data)
-                # 补齐数据 - 使用实际运动时长
                 stream_data = StravaAnalyzer._upsample_low_resolution_data(prepared_data, activity_data.get("moving_time", 0))
-                print("数据补齐完成")
                 
+        activity, athlete = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
 
+        
 
         # 处理流数据
         streams = None
         if keys and stream_data:
             streams = StravaAnalyzer._extract_stream_data(stream_data, keys, external_id, db, resolution) 
 
+        best_powers, segment_records = StravaAnalyzer.analyze_best_powers(activity_data, stream_data, external_id, db, activity.athlete_id)
+        
         return AllActivityDataResponse(
             overall         = StravaAnalyzer.analyze_overall(activity_data, stream_data, external_id, db),
             power           = StravaAnalyzer.analyze_power(activity_data, stream_data, external_id, db),
@@ -68,8 +70,9 @@ class StravaAnalyzer:
             altitude        = StravaAnalyzer.analyze_altitude(activity_data, stream_data),
             temp            = StravaAnalyzer.analyze_temperature(activity_data, stream_data),
             zones           = StravaAnalyzer.analyze_zones(activity_data, stream_data, external_id, db),
-            best_powers     = StravaAnalyzer.analyze_best_powers(activity_data, stream_data),
+            best_powers     = best_powers,
             streams         = streams,
+            segment_records = segment_records,
         )
 
     @staticmethod
@@ -346,39 +349,273 @@ class StravaAnalyzer:
     @staticmethod
     def analyze_best_powers(
         activity_data: Dict[str, Any], 
-        stream_data: Dict[str, Any]
-    ) -> Optional[Dict[str, int]]:
+        stream_data: Dict[str, Any],
+        external_id: Optional[int] = None,
+        db: Optional[Any] = None,
+        athlete_id: Optional[int] = None
+    ) -> Tuple[Optional[Dict[str, int]], Optional[List[SegmentRecord]]]:
         if "watts" not in stream_data:
-            return None
+            return None, None
         try:
+            activity, athlete = StravaAnalyzer._get_activity_athlete_by_external_id(db, external_id)
+
             power_stream = stream_data.get("watts", {})
             power_data = power_stream.get("data", [])
-            power_data = [p if p is not None else 0 for p in power_data]
+            power_data = np.array([p if p is not None else 0 for p in power_data])
+            
             time_intervals = {
                 '5s': 5,
+                '15s': 15,
                 '30s': 30,
-                '1min': 60,
-                '5min': 300,
-                '8min': 480,
-                '20min': 1200,
-                '30min': 1800,
-                '1h': 3600
+                '1m': 60,
+                '2m': 120,
+                '3m': 180,
+                '5m': 300,
+                '10m': 600,
+                '15m': 900,
+                '20m': 1200,
+                '30m': 1800,
+                '45m': 2700,
+                '60m': 3600
             }
+            
             best_powers = {}
+            segment_records = []
+            
             for interval_name, interval_seconds in time_intervals.items():
-                max_avg_power = 0
                 if len(power_data) < interval_seconds:
                     continue
-                for i in range(len(power_data) - interval_seconds + 1):
-                    window_powers = power_data[i:i + interval_seconds]
-                    avg_power = sum(window_powers) / len(window_powers)
-                    max_avg_power = max(max_avg_power, avg_power)
+                # 使用滑动窗口和numpy高效计算
+                window = np.ones(interval_seconds)
+                avg_powers = np.convolve(power_data, window, 'valid') / interval_seconds
+                max_avg_power = int(np.max(avg_powers))
                 if max_avg_power > 0:
-                    best_powers[interval_name] = int(max_avg_power)
-            return best_powers if best_powers else None         
+                    best_powers[interval_name] = max_avg_power
+
+            # 计算最长骑行距离和最大海拔爬升
+            distance = activity_data.get('distance', 0)  # 米
+            elevation_gain = activity_data.get('total_elevation_gain', 0)  # 米
+            
+            # 选择用于写库的活动ID：优先 external_id，否则从 activity_data 读取 activity_id
+            activity_id_for_record = external_id if external_id is not None else activity.id
+
+            print(activity.id)
+
+            # 更新数据库记录
+            if db is not None and athlete_id is not None and activity_id_for_record is not None:
+                from sqlalchemy import select, update
+                from ..streams.models import TbAthletePowerRecords
+                
+                # 查询或创建运动员记录
+                stmt = select(TbAthletePowerRecords).where(
+                    TbAthletePowerRecords.athlete_id == athlete_id
+                )
+                athlete_record = db.execute(stmt).scalar_one_or_none()
+                
+                if not athlete_record:
+                    # 创建新记录
+                    athlete_record = TbAthletePowerRecords(athlete_id=athlete_id)
+                    db.add(athlete_record)
+                    db.commit()
+                    db.refresh(athlete_record)
+                
+                # 更新功率记录
+                for interval_name in time_intervals.keys():
+                    if interval_name not in best_powers:
+                        continue
+                    
+                    current_power = best_powers[interval_name]
+                    power_1st = getattr(athlete_record, f'power_{interval_name}_1st')
+                    power_2nd = getattr(athlete_record, f'power_{interval_name}_2nd')
+                    power_3rd = getattr(athlete_record, f'power_{interval_name}_3rd')
+                    activity_id_1st = getattr(athlete_record, f'power_{interval_name}_1st_activity_id')
+                    activity_id_2nd = getattr(athlete_record, f'power_{interval_name}_2nd_activity_id')
+                    activity_id_3rd = getattr(athlete_record, f'power_{interval_name}_3rd_activity_id')
+                    
+                    # 检查当前活动ID是否已经存在于该时间段的排名中
+                    existing_rank = None
+                    if activity_id_1st == activity_id_for_record:
+                        existing_rank = 1
+                    elif activity_id_2nd == activity_id_for_record:
+                        existing_rank = 2
+                    elif activity_id_3rd == activity_id_for_record:
+                        existing_rank = 3
+                    
+                    # 记录更新前的状态
+                    previous_record = None
+                    rank = 0
+                    
+                    if existing_rank:
+                        # 如果活动ID已存在，直接跳过（之前已经处理过）
+                        continue
+                    else:
+                        # 活动ID不存在，按正常逻辑更新排名
+                        if power_1st is None or current_power > power_1st:
+                            # 新记录成为第一名
+                            previous_record = power_1st
+                            rank = 1
+                            setattr(athlete_record, f'power_{interval_name}_3rd', power_2nd)
+                            setattr(athlete_record, f'power_{interval_name}_3rd_activity_id', 
+                                    getattr(athlete_record, f'power_{interval_name}_2nd_activity_id'))
+                            setattr(athlete_record, f'power_{interval_name}_2nd', power_1st)
+                            setattr(athlete_record, f'power_{interval_name}_2nd_activity_id', 
+                                    getattr(athlete_record, f'power_{interval_name}_1st_activity_id'))
+                            setattr(athlete_record, f'power_{interval_name}_1st', current_power)
+                            setattr(athlete_record, f'power_{interval_name}_1st_activity_id', activity_id_for_record)
+                        elif power_2nd is None or current_power > power_2nd:
+                            # 新记录成为第二名
+                            previous_record = power_2nd
+                            rank = 2
+                            setattr(athlete_record, f'power_{interval_name}_3rd', power_2nd)
+                            setattr(athlete_record, f'power_{interval_name}_3rd_activity_id', 
+                                    getattr(athlete_record, f'power_{interval_name}_2nd_activity_id'))
+                            setattr(athlete_record, f'power_{interval_name}_2nd', current_power)
+                            setattr(athlete_record, f'power_{interval_name}_2nd_activity_id', activity_id_for_record)
+                        elif power_3rd is None or current_power > power_3rd:
+                            # 新记录成为第三名
+                            previous_record = power_3rd
+                            rank = 3
+                            setattr(athlete_record, f'power_{interval_name}_3rd', current_power)
+                            setattr(athlete_record, f'power_{interval_name}_3rd_activity_id', activity_id_for_record)
+                    
+                    # 如果有排名更新，记录分段记录
+                    if rank > 0:
+                        improvement = current_power - previous_record if previous_record is not None else current_power
+                        segment_records.append(SegmentRecord(
+                            segment_name=interval_name,
+                            current_value=current_power,
+                            rank=rank,
+                            activity_id=activity_id_for_record,
+                            record_type="power",
+                            unit="W",
+                            previous_record=previous_record,
+                            improvement=improvement
+                        ))
+                
+                # 更新最长骑行记录
+                if distance > 0:
+                    longest_1st = athlete_record.longest_ride_1st
+                    longest_2nd = athlete_record.longest_ride_2nd
+                    longest_3rd = athlete_record.longest_ride_3rd
+                    longest_1st_activity_id = athlete_record.longest_ride_1st_activity_id
+                    longest_2nd_activity_id = athlete_record.longest_ride_2nd_activity_id
+                    longest_3rd_activity_id = athlete_record.longest_ride_3rd_activity_id
+                    
+                    # 检查当前活动ID是否已经存在于最长骑行排名中
+                    existing_rank = None
+                    if longest_1st_activity_id == activity_id_for_record:
+                        existing_rank = 1
+                    elif longest_2nd_activity_id == activity_id_for_record:
+                        existing_rank = 2
+                    elif longest_3rd_activity_id == activity_id_for_record:
+                        existing_rank = 3
+                    
+                    # 如果活动ID不存在，才进行更新
+                    if not existing_rank:
+                        previous_record = None
+                        rank = 0
+                        
+                        if longest_1st is None or distance > longest_1st:
+                            previous_record = longest_1st
+                            rank = 1
+                            athlete_record.longest_ride_3rd = longest_2nd
+                            athlete_record.longest_ride_3rd_activity_id = athlete_record.longest_ride_2nd_activity_id
+                            athlete_record.longest_ride_2nd = longest_1st
+                            athlete_record.longest_ride_2nd_activity_id = athlete_record.longest_ride_1st_activity_id
+                            athlete_record.longest_ride_1st = distance
+                            athlete_record.longest_ride_1st_activity_id = activity_id_for_record
+                        elif longest_2nd is None or distance > longest_2nd:
+                            previous_record = longest_2nd
+                            rank = 2
+                            athlete_record.longest_ride_3rd = longest_2nd
+                            athlete_record.longest_ride_3rd_activity_id = athlete_record.longest_ride_2nd_activity_id
+                            athlete_record.longest_ride_2nd = distance
+                            athlete_record.longest_ride_2nd_activity_id = activity_id_for_record
+                        elif longest_3rd is None or distance > longest_3rd:
+                            previous_record = longest_3rd
+                            rank = 3
+                            athlete_record.longest_ride_3rd = distance
+                            athlete_record.longest_ride_3rd_activity_id = activity_id_for_record
+                        
+                        # 如果有排名更新，记录分段记录
+                        if rank > 0:
+                            improvement = distance - previous_record if previous_record is not None else distance
+                            segment_records.append(SegmentRecord(
+                                segment_name="longest_ride",
+                                current_value=round(distance / 1000, 2),  # 转换为公里
+                                rank=rank,
+                                activity_id=activity_id_for_record,
+                                record_type="distance",
+                                unit="km",
+                                previous_record=round(previous_record / 1000, 2) if previous_record is not None else None,
+                                improvement=round(improvement / 1000, 2)
+                            ))
+                
+                # 更新最大海拔爬升记录
+                if elevation_gain > 0:
+                    elevation_1st = athlete_record.max_elevation_1st
+                    elevation_2nd = athlete_record.max_elevation_2nd
+                    elevation_3rd = athlete_record.max_elevation_3rd
+                    elevation_1st_activity_id = athlete_record.max_elevation_1st_activity_id
+                    elevation_2nd_activity_id = athlete_record.max_elevation_2nd_activity_id
+                    elevation_3rd_activity_id = athlete_record.max_elevation_3rd_activity_id
+                    
+                    # 检查当前活动ID是否已经存在于最大海拔爬升排名中
+                    existing_rank = None
+                    if elevation_1st_activity_id == activity_id_for_record:
+                        existing_rank = 1
+                    elif elevation_2nd_activity_id == activity_id_for_record:
+                        existing_rank = 2
+                    elif elevation_3rd_activity_id == activity_id_for_record:
+                        existing_rank = 3
+                    
+                    # 如果活动ID不存在，才进行更新
+                    if not existing_rank:
+                        previous_record = None
+                        rank = 0
+                        
+                        if elevation_1st is None or elevation_gain > elevation_1st:
+                            previous_record = elevation_1st
+                            rank = 1
+                            athlete_record.max_elevation_3rd = elevation_2nd
+                            athlete_record.max_elevation_3rd_activity_id = athlete_record.max_elevation_2nd_activity_id
+                            athlete_record.max_elevation_2nd = elevation_1st
+                            athlete_record.max_elevation_2nd_activity_id = athlete_record.max_elevation_1st_activity_id
+                            athlete_record.max_elevation_1st = elevation_gain
+                            athlete_record.max_elevation_1st_activity_id = activity_id_for_record
+                        elif elevation_2nd is None or elevation_gain > elevation_2nd:
+                            previous_record = elevation_2nd
+                            rank = 2
+                            athlete_record.max_elevation_3rd = elevation_2nd
+                            athlete_record.max_elevation_3rd_activity_id = athlete_record.max_elevation_2nd_activity_id
+                            athlete_record.max_elevation_2nd = elevation_gain
+                            athlete_record.max_elevation_2nd_activity_id = activity_id_for_record
+                        elif elevation_3rd is None or elevation_gain > elevation_3rd:
+                            previous_record = elevation_3rd
+                            rank = 3
+                            athlete_record.max_elevation_3rd = elevation_gain
+                            athlete_record.max_elevation_3rd_activity_id = activity_id_for_record
+                        
+                        # 如果有排名更新，记录分段记录
+                        if rank > 0:
+                            improvement = elevation_gain - previous_record if previous_record is not None else elevation_gain
+                            segment_records.append(SegmentRecord(
+                                segment_name="max_elevation",
+                                current_value=elevation_gain,
+                                rank=rank,
+                                activity_id=activity_id_for_record,
+                                record_type="elevation",
+                                unit="m",
+                                previous_record=previous_record,
+                                improvement=improvement
+                            ))
+                
+                db.commit()
+            
+            return best_powers if best_powers else None, segment_records if segment_records else None         
         except Exception as e:
             print(f"分析最佳功率信息时出错: {str(e)}")
-            return None
+            return None, None
  
     # ---------------辅助方法（复用 activities/crud.py 中的算法）-----------------
 

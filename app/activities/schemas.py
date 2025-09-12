@@ -132,6 +132,17 @@ class MultiStreamResponse(RootModel[List[StreamDataItem]]):
     """多字段流数据响应"""
     pass
 
+class SegmentRecord(BaseModel):
+    """分段记录信息"""
+    segment_name: str = Field(..., description="分段名称")
+    current_value: Union[int, float] = Field(..., description="当前值")
+    rank: int = Field(..., description="历史排名（1、2、3）")
+    activity_id: int = Field(..., description="活动ID")
+    record_type: str = Field(..., description="记录类型（power、distance、elevation）")
+    unit: str = Field(..., description="单位")
+    previous_record: Optional[Union[int, float]] = Field(None, description="之前的记录值")
+    improvement: Optional[Union[int, float]] = Field(None, description="提升值")
+
 class AllActivityDataResponse(BaseModel):
     """活动所有数据响应"""
     overall        : Optional[OverallResponse]        = Field(None, description="总体信息")
@@ -145,3 +156,4 @@ class AllActivityDataResponse(BaseModel):
     zones          : Optional[List[ZoneData]]         = Field(None, description="区间分析信息")
     best_powers    : Optional[Dict[str, int]]         = Field(None, description="最佳功率信息")
     streams        : Optional[List[Dict[str, Any]]]   = Field(None, description="流数据，数组格式，每个元素包含type、data、series_type、original_size、resolution字段")
+    segment_records: Optional[List[SegmentRecord]]    = Field(None, description="分段记录刷新信息")

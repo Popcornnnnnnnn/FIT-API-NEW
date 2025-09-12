@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session
 from . import models
 from .fit_parser import FitParser
 from .models import SeriesType
-# from ..activities.strava_analyzer import StravaAnalyzer
 
 class StreamCRUD:
     """流数据CRUD操作类"""
@@ -63,15 +62,75 @@ class StreamCRUD:
                 
                 # 对于 best_power，强制返回 high 分辨率
                 actual_resolution = models.Resolution.HIGH if key == 'best_power' else resolution
-                
+
                 # 统一返回格式
-                result.append({
+                item = {
                     "type": key,
                     "data": stream_obj.data,
                     "series_type": stream_obj.series_type,
                     "original_size": original_size,
                     "resolution": actual_resolution.value
-                })
+                }
+
+                # 如果请求 best_power，则计算并更新数据库的最佳分段，同时把信息附加到返回中
+                if key == 'best_power':
+                    try:
+                        # 避免循环依赖：在函数内部延迟导入
+                        from ..activities.strava_analyzer import StravaAnalyzer
+                        # 组装 activity_data
+                        distance_m = 0
+                        if stream_data.distance:
+                            try:
+                                distance_m = int(stream_data.distance[-1] or 0)
+                            except Exception:
+                                distance_m = 0
+
+                        # 计算总爬升（正向增量求和）
+                        elevation_gain = 0
+                        if stream_data.altitude and len(stream_data.altitude) > 1:
+                            prev = stream_data.altitude[0]
+                            gain = 0
+                            for h in stream_data.altitude[1:]:
+                                if h is not None and prev is not None:
+                                    delta = h - prev
+                                    if delta > 0:
+                                        gain += delta
+                                    prev = h
+                            elevation_gain = int(gain)
+
+                        activity_data_stub = {
+                            'distance': distance_m,
+                            'total_elevation_gain': elevation_gain,
+                            'activity_id': activity.id
+                        }
+
+                        # 组装 stream_data 为 StravaAnalyzer 可用的格式
+                        stream_data_stub = {
+                            'watts': { 'data': stream_data.power or [] }
+                        }
+
+                        best_powers, segment_records = StravaAnalyzer.analyze_best_powers(
+                            activity_data_stub,
+                            stream_data_stub,
+                            external_id=None,
+                            db=db,
+                            athlete_id=activity.athlete_id
+                        )
+
+                        if best_powers:
+                            item["best_powers"] = best_powers
+                        if segment_records:
+                            # pydantic/fastapi可直接序列化 dataclass/pydantic，对象此处假定为可序列化
+                            # 若为自定义类，转成 dict
+                            try:
+                                item["segment_records"] = [sr.model_dump() if hasattr(sr, 'model_dump') else sr.__dict__ for sr in segment_records]
+                            except Exception:
+                                item["segment_records"] = None
+                    except Exception:
+                        # 忽略最佳分段更新错误，不影响流数据返回
+                        pass
+
+                result.append(item)
         
         return result
     
