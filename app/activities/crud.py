@@ -13,6 +13,8 @@ from fitparse import FitFile
 from io import BytesIO 
 import numpy as np
 from ..core.analytics.power import normalized_power as _core_normalized_power, w_balance_decline as _core_w_balance_decline
+from ..core.analytics.altitude import elevation_gain as _core_elevation_gain
+from ..core.analytics.time_utils import format_time as _core_format_time
 
 # --------------数据库相关--------------
 def update_database_field(
@@ -822,33 +824,7 @@ def get_activity_training_effect_info(
 def calculate_elevation_gain(
     altitude_data: list
 ) -> float:
-    # 过滤异常值（参考VAM计算中的过滤方法）
-    filtered_altitudes = []
-    for i, alt in enumerate(altitude_data):
-        if alt is None:
-            continue
-        
-        # 过滤异常值：超过5000米或低于-500米的设为None
-        if alt > 5000 or alt < -500:
-            continue
-        
-        # 如果与前一个有效值差异过大（超过100米），可能是异常值
-        if filtered_altitudes and abs(alt - filtered_altitudes[-1]) > 100:
-            continue
-        
-        filtered_altitudes.append(alt)
-    
-    if len(filtered_altitudes) < 2:
-        return 0.0
-    
-    # 计算爬升
-    elevation_gain = 0.0
-    for i in range(1, len(filtered_altitudes)):
-        diff = filtered_altitudes[i] - filtered_altitudes[i-1]
-        if diff > 0:  # 只计算上升
-            elevation_gain += diff
-    
-    return elevation_gain
+    return _core_elevation_gain(altitude_data)
 
 
 
@@ -856,29 +832,7 @@ def calculate_elevation_gain(
 def format_time(
     seconds: int
 ) -> Optional[str]:
-    try:    
-        seconds = int(seconds)        
-        if seconds < 0:
-            seconds = 0
-        
-        if seconds < 60:
-            return f"{seconds}s"
-        
-        hours = seconds // 3600
-        minutes = (seconds % 3600) // 60
-        secs = seconds % 60
-        
-        if hours == 0:
-            if minutes < 10:
-                return f"{minutes}:{secs:02d}"
-            else:
-                return f"{minutes}:{secs:02d}"
-        else:
-            # 1小时以上，去掉小时前导零
-            return f"{hours}:{minutes:02d}:{secs:02d}"
-            
-    except (ValueError, TypeError):
-        return None
+    return _core_format_time(seconds)
 
 
 

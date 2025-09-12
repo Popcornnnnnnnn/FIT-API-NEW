@@ -25,6 +25,12 @@ from ..utils import get_db
 from sqlalchemy.orm import Session
 from .crud import get_activity_athlete, update_database_field
 from ..db.models import TbActivity, TbAthlete, TbAthletePowerRecords
+from ..core.analytics.power import normalized_power as _core_np, work_above_ftp as _core_work_above_ftp, w_balance_decline as _core_w_decline
+from ..core.analytics.hr import recovery_rate as _core_hr_recovery, hr_lag_seconds as _core_hr_lag, decoupling_rate as _core_decoupling
+from ..core.analytics.altitude import total_descent as _core_total_descent, uphill_downhill_distance_km as _core_updown
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class StravaAnalyzer:
@@ -399,7 +405,7 @@ class StravaAnalyzer:
             # 选择用于写库的活动ID：优先 external_id，否则从 activity_data 读取 activity_id
             activity_id_for_record = external_id if external_id is not None else activity.id
 
-            print(activity.id)
+            logger.debug(f"activity id for records: {activity_id_for_record}")
 
             # 更新数据库记录
             if db is not None and athlete_id is not None and activity_id_for_record is not None:
@@ -625,53 +631,19 @@ class StravaAnalyzer:
     ) -> int:
         heartrate_stream = stream_data.get("heartrate", {})
         heartrate_data = heartrate_stream.get("data", []) if heartrate_stream else []
-        if not heartrate_data or len(heartrate_data) < 60:
-            return None
-        max_drop = 0
-        window = 60  # 60秒窗口
-        n = len(heartrate_data)
-        for i in range(n - window):
-            start_hr = heartrate_data[i]
-            end_hr = heartrate_data[i + window]
-            # 跳过无效的心率点（None或低于30），但时间窗口继续推移
-            if start_hr is not None and start_hr >= 30 and end_hr is not None and end_hr >= 30:
-                drop = start_hr - end_hr
-                if drop > max_drop:
-                    max_drop = drop
-        return int(max_drop) if max_drop > 0 else 0
+        return _core_hr_recovery(heartrate_data)
 
     @staticmethod
     def _calculate_heartrate_lag(
         stream_data: Dict[str, Any]
-    ) -> Optional[int]: # ! 算法设计有问题
+    ) -> Optional[int]:
         try:
-            power_stream = stream_data.get("watts")
-            heartrate_stream = stream_data.get("heartrate")
-            
-            power_data = power_stream.get("data", [])
-            power_valid = [p if p is not None else 0 for p in power_data]
-            power_array = np.array(power_valid)
-
-            heartrate_data = heartrate_stream.get("data", [])
-            heartrate_valid = [h if h is not None else 0 for h in heartrate_data]
-            heartrate_array = np.array(heartrate_valid)
-
-            power_norm = power_array - np.mean(power_array)
-            heartrate_norm = heartrate_array - np.mean(heartrate_array)
-
-            correlation = np.correlate(power_norm, heartrate_norm, mode='full')
-
-            # 找到最大相关点对应的滞后时间
-            lag_max = np.argmax(correlation) - (len(power_array) - 1)
-
-            # 如果最佳相关系数太低，认为没有明显的滞后关系
-            max_corr = np.max(correlation)
-            if max_corr < 0.3 * len(power_array):  # 调整阈值
-                return None
-
-            return int(abs(lag_max))
-        except Exception as e:
-            print(f"计算心率滞后时出错: {str(e)}")
+            p_stream = stream_data.get("watts")
+            h_stream = stream_data.get("heartrate")
+            p = p_stream.get("data", []) if p_stream else []
+            h = h_stream.get("data", []) if h_stream else []
+            return _core_hr_lag(p, h)
+        except Exception:
             return None
     
 
@@ -696,31 +668,11 @@ class StravaAnalyzer:
 
     @staticmethod
     def _calculate_normalized_power(powers: list) -> int:
-
-        window_size = 30
-        rolling_averages = []
-
-        for i in range(len(powers)): 
-            start_idx = max(0, i - window_size + 1)
-            window_powers = powers[start_idx : i + 1]
-            avg_power = sum(window_powers) / len(window_powers)
-            rolling_averages.append(avg_power)
-
-        fourth_powers = [avg**4 for avg in rolling_averages]
-        mean_fourth_power = sum(fourth_powers) / len(fourth_powers)
-        normalized_power = mean_fourth_power**0.25
-        return int(normalized_power)
+        return int(_core_np(powers))
 
     @staticmethod
     def _calculate_work_above_ftp(powers: list, ftp: float) -> int:
-
-        work_above_ftp = 0
-        for power in powers:
-            if power > ftp:
-                work_above_ftp += power - ftp  # (W - FTP) * 时间（假设1秒）
-
-        work_above_ftp_kj = work_above_ftp / 1000  # 转换为千焦
-        return int(work_above_ftp_kj)
+        return int(_core_work_above_ftp(powers, ftp))
 
     @staticmethod
     def _calculate_total_descent(stream_data: Dict[str, Any]) -> int:
@@ -728,37 +680,7 @@ class StravaAnalyzer:
             altitude_stream = stream_data.get("altitude", {})
             altitude_data = altitude_stream.get("data", [])
             altitude_data = [a if a is not None else 0 for a in altitude_data]
-
-            total_descent = 0
-            descending = False
-            start_altitude = altitude_data[0]
-            min_altitude = altitude_data[0]
-
-            for i in range(1, len(altitude_data)):
-                prev = altitude_data[i - 1]
-                curr = altitude_data[i]
-                if curr < prev:
-                    # 下降中
-                    if not descending:
-                        # 新的下降段开始
-                        descending = True
-                        start_altitude = prev
-                        min_altitude = curr
-                    else:
-                        # 继续下降，更新最低点
-                        if curr < min_altitude:
-                            min_altitude = curr
-                else:
-                    # 上升或持平，下降段结束
-                    if descending:
-                        # 结束下降段，累加
-                        total_descent += start_altitude - min_altitude
-                        descending = False
-            # 如果最后是下降段结尾
-            if descending:
-                total_descent += start_altitude - min_altitude
-
-            return int(total_descent)
+            return int(_core_total_descent(altitude_data))
         except Exception as e:
             print(f"计算总下降时出错: {str(e)}")
             return None
@@ -772,39 +694,9 @@ class StravaAnalyzer:
             distance_stream = stream_data.get("distance", {})
             altitude_data = altitude_stream.get("data", [])
             distance_data = distance_stream.get("data", [])
-
             if not altitude_data or not distance_data or len(altitude_data) != len(distance_data):
                 return 0.0, 0.0
-
-            uphill_distance = 0.0
-            downhill_distance = 0.0
-            
-            # 使用间隔更多的点计算上下坡距离，提高数据准确性
-            interval_points = 5  # 每5个点计算一次
-            min_distance_interval = 50  # 最小距离间隔（米）
-            
-            for i in range(interval_points, min(len(altitude_data), len(distance_data))):
-                # 获取当前点和间隔前的点
-                current_idx = i
-                previous_idx = i - interval_points
-                
-                if (altitude_data[current_idx] is not None and altitude_data[previous_idx] is not None and 
-                    distance_data[current_idx] is not None and distance_data[previous_idx] is not None):
-                    
-                    # 计算海拔差和距离差
-                    altitude_diff = altitude_data[current_idx] - altitude_data[previous_idx]
-                    distance_diff = distance_data[current_idx] - distance_data[previous_idx]
-                    
-                    # 如果是上坡（海拔增加）且距离间隔合理，累加上坡距离
-                    if altitude_diff > 1 and distance_diff > min_distance_interval:
-                        uphill_distance += distance_diff
-                    
-                    # 如果是下坡（海拔减少）且距离间隔合理，累加下坡距离
-                    elif altitude_diff < -1 and distance_diff > min_distance_interval:
-                        downhill_distance += distance_diff
-
-            # 转换为千米并保留两位小数
-            return round(uphill_distance / 1000, 2), round(downhill_distance / 1000, 2)
+            return _core_updown(altitude_data, distance_data)
         except Exception as e:
             print(f"计算上坡/下坡距离时出错: {str(e)}")
             return 0.0, 0.0
@@ -813,20 +705,7 @@ class StravaAnalyzer:
     def _calculate_w_balance_decline(
         w_balance_data: list
     ) -> Optional[float]:
-        if not w_balance_data:
-            return None
-
-        # 过滤有效数据
-        valid_w_balance = [w for w in w_balance_data if w is not None]
-        if not valid_w_balance:
-            return None
-
-        # 初始值减去最小值
-        initial_value = valid_w_balance[0]
-        min_value = min(valid_w_balance)
-        decline = initial_value - min_value
-
-        return round(decline, 1)
+        return _core_w_decline(w_balance_data)
 
     @staticmethod
     def _calculate_w_balance_array(
@@ -860,39 +739,13 @@ class StravaAnalyzer:
     def _calculate_decoupling_rate(
         stream_data: Dict[str, Any]
     ) -> Optional[str]:
-        if "watts" not in stream_data:
-            return None
         try:
-            
-            power_stream = stream_data.get("watts", {})
-            power_data = power_stream.get("data", [])
-
-            heartrate_stream = stream_data.get("heartrate", {})
-            heartrate_data = heartrate_stream.get("data", [])
-
-            heartrate_valid = [h if h is not None else 0 for h in heartrate_data]
-            power_valid = [p if p is not None else 0 for p in power_data]
-
-            # 将数据分为前半部分和后半部分
-            mid_point = len(power_data) // 2
-
-            first_half_powers = power_valid[:mid_point]
-            first_half_hr = heartrate_valid[:mid_point]
-            second_half_powers = power_valid[mid_point:]
-            second_half_hr = heartrate_valid[mid_point:]
-
-            r1 = (sum(first_half_powers) / len(first_half_powers)) / (sum(first_half_hr) / len(first_half_hr))
-            r2 = (sum(second_half_powers) / len(second_half_powers)) / (sum(second_half_hr) / len(second_half_hr))
-            decoupling_rate = r1 - r2
-            decoupling_percentage = (decoupling_rate / r1) * 100
-            
-            # 如果解耦率超过±30%，返回None
-            if abs(decoupling_percentage) > 30:
-                return None
-                
-            return f"{round(decoupling_percentage, 1)}%"
-
-        except Exception as e:
+            p_stream = stream_data.get("watts", {})
+            h_stream = stream_data.get("heartrate", {})
+            p = p_stream.get("data", []) if p_stream else []
+            h = h_stream.get("data", []) if h_stream else []
+            return _core_decoupling(p, h)
+        except Exception:
             return None
 
     @staticmethod
@@ -902,19 +755,19 @@ class StravaAnalyzer:
         try:
             activity = db.query(TbActivity).filter(TbActivity.external_id == external_id).first()
             if not activity:
-                print(f"未找到 external_id 为 {external_id} 的活动")
+                logger.warning(f"未找到 external_id 为 {external_id} 的活动")
                 return None
                 
             # 检查athlete_id是否存在
             if not hasattr(activity, 'athlete_id') or activity.athlete_id is None:
-                print(f"活动 {external_id} 的athlete_id为空")
+                logger.warning(f"活动 {external_id} 的athlete_id为空")
                 return None
                 
             athlete = (
                 db.query(TbAthlete).filter(TbAthlete.id == activity.athlete_id).first()
             )
             if not athlete:
-                print(f"未找到 athlete_id 为 {activity.athlete_id} 的运动员")
+                logger.warning(f"未找到 athlete_id 为 {activity.athlete_id} 的运动员")
                 return None
 
             return activity, athlete
