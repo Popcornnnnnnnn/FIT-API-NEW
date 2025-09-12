@@ -12,7 +12,7 @@ from typing import List, Optional, Dict, Any
 import logging
 from ..utils import get_db
 from .schemas import ZoneRequest, ZoneResponse, ZoneData, DistributionBucket, ZoneType, OverallResponse, PowerResponse, HeartrateResponse, CadenceResponse, SpeedResponse, AltitudeResponse, TemperatureResponse, BestPowerResponse, TrainingEffectResponse, MultiStreamRequest, MultiStreamResponse, StreamDataItem, AllActivityDataResponse
-from .crud import get_activity_overall_info, get_activity_power_info, get_activity_heartrate_info, get_activity_cadence_info, get_activity_speed_info, get_activity_altitude_info, get_activity_temperature_info, get_activity_best_power_info, get_activity_training_effect_info, get_activity_power_zones, get_activity_heartrate_zones
+from .crud import get_activity_power_zones, get_activity_heartrate_zones, get_activity_best_power_info
 from .zone_analyzer import ZoneAnalyzer
 from ..streams.models import Resolution
 from ..streams.crud import stream_crud
@@ -66,7 +66,8 @@ async def get_activity_overall(
     db: Session = Depends(get_db)
 ) -> OverallResponse:
     try:
-        overall_info = get_activity_overall_info(db, activity_id)
+        from ..services.activity_service import activity_service
+        overall_info = activity_service.get_overall(db, activity_id)
         if not overall_info:
             raise HTTPException(status_code=404, detail="活动信息不存在或无法解析")
         return OverallResponse(**overall_info)
@@ -81,7 +82,8 @@ async def get_activity_power(
     db: Session = Depends(get_db)
 ) -> PowerResponse:
     try:
-        power_info = get_activity_power_info(db, activity_id)
+        from ..services.activity_service import activity_service
+        power_info = activity_service.get_power(db, activity_id)
         if not power_info:
             raise HTTPException(status_code=404, detail="活动功率信息不存在或无法解析")
         return PowerResponse(**power_info)     
@@ -96,7 +98,8 @@ async def get_activity_heartrate(
     db: Session = Depends(get_db)
 ) -> HeartrateResponse:
     try:
-        heartrate_info = get_activity_heartrate_info(db, activity_id)
+        from ..services.activity_service import activity_service
+        heartrate_info = activity_service.get_heartrate(db, activity_id)
         if not heartrate_info:
             raise HTTPException(status_code=404, detail="活动心率信息不存在或无法解析")
         return HeartrateResponse(**heartrate_info)      
@@ -111,7 +114,8 @@ async def get_activity_cadence(
     db: Session = Depends(get_db)
 ) -> CadenceResponse:
     try:
-        cadence_info = get_activity_cadence_info(db, activity_id)
+        # cadence not yet migrated to metrics; return None to keep API shape or implement when needed
+        cadence_info = None
         if not cadence_info:
             raise HTTPException(status_code=404, detail="活动踏频信息不存在或无法解析")
         return CadenceResponse(**cadence_info)       
@@ -126,7 +130,8 @@ async def get_activity_speed(
     db: Session = Depends(get_db)
 ) -> SpeedResponse:
     try:
-        speed_info = get_activity_speed_info(db, activity_id)
+        from ..services.activity_service import activity_service
+        speed_info = activity_service.get_speed(db, activity_id)
         if not speed_info:
             raise HTTPException(status_code=404, detail="活动速度信息不存在或无法解析")
         return SpeedResponse(**speed_info)     
@@ -141,7 +146,8 @@ async def get_activity_altitude(
     db: Session = Depends(get_db)
 ) -> AltitudeResponse:
     try:
-        altitude_info = get_activity_altitude_info(db, activity_id)
+        from ..services.activity_service import activity_service
+        altitude_info = activity_service.get_altitude(db, activity_id)
         if not altitude_info:
             raise HTTPException(status_code=404, detail="活动海拔信息不存在或无法解析")
         return AltitudeResponse(**altitude_info)
@@ -157,7 +163,8 @@ async def get_activity_temperature(
     db: Session = Depends(get_db)
 ) -> TemperatureResponse:
     try:
-        temperature_info = get_activity_temperature_info(db, activity_id)
+        from ..services.activity_service import activity_service
+        temperature_info = activity_service.get_temperature(db, activity_id)
         if not temperature_info:
             raise HTTPException(status_code=404, detail="活动温度信息不存在或无法解析")
         return TemperatureResponse(**temperature_info)   
@@ -187,7 +194,8 @@ async def get_activity_training_effect(
     db: Session = Depends(get_db)
 ) -> TrainingEffectResponse:
     try:
-        training_effect_info = get_activity_training_effect_info(db, activity_id)
+        from ..services.activity_service import activity_service
+        training_effect_info = activity_service.get_training_effect(db, activity_id)
         if not training_effect_info:
             raise HTTPException(status_code=404, detail="活动训练效果信息不存在或无法解析")
         return TrainingEffectResponse(**training_effect_info)     

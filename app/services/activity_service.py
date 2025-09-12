@@ -122,6 +122,114 @@ class ActivityService:
 
         return AllActivityDataResponse(**response_data)
 
+    # Individual metric endpoints (local DB path)
+    def get_overall(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+        from ..activities.metrics.overall import compute_overall_info
+        from ..repositories.activity_repo import get_activity_athlete
+        from ..activities.data_manager import activity_data_manager
+        pair = get_activity_athlete(db, activity_id)
+        if not pair:
+            return None
+        activity, athlete = pair
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
+        result = compute_overall_info(stream_data, session_data, athlete)
+        # add status
+        try:
+            from ..activities.crud import get_status
+            status = get_status(db, activity_id)
+            if status:
+                result['status'] = round(status['ctl'] - status['atl'], 0)
+        except Exception:
+            pass
+        return result
+
+    def get_power(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+        from ..activities.metrics.power import compute_power_info
+        from ..repositories.activity_repo import get_activity_athlete
+        from ..activities.data_manager import activity_data_manager
+        pair = get_activity_athlete(db, activity_id)
+        if not pair:
+            return None
+        activity, athlete = pair
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
+        return compute_power_info(stream_data, int(athlete.ftp), session_data)
+
+    def get_heartrate(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+        from ..activities.metrics.heartrate import compute_heartrate_info
+        from ..repositories.activity_repo import get_activity_athlete
+        from ..activities.data_manager import activity_data_manager
+        pair = get_activity_athlete(db, activity_id)
+        if not pair:
+            return None
+        activity, athlete = pair
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
+        return compute_heartrate_info(stream_data, bool(stream_data.get('power')), session_data)
+
+    def get_speed(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+        from ..activities.metrics.speed import compute_speed_info
+        from ..repositories.activity_repo import get_activity_athlete
+        from ..activities.data_manager import activity_data_manager
+        pair = get_activity_athlete(db, activity_id)
+        if not pair:
+            return None
+        activity, _athlete = pair
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
+        return compute_speed_info(stream_data, session_data)
+
+    def get_altitude(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+        from ..activities.metrics.altitude import compute_altitude_info
+        from ..repositories.activity_repo import get_activity_athlete
+        from ..activities.data_manager import activity_data_manager
+        pair = get_activity_athlete(db, activity_id)
+        if not pair:
+            return None
+        activity, _athlete = pair
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
+        return compute_altitude_info(stream_data, session_data)
+
+    def get_temperature(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+        from ..activities.metrics.temperature import compute_temperature_info
+        from ..activities.data_manager import activity_data_manager
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        return compute_temperature_info(stream_data)
+
+    def get_training_effect(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+        from ..repositories.activity_repo import get_activity_athlete
+        from ..activities.data_manager import activity_data_manager
+        from ..core.analytics.training import (
+            aerobic_effect, anaerobic_effect, power_zone_percentages,
+            power_zone_times, calculate_training_load
+        )
+        pair = get_activity_athlete(db, activity_id)
+        if not pair:
+            return None
+        activity, athlete = pair
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        power = stream_data.get('power', [])
+        if not power:
+            return None
+        ftp = int(athlete.ftp)
+        ae = aerobic_effect(power, ftp)
+        ne = anaerobic_effect(power, ftp)
+        zd = power_zone_percentages(power, ftp)
+        zt = power_zone_times(power, ftp)
+        # primary benefit
+        from ..core.analytics.training import primary_training_benefit
+        pb, _ = primary_training_benefit(zd, zt, round(len(power)/60, 0), ae, ne, ftp, max(power))
+        avg_power = int(sum(power)/len(power)) if power else 0
+        tss = calculate_training_load(avg_power, ftp, len(power))
+        return {
+            'primary_training_benefit': pb,
+            'aerobic_effect': ae,
+            'anaerobic_effect': ne,
+            'training_load': tss,
+            'carbohydrate_consumption': None,
+        }
+
 
 activity_service = ActivityService()
-

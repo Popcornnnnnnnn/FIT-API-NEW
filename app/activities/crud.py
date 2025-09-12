@@ -1,1025 +1,42 @@
 """
-Activities模块的数据库操作函数
+Slim CRUD layer retained for compatibility.
 
-包含活动相关的数据库查询和操作。
+Provides only the minimal helpers still referenced by other modules:
+- update_database_field (delegates to repository)
+- get_activity_athlete (delegates to repository)
+- get_session_data (FIT session extract)
+- get_status (CTL/ATL from TSS averages)
+- get_activity_best_power_info (reads precomputed best_power stream)
 """
 
+from typing import Optional, Tuple, Dict, Any
 from sqlalchemy.orm import Session
-from typing import Optional, Tuple, Dict, Any, List
-from ..db.models import TbActivity, TbAthlete
-from ..repositories import activity_repo
-from .data_manager import activity_data_manager
 import requests
 from fitparse import FitFile
-from io import BytesIO 
-import numpy as np
-from ..core.analytics.power import normalized_power as _core_normalized_power, w_balance_decline as _core_w_balance_decline
-from ..core.analytics.altitude import elevation_gain as _core_elevation_gain
-from ..core.analytics.time_utils import format_time as _core_format_time
-from ..core.analytics.training import (
-    calculate_training_load as _core_training_load,
-    estimate_calories_with_power as _core_calories_power,
-    estimate_calories_with_heartrate as _core_calories_hr,
-    aerobic_effect as _core_aerobic_effect,
-    anaerobic_effect as _core_anaerobic_effect,
-    power_zone_percentages as _core_zone_percentages,
-    power_zone_times as _core_zone_times,
-    primary_training_benefit as _core_primary_training_benefit,
-)
+from io import BytesIO
 
-# --------------数据库相关--------------
+from ..db.models import TbActivity, TbAthlete
+from ..repositories.activity_repo import update_field as repo_update_field, get_activity_athlete as repo_get_activity_athlete
+from .data_manager import activity_data_manager
+
+
 def update_database_field(db: Session, table_class, record_id: int, field_name: str, value: Any) -> bool:
-    """Compat wrapper delegating to repository layer."""
-    return activity_repo.update_field(db, table_class, record_id, field_name, value)
+    return repo_update_field(db, table_class, record_id, field_name, value)
+
 
 def get_activity_athlete(db: Session, activity_id: int) -> Optional[Tuple[TbActivity, TbAthlete]]:
-    """Compat wrapper delegating to repository layer."""
-    return activity_repo.get_activity_athlete(db, activity_id)
+    return repo_get_activity_athlete(db, activity_id)
 
 
-
-# --------------所有接口相关的整体信息--------------
-def get_activity_overall_info(
-    db: Session, 
-    activity_id: int
-) -> Optional[Dict[str, Any]]:
+def get_session_data(fit_url: str) -> Optional[Dict[str, Any]]:
     try:
-        activity, athlete = get_activity_athlete(db, activity_id)
-        if not activity:
-            return None 
-        
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-
-        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
-        
-        result = {}
-        
-        if session_data and 'total_distance' in session_data:
-            result['distance'] = round(session_data['total_distance'] / 1000, 2)
-        else:
-            result['distance'] = round(max(stream_data['distance']) / 1000, 2)
-
-    
-        if session_data and 'total_timer_time' in session_data:
-            moving_time = session_data['total_timer_time']
-            result['moving_time'] = format_time(moving_time)
-        else:
-            moving_time = max(stream_data.get('elapsed_time', []))
-            result['moving_time'] = format_time(moving_time)
-        
-        if session_data and 'avg_speed' in session_data:
-            result['average_speed'] = round(float(session_data['avg_speed']) * 3.6, 1)
-        else:
-            result['average_speed'] = round(sum(stream_data.get('speed', [])) / len(stream_data.get('speed', [])), 1)
-
-        if 'total_ascent' in session_data and session_data['total_ascent']:
-            result['elevation_gain'] = int(session_data['total_ascent'])
-        else:
-            result['elevation_gain'] = int(calculate_elevation_gain(stream_data.get('enhanced_altitude', [])))
-        
-        if session_data and 'avg_power' in session_data:
-            result['avg_power'] = int(session_data['avg_power'])
-        elif 'power' in stream_data and stream_data['power']:
-            result['avg_power'] = int(sum(stream_data['power']) / len(stream_data['power']))
-        else:
-            result['avg_power'] = None
-        
-        if float(athlete.ftp) and float(athlete.ftp) > 0 and result['avg_power'] is not None and result['avg_power'] > 0:
-            result['training_load'] = calculate_and_save_training_load(
-                db,
-                activity_id,
-                result['avg_power'], 
-                float(athlete.ftp), 
-                moving_time
-            )
-        else:
-            result['training_load'] = None
-    
-
-        status = get_status(db, activity_id)
-        if status:
-            result['status'] = round(status['ctl'] - status['atl'], 0)
-        else:
-            result['status'] = None
-        
-        if session_data and 'avg_heart_rate' in session_data:
-            result['avg_heartrate'] = int(session_data['avg_heart_rate'])
-        elif "heart_rate" in stream_data:
-            result['avg_heartrate'] = int(sum(stream_data['heart_rate']) / len(stream_data['heart_rate']))
-        else:
-            result['avg_heartrate'] = None
-        
-        if 'altitude' in stream_data and stream_data['altitude']:
-            result['max_altitude'] = int(max(stream_data['altitude']))
-        else:
-            result['max_altitude'] = None
-
-        if "total_calories" in session_data:
-            result['calories'] = int(session_data['total_calories'])
-        elif result['avg_power'] is not None:
-            result['calories'] = estimate_calories_with_power(
-                result['avg_power'], 
-                moving_time, 
-                athlete.weight if athlete.weight else 70
-            )
-        elif result['avg_heartrate'] is not None:
-            result['calories'] = estimate_calories_with_heartrate(
-                result['avg_heartrate'], 
-                moving_time, 
-                athlete.weight if athlete.weight else 70
-            )
-        else:
-            result['calories'] = None
-        
-        
-        return result   
-    except Exception as e:
-        return None
-
-def get_activity_power_info(
-    db: Session, 
-    activity_id: int
-) -> Optional[Dict[str, Any]]:
-    try:
-        activity, athlete = get_activity_athlete(db, activity_id)
-        ftp = int(athlete.ftp)
-
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        
-        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
-        
-        power_data = stream_data.get('power', [])
-        if not power_data:
-            return None
-
-        valid_powers = [p for p in power_data if p is not None and p > 0]
-        if not valid_powers:
-            return None
-        
-        result = {}
-
-        if session_data and 'avg_power' in session_data:
-            result['avg_power'] = int(session_data['avg_power'])
-        else:
-            result['avg_power'] = int(sum(valid_powers) / len(valid_powers))
-        
-        if session_data and 'max_power' in session_data:
-            result['max_power'] = int(session_data['max_power'])
-        else:
-            result['max_power'] = int(max(valid_powers))
-        
-        if session_data and 'normalized_power' in session_data:
-            result['normalized_power'] = int(session_data['normalized_power'])
-        else:
-            result['normalized_power'] = calculate_normalized_power(valid_powers)
-        
-        if session_data and 'intensity_factor' in session_data:
-            result['intensity_factor'] = round(session_data['intensity_factor'], 2)
-        else:
-            result['intensity_factor'] = round(result['normalized_power'] / ftp, 2)
-
-        result['total_work'] = round(sum(valid_powers) / 1000, 0)
-        
-        if result['avg_power'] > 0:
-            result['variability_index'] = round(result['normalized_power'] / result['avg_power'], 2)
-        else:
-            result['variability_index'] = None
-
-        result['weighted_average_power'] = None
-        result['work_above_ftp'] = int(sum([(power - ftp) for power in valid_powers if power > ftp]) / 1000)
-        result['eftp'] = None
-        
-        w_balance_data = stream_data.get('w_balance', [])
-        if w_balance_data:
-            result['w_balance_decline'] = calculate_w_balance_decline(w_balance_data)
-        else:
-            result['w_balance_decline'] = None
-        
-        return result
-        
-    except Exception as e:
-        return None
-
-def get_activity_heartrate_info(
-    db: Session, 
-    activity_id: int
-) -> Optional[Dict[str, Any]]:
-    try:
-        activity, athlete = get_activity_athlete(db, activity_id)
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
-        
-        heartrate_data = stream_data.get('heart_rate', [])
-        if not heartrate_data:
-            return None
-  
-        def filter_heartrate_data_with_smoothing(
-            heartrate_data: List[Any]
-        ) -> List[int]:
-            filtered_data = []
-            for i, hr in enumerate(heartrate_data):
-                if hr is None:
-                    continue
-                if hr <= 0 or hr < 30:
-                    continue
-                if hr > 220:
-                    continue
-                if filtered_data and abs(hr - filtered_data[-1]) > 50:
-                    continue
-                
-                filtered_data.append(hr)
-            return filtered_data
-
-        def calculate_efficiency_index(
-        ) -> Optional[float]:
-            try:
-                power_data = stream_data.get('power', [])   
-                valid_power = [p for p in power_data if p is not None and p > 0]
-                NP = calculate_normalized_power(valid_power)
-                avg_hr = sum(valid_hr) / len(valid_hr)
-                return round(NP / avg_hr, 2)
-            except Exception as e:
-                return None
-
-        def calculate_heartrate_recovery_rate(
-        ) -> int:
-            try:
-                max_drop = 0
-                window = 60
-                n = len(valid_hr)
-                
-                for i in range(n - window):
-                    start_hr = valid_hr[i]
-                    end_hr = valid_hr[i + window]
-                    drop = start_hr - end_hr
-                    if drop > max_drop:
-                        max_drop = drop
-                
-                return int(max_drop) if max_drop > 0 else 0
-                
-            except Exception as e:
-                return 0
-
-        def calculate_decoupling_rate(
-        ) -> Optional[str]:
-            try:
-                min_length = min(len(power_data), len(heartrate_data))
-                powers = power_data[:min_length]
-                heart_rates = heartrate_data[:min_length]
-                
-                # 将数据分为前半部分和后半部分
-                mid_point = min_length // 2
-                
-                first_half_powers = powers[:mid_point]
-                first_half_hr = heart_rates[:mid_point]
-                second_half_powers = powers[mid_point:]
-                second_half_hr = heart_rates[mid_point:]
-                
-                # 计算前半部分的功率/心率比
-                first_half_ratio = 0.0
-                if first_half_hr and any(hr > 0 for hr in first_half_hr):
-                    first_half_avg_power = sum(first_half_powers) / len(first_half_powers)
-                    first_half_avg_hr = sum(first_half_hr) / len(first_half_hr)
-                    if first_half_avg_hr > 0:
-                        first_half_ratio = first_half_avg_power / first_half_avg_hr
-                
-                # 计算后半部分的功率/心率比
-                second_half_ratio = 0.0
-                if second_half_hr and any(hr > 0 for hr in second_half_hr):
-                    second_half_avg_power = sum(second_half_powers) / len(second_half_powers)
-                    second_half_avg_hr = sum(second_half_hr) / len(second_half_hr)
-                    if second_half_avg_hr > 0:
-                        second_half_ratio = second_half_avg_power / second_half_avg_hr
-                
-                # 计算解耦率：前半部分功率/心率 - 后半部分功率/心率
-                if first_half_ratio > 0 and second_half_ratio > 0:
-                    decoupling_rate = first_half_ratio - second_half_ratio
-                    # 转换为百分比
-                    decoupling_percentage = (decoupling_rate / first_half_ratio) * 100
-                    
-                    # 如果解耦率超过±30%，返回None
-                    if abs(decoupling_percentage) > 30:
-                        return None
-                    
-                    return f"{round(decoupling_percentage, 1)}%"
-                
-                return None
-                
-            except Exception as e:
-                return None 
-
-        def calculate_heartrate_lag(
-        ) -> Optional[int]:
-            try:
-                power_data = stream_data.get('power', [])
-                heartrate_data = stream_data.get('heart_rate', [])
-                power_valid = [p if p is not None else 0 for p in power_data]
-                heartrate_valid = [h if h is not None else 0 for h in heartrate_data]
-                power_array = np.array(power_valid)
-                heartrate_array = np.array(heartrate_valid)
-
-                power_norm = power_array - np.mean(power_array)
-                heartrate_norm = heartrate_array - np.mean(heartrate_array)
-
-                correlation = np.correlate(power_norm, heartrate_norm, mode='full')
-
-                lag_max = np.argmax(correlation) - (len(power_array) - 1)
-                max_corr = np.max(correlation)
-                return int(abs(lag_max)) if max_corr > 0.3 * len(power_array) else None
-            except Exception as e:
-                return None
-
-        # 过滤心率异常值
-        valid_hr = filter_heartrate_data_with_smoothing(heartrate_data)
-        
-        result = {}
-        
-        if session_data and 'avg_heart_rate' in session_data:
-            result['avg_heartrate'] = int(session_data['avg_heart_rate'])
-        else:
-            result['avg_heartrate'] = int(sum(valid_hr) / len(valid_hr))
-
-        if session_data and 'max_heart_rate' in session_data:
-            result['max_heartrate'] = int(session_data['max_heart_rate'])
-        else:
-            result['max_heartrate'] = int(max(valid_hr))
-        
-        if "power" in stream_data:
-            power_data = stream_data.get('power', [])
-            result['heartrate_recovery_rate'] = calculate_heartrate_recovery_rate()
-            result['heartrate_lag'] = calculate_heartrate_lag()
-            result['efficiency_index'] = calculate_efficiency_index()
-            result['decoupling_rate'] = calculate_decoupling_rate()
-        else:
-            result['heartrate_recovery_rate'] = None
-            result['heartrate_lag'] = None
-            result['efficiency_index'] = None
-            result['decoupling_rate'] = None
-        
-        return result
-        
-    except Exception as e:
-        return None
-
-def get_activity_cadence_info(
-    db: Session, 
-    activity_id: int
-) -> Optional[Dict[str, Any]]:
-    try:
-        activity, athlete = get_activity_athlete(db, activity_id)
-        if not activity:
-            return None
-        
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        
-        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
-        
-        cadence_data = stream_data.get('cadence', [])
-        if not cadence_data:
-            return None
-        
-        valid_cadences = [c for c in cadence_data if c is not None and c > 0]
-        if not valid_cadences:
-            return None
-        
-        result = {}
-        
-        if session_data and 'avg_cadence' in session_data:
-            result['avg_cadence'] = int(session_data['avg_cadence'])
-        else:
-            result['avg_cadence'] = int(sum(valid_cadences) / len(valid_cadences))
-        
-        if session_data and 'max_cadence' in session_data:
-            result['max_cadence'] = int(session_data['max_cadence'])
-        else:
-            result['max_cadence'] = int(max(valid_cadences))
-        
-        if "left_torque_effectiveness" and "right_torque_effectiveness" in stream_data:
-            left_te_list = stream_data.get('left_torque_effectiveness', [])
-            right_te_list = stream_data.get('right_torque_effectiveness', [])
-            if left_te_list and right_te_list:
-                result['left_torque_effectiveness'] = round(sum(left_te_list) / len(left_te_list), 2)
-                result['right_torque_effectiveness'] = round(sum(right_te_list) / len(right_te_list), 2)
-        else:
-            result['left_torque_effectiveness'] = None
-            result['right_torque_effectiveness'] = None
-
-        if "left_pedal_smoothness" and "right_pedal_smoothness" in stream_data:
-            left_ps_list = stream_data.get('left_pedal_smoothness', [])
-            right_ps_list = stream_data.get('right_pedal_smoothness', [])
-            if left_ps_list and right_ps_list:
-                result['left_pedal_smoothness'] = round(sum(left_ps_list) / len(left_ps_list), 2)
-                result['right_pedal_smoothness'] = round(sum(right_ps_list) / len(right_ps_list), 2)
-        else:   
-            result['left_pedal_smoothness'] = None
-            result['right_pedal_smoothness'] = None
-
-        def get_left_right_balance() -> Optional[Dict[str, int]]:
-            def parse_left_right(value: float) -> Optional[Tuple[int, int]]: # ! 这里的解析方式应该没有问题
-                """解析左右平衡值"""
-                try:
-                    # 将float转换为int进行位运算
-                    int_value = int(value)
-                    # 正常的record值解析
-                    side_flag = int_value & 0x01
-                    percent = int_value >> 1
-                    if side_flag == 1:
-                        right = percent
-                        left = 100 - percent
-                    else:
-                        left = percent
-                        right = 100 - percent
-                    return (left, right)
-                except (ValueError, TypeError):
-                    return None
-            
-            left_right_balance_list = stream_data.get('left_right_balance', [])
-            if not left_right_balance_list:
-                return None
-            else:
-                parsed_values = []
-                for value in left_right_balance_list:
-                    parsed = parse_left_right(value)
-                    if parsed:
-                        parsed_values.append(parsed)
-                
-                if parsed_values:
-                    left_values = [lr[0] for lr in parsed_values]
-                    right_values = [lr[1] for lr in parsed_values]
-                    avg_left = int(round(sum(left_values) / len(left_values)))
-                    avg_right = int(round(sum(right_values) / len(right_values)))
-                    return {"left": avg_left, "right": avg_right}
-            
-            return None
-
-        result['left_right_balance'] = get_left_right_balance()
-        result['total_strokes'] = int(sum(cadence_data) / 60.0)
-        return result
-        
-    except Exception as e:
-        return None
-
-def get_activity_speed_info(
-    db: Session, 
-    activity_id: int
-) -> Optional[Dict[str, Any]]:
-    try:
-
-        activity, _ = get_activity_athlete(db, activity_id)
-        if not activity:
-            return None
-        
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        
-        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
-        
-        speed_data = stream_data.get('speed', [])
-        power_data = stream_data.get('power', [])
-        
-        
-        result = {}
-        
-        if session_data and 'avg_speed' in session_data:
-            result['avg_speed'] = round(float(session_data['avg_speed']) * 3.6, 1)
-        else:
-            result['avg_speed'] = round(sum(speed_data) / len(speed_data), 1)
-        
-        if session_data and 'max_speed' in session_data:
-            result['max_speed'] = round(float(session_data['max_speed']) * 3.6, 1)
-        else:
-            result['max_speed'] = round(max(speed_data), 1)
-
-
-        if session_data and 'total_timer_time' in session_data:
-            moving_time = session_data['total_timer_time']
-            result['moving_time'] = format_time(moving_time)
-        else:
-            moving_time = max(stream_data.get('elapsed_time', []))
-            result['moving_time'] = format_time(moving_time)
-        
-        if session_data and 'total_elapsed_time' in session_data:
-            total_time = session_data['total_elapsed_time']
-            result['total_time'] = format_time(total_time)
-        else:
-            total_time = max(stream_data.get('timestamp', []))
-            result['total_time'] = format_time(total_time)
-        
-        pause_seconds = total_time - moving_time
-        result['pause_time'] = format_time(pause_seconds)
-        
-        def calculate_coasting_time() -> str:
-            coasting_seconds = 0
-            for i in range(len(speed_data)):
-                is_coasting = False
-                if speed_data[i] < 1.0:
-                    is_coasting = True
-                if power_data and not is_coasting and power_data[i] < 10:
-                    is_coasting = True
-                if is_coasting:
-                    coasting_seconds += 1
-            return format_time(coasting_seconds) 
-
-        result['coasting_time'] = calculate_coasting_time()
-        
-        return result  
-    except Exception as e:
-        return None
-
-def get_activity_altitude_info(
-    db: Session, 
-    activity_id: int
-) -> Optional[Dict[str, Any]]:
-
-    try:
-        activity, athlete = get_activity_athlete(db, activity_id)
-        if not activity:
-            return None
-
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-
-        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
-    
-        altitude_data = stream_data.get('altitude', [])
-        distance_data = stream_data.get('distance', [])
-        
-        if not altitude_data:
-            return None
-        
-
-
-        def calculate_max_grade() -> float:
-            
-            max_grade = 0.0
-            # 使用间隔更多的点计算坡度，提高数据准确性
-            # 间隔点数：每5个点计算一次坡度，或者每50米距离计算一次
-            interval_points = 5  # 每5个点计算一次
-            min_distance_interval = 50  # 最小距离间隔（米）
-            
-            for i in range(interval_points, min(len(altitude_data), len(distance_data))):
-                # 获取当前点和间隔前的点
-                current_idx = i
-                previous_idx = i - interval_points
-                
-                if (altitude_data[current_idx] is not None and altitude_data[previous_idx] is not None and 
-                    distance_data[current_idx] is not None and distance_data[previous_idx] is not None):
-                    
-                    # 计算海拔差和距离差
-                    altitude_diff = altitude_data[current_idx] - altitude_data[previous_idx]
-                    distance_diff = distance_data[current_idx] - distance_data[previous_idx]
-                    
-                    # 避免除零错误和异常值
-                    if (distance_diff > min_distance_interval and distance_diff < 1000):  # 距离差至少50米，不超过1000米
-                        # 坡度 = 海拔差 / 距离差 * 100%
-                        grade = (altitude_diff / distance_diff) * 100
-                        # 过滤不合理的坡度值（超过50%的坡度在现实中几乎不可能）
-                        if abs(grade) <= 50:
-                            max_grade = max(max_grade, abs(grade))
-            
-            return round(max_grade, 2)
-
-        def calculate_total_descent() -> float:
-            # 过滤异常值（参考VAM计算中的过滤方法）
-            filtered_altitudes = []
-            for i, alt in enumerate(altitude_data):
-                if alt is None:
-                    continue
-                
-                # 过滤异常值：超过5000米或低于-500米的设为None
-                if alt > 5000 or alt < -500:
-                    continue
-                
-                # 如果与前一个有效值差异过大（超过100米），可能是异常值
-                if filtered_altitudes and abs(alt - filtered_altitudes[-1]) > 100:
-                    continue
-                
-                filtered_altitudes.append(alt)
-            
-            if len(filtered_altitudes) < 2:
-                return 0.0
-            
-            # 计算下降
-            total_descent = 0.0
-            for i in range(1, len(filtered_altitudes)):
-                diff = filtered_altitudes[i] - filtered_altitudes[i-1]
-                if diff < 0:  # 只计算下降
-                    total_descent += abs(diff)
-            
-            return total_descent
-
-        def calculate_uphill_distance() -> float:
-            uphill_distance = 0.0
-            
-            # 使用间隔更多的点计算上坡距离，提高数据准确性
-            interval_points = 5  # 每5个点计算一次
-            min_distance_interval = 50  # 最小距离间隔（米）
-            
-            for i in range(interval_points, min(len(altitude_data), len(distance_data))):
-                # 获取当前点和间隔前的点
-                current_idx = i
-                previous_idx = i - interval_points
-                
-                if (altitude_data[current_idx] is not None and altitude_data[previous_idx] is not None and 
-                    distance_data[current_idx] is not None and distance_data[previous_idx] is not None):
-                    
-                    # 计算海拔差和距离差
-                    altitude_diff = altitude_data[current_idx] - altitude_data[previous_idx]
-                    distance_diff = distance_data[current_idx] - distance_data[previous_idx]
-                    
-                    # 如果是上坡（海拔增加）且距离间隔合理，累加上坡距离
-                    if altitude_diff > 1 and distance_diff > min_distance_interval:
-                        uphill_distance += distance_diff
-            
-            # 转换为千米并保留两位小数
-            return round(uphill_distance / 1000, 2)
-
-        def calculate_downhill_distance() -> float:
-            
-            downhill_distance = 0.0
-            
-            # 使用间隔更多的点计算下坡距离，提高数据准确性
-            interval_points = 5  # 每5个点计算一次
-            min_distance_interval = 50  # 最小距离间隔（米）
-            
-            for i in range(interval_points, min(len(altitude_data), len(distance_data))):
-                # 获取当前点和间隔前的点
-                current_idx = i
-                previous_idx = i - interval_points
-                
-                if (altitude_data[current_idx] is not None and altitude_data[previous_idx] is not None and 
-                    distance_data[current_idx] is not None and distance_data[previous_idx] is not None):
-                    
-                    # 计算海拔差和距离差
-                    altitude_diff = altitude_data[current_idx] - altitude_data[previous_idx]
-                    distance_diff = distance_data[current_idx] - distance_data[previous_idx]
-                    
-                    # 如果是下坡（海拔减少）且距离间隔合理，累加下坡距离
-                    if altitude_diff < -1 and distance_diff > min_distance_interval:
-                        downhill_distance += distance_diff
-            
-            # 转换为千米并保留两位小数
-            return round(downhill_distance / 1000, 2) 
-        
-        result = {}
-        
-        if session_data and 'total_ascent' in session_data and session_data['total_ascent']:
-            result['elevation_gain'] = int(session_data['total_ascent'])
-        else:
-            result['elevation_gain'] = int(calculate_elevation_gain(altitude_data))
-        
-        result['max_altitude'] = int(max(altitude_data))
-        result['max_grade'] = calculate_max_grade()
-        
-        if session_data and 'total_descent' in session_data and session_data['total_descent']:
-            result['total_descent'] = int(session_data['total_descent'])
-        else:
-            result['total_descent'] = int(calculate_total_descent())
-        
-        result['min_altitude'] = int(min(altitude_data))
-        result['uphill_distance'] = calculate_uphill_distance() 
-        result['downhill_distance'] = calculate_downhill_distance()
-        
-        return result
-        
-    except Exception as e:
-        return None
-
-def get_activity_temperature_info(
-    db: Session, 
-    activity_id: int
-) -> Optional[Dict[str, Any]]:
-    try:
-        activity, athlete = get_activity_athlete(db, activity_id)
-        if not activity:
-            return None
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        temperature_data = stream_data.get('temperature', [])
-        if not temperature_data:
-            return None
-        
-        result = {}     
-        result["min_temp"] = int(round(min(temperature_data)))
-        result["avg_temp"] = int(round(sum(temperature_data) / len(temperature_data)))
-        result["max_temp"] = int(round(max(temperature_data)))
-        
-        return result
-        
-    except Exception as e:
-        return None 
-
-def get_activity_best_power_info(
-    db: Session, 
-    activity_id: int
-) -> Optional[Dict[str, Any]]:
-    try:
-        activity, athlete = get_activity_athlete(db, activity_id)
-        if not activity:
-            return None
-        
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        
-        best_powers_data = stream_data.get('best_power', [])
-        if not best_powers_data:
-            return None
-        
-        time_intervals = {
-            '5s': 5,
-            '30s': 30,
-            '1min': 60,
-            '5min': 300,
-            '8min': 480,
-            '20min': 1200,
-            '30min': 1800,
-            '1h': 3600
-        }
-
-        # 构建最佳功率响应
-        best_powers = {}
-        for interval_name, interval_seconds in time_intervals.items():
-            # 检查是否有足够的数据点
-            if len(best_powers_data) >= interval_seconds:
-                best_powers[interval_name] = best_powers_data[interval_seconds - 1]  # 数组索引从0开始
-        
-        return { 'best_powers': best_powers }
-        
-    except Exception as e:
-        return None 
-
-def get_activity_training_effect_info(
-    db: Session, 
-    activity_id: int
-) -> Optional[Dict[str, Any]]:
-    try:
-        activity, athlete = get_activity_athlete(db, activity_id)
-        if not activity:
-            return None
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        if 'power' not in stream_data:
-            return None
-        power_data = stream_data.get('power', [])
-        
-        
-        ftp = int(athlete.ftp)
-        result = {}
-        result['aerobic_effect'] = _calculate_aerobic_effect(power_data, ftp)
-        result['anaerobic_effect'] = _calculate_anaerobic_effect(power_data, ftp)
-
-        
-        primary_training_benefit, _ = _get_primary_training_benefit(
-            _get_power_zone_percentages(power_data, ftp),
-            _get_power_zone_time(power_data, ftp),
-            round(len(power_data) / 60, 0),
-            result['aerobic_effect'],
-            result['anaerobic_effect'],
-            ftp,
-            max(power_data)
-        )
-        avg_power = int(sum(power_data) / len(power_data))
-        result['primary_training_benefit'] = primary_training_benefit
-        result['training_load'] = calculate_training_load(avg_power, ftp, len(power_data))
-        calories = estimate_calories_with_power(avg_power, len(power_data), athlete.weight if athlete.weight else 70)
-        result['carbohydrate_consumption'] = round(calories / 4.138, 0)     
-        return result
-        
-    except Exception as e:
-        return None 
-
-
-# --------------海拔相关函数--------------
-def calculate_elevation_gain(
-    altitude_data: list
-) -> float:
-    return _core_elevation_gain(altitude_data)
-
-
-
-# --------------时间相关函数--------------
-def format_time(
-    seconds: int
-) -> Optional[str]:
-    return _core_format_time(seconds)
-
-
-
-
-# --------------训练效果相关函数--------------
-def estimate_calories_with_power( # ! 这个算法应该有点问题
-    avg_power: int, 
-    duration_seconds: int, 
-    weight_kg: int
-) -> Optional[int]:
-    return _core_calories_power(avg_power, duration_seconds, weight_kg)
-
-def estimate_calories_with_heartrate(
-    avg_heartrate: int, 
-    duration_seconds: int, 
-    weight_kg: int
-) -> Optional[int]: # ! 理论上 6 应该替换成 0.2017 * 年龄，基于 Keytel 公式，适合中等强度运动估算
-    return _core_calories_hr(avg_heartrate, duration_seconds, weight_kg)
-
-def calculate_training_load(
-    avg_power: int, 
-    ftp: int, 
-    duration_seconds: int
-) -> int:
-    return _core_training_load(avg_power, ftp, duration_seconds)
-
-def calculate_and_save_training_load(
-    db: Session, 
-    activity_id: int, 
-    avg_power: int, 
-    ftp: int, 
-    duration_seconds: int
-) -> Optional[int]:
-    try:
-        activity, athlete = get_activity_athlete(db, activity_id)
-        if not activity:
-            return None
-        if activity.tss_updated == 0:
-            tss = calculate_training_load(avg_power, ftp, duration_seconds)
-            update_database_field(db, TbActivity, activity_id, 'tss', tss)
-            
-            # 使用与 strava_analyzer 中相同的逻辑计算新的 CTL 和 ATL
-            from datetime import datetime, timedelta
-            from sqlalchemy import func
-            from ..db.models import TbActivity
-            
-            athlete_id = activity.athlete_id
-            forty_two_days_ago = datetime.now() - timedelta(days=42)
-            seven_days_ago = datetime.now() - timedelta(days=7)
-            
-            # 查询42天平均TSS（包括新计算的TSS）
-            avg_tss_42_days = db.query(
-                func.avg(TbActivity.tss)
-            ).filter(
-                TbActivity.athlete_id == athlete_id,
-                TbActivity.start_date >= forty_two_days_ago,
-                TbActivity.tss.isnot(None),
-                TbActivity.tss > 0
-            ).scalar()
-            
-            # 查询7天平均TSS（包括新计算的TSS）
-            avg_tss_7_days = db.query(
-                func.avg(TbActivity.tss)
-            ).filter(
-                TbActivity.athlete_id == athlete_id,
-                TbActivity.start_date >= seven_days_ago,
-                TbActivity.tss.isnot(None),
-                TbActivity.tss > 0
-            ).scalar()
-            
-            # 处理查询结果，如果没有数据则设为0
-            new_ctl = round(avg_tss_42_days, 0) if avg_tss_42_days is not None else 0
-            new_atl = round(avg_tss_7_days, 0) if avg_tss_7_days is not None else 0
-            
-            # 更新数据库
-            update_database_field(db, TbAthlete, activity.athlete_id, "ctl", new_ctl)
-            update_database_field(db, TbAthlete, activity.athlete_id, "atl", new_atl)
-            update_database_field(db, TbActivity, activity_id, "tss_updated", 1)
-            update_database_field(db, TbAthlete, activity.athlete_id, "tsb", new_atl - new_ctl)
-            return tss  
-        else:
-            return activity.tss
-    except Exception as e:
-        print(f"计算和保存训练负荷时出错: {str(e)}")
-        return None
-
-
-def _calculate_aerobic_effect(power_data: list, ftp: int) -> float:
-    return _core_aerobic_effect(power_data, ftp)
-
-def _calculate_anaerobic_effect(power_data: list, ftp: int) -> float:
-    return _core_anaerobic_effect(power_data, ftp)
-
-def _get_power_zone_percentages(power_data: list, ftp: int) -> list:
-    return _core_zone_percentages(power_data, ftp)
-
-def _get_power_zone_time(power_data: list, ftp: int) -> list:
-    return _core_zone_times(power_data, ftp)
-
-def _get_primary_training_benefit(
-    zone_distribution: list,
-    zone_times: list,
-    duration_min: int,
-    aerobic_effect: float,
-    anaerobic_effect: float,
-    ftp: int,
-    max_power: int,
-) -> tuple:
-    return _core_primary_training_benefit(zone_distribution, zone_times, duration_min, aerobic_effect, anaerobic_effect, ftp, max_power)
-
-# --------------功率相关函数--------------
-def calculate_normalized_power(
-    powers: list
-) -> int:
-    # Delegate to optimized implementation
-    return round(_core_normalized_power(powers), 0)
-
-
-def calculate_w_balance_decline(
-    w_balance_data: list
-) -> float:
-    return _core_w_balance_decline(w_balance_data)
-
-
-# --------------其他文件中使用到的函数--------------
-def get_activity_power_zones(
-    db: Session, 
-    activity_id: int
-) -> Optional[Dict[str, Any]]:
-    try:
-        activity, athlete = get_activity_athlete(db, activity_id)
-        if not activity:
-            return None
-
-        ftp = int(athlete.ftp)
-        
-        # 获取流数据
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        # 获取功率数据
-        power_data = stream_data.get('power', [])
-        if not power_data:
-            return None
-        
-        # 分析功率区间
-        from .zone_analyzer import ZoneAnalyzer
-        distribution_buckets = ZoneAnalyzer.analyze_power_zones(power_data, ftp)
-        
-        return {
-            "distribution_buckets": distribution_buckets,
-            "type": "power"
-        }
-        
-    except Exception as e:
-        return None
-
-def get_activity_heartrate_zones(
-    db: Session, 
-    activity_id: int
-) -> Optional[Dict[str, Any]]:
-    try:
-        activity, athlete = get_activity_athlete(db, activity_id)
-        if not activity:
-            return None
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-        
-        # 获取心率数据
-        heartrate_data = stream_data.get('heart_rate', [])
-        if not heartrate_data:
-            return None
-        
-        # 分析心率区间
-        from .zone_analyzer import ZoneAnalyzer
-        distribution_buckets = ZoneAnalyzer.analyze_heartrate_zones(heartrate_data, athlete.max_heartrate)
-        
-        return {
-            "distribution_buckets": distribution_buckets,
-            "type": "heartrate"
-        }
-        
-    except Exception as e:
-        return None 
-
-def get_session_data(
-    fit_url: str
-) -> Optional[Dict[str, Any]]: # ! 重要函数
-    try:
-        # 下载FIT文件
         response = requests.get(fit_url)
         if response.status_code != 200:
             return None
-        
         fit_data = response.content
-        
-        # 解析FIT文件
         fitfile = FitFile(BytesIO(fit_data))
-        
-        # 查找session消息
         for message in fitfile.get_messages('session'):
-            session_data = {}
-            
-            # 提取session段中的字段
+            session_data: Dict[str, Any] = {}
             fields = [
                 'total_distance', 'total_elapsed_time', 'total_timer_time',
                 'avg_power', 'max_power', 'avg_heart_rate', 'max_heart_rate',
@@ -1030,65 +47,71 @@ def get_session_data(
                 'avg_speed', 'max_speed', 'avg_temperature', 'max_temperature', 'min_temperature',
                 'normalized_power', 'training_stress_score', 'intensity_factor'
             ]
-            
             for field in fields:
                 value = message.get_value(field)
                 if value is not None:
                     session_data[field] = value
-            
             return session_data
-        
         return None
-    except Exception as e:
+    except Exception:
         return None
 
-def get_status( # ! 未严格查验正确性
-    db: Session, 
-    activity_id: int
-) -> Optional[Dict[str, Any]]:
+
+def get_status(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
     try:
         activity = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
         if not activity:
             return None
         athlete_id = activity.athlete_id
-
         from datetime import datetime, timedelta
         from sqlalchemy import func
-        
         forty_two_days_ago = datetime.now() - timedelta(days=42)
         seven_days_ago = datetime.now() - timedelta(days=7)
-        
-        avg_tss_42_days = db.query(
-            func.avg(TbActivity.tss)
-        ).filter(
+        avg_tss_42_days = db.query(func.avg(TbActivity.tss)).filter(
             TbActivity.athlete_id == athlete_id,
             TbActivity.start_date >= forty_two_days_ago,
             TbActivity.tss.isnot(None),
-            TbActivity.tss > 0
+            TbActivity.tss > 0,
         ).scalar()
-        
-        avg_tss_7_days = db.query(
-            func.avg(TbActivity.tss)
-        ).filter(
+        avg_tss_7_days = db.query(func.avg(TbActivity.tss)).filter(
             TbActivity.athlete_id == athlete_id,
             TbActivity.start_date >= seven_days_ago,
             TbActivity.tss.isnot(None),
-            TbActivity.tss > 0
+            TbActivity.tss > 0,
         ).scalar()
-        
-        # 处理查询结果，如果没有数据则设为0
         avg_tss_42_days = round(avg_tss_42_days, 0) if avg_tss_42_days is not None else 0
         avg_tss_7_days = round(avg_tss_7_days, 0) if avg_tss_7_days is not None else 0
-        
-        return {
-            "athlete_id": athlete_id,
-            "ctl": avg_tss_42_days,
-            "atl": avg_tss_7_days
-        }
-        
-    except Exception as e:
-        print(f"获取训练状态时出错: {str(e)}")
+        return {"athlete_id": athlete_id, "ctl": avg_tss_42_days, "atl": avg_tss_7_days}
+    except Exception:
         return None
 
 
-        
+def get_activity_best_power_info(db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    try:
+        pair = get_activity_athlete(db, activity_id)
+        if not pair:
+            return None
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+        best_powers_data = stream_data.get('best_power', [])
+        if not best_powers_data:
+            return None
+        time_intervals = {
+            '5s': 5,
+            '30s': 30,
+            '1min': 60,
+            '5min': 300,
+            '8min': 480,
+            '20min': 1200,
+            '30min': 1800,
+            '1h': 3600,
+        }
+        best_powers: Dict[str, int] = {}
+        for name, sec in time_intervals.items():
+            if len(best_powers_data) >= sec:
+                best_powers[name] = best_powers_data[sec - 1]
+        return {"best_powers": best_powers}
+    except Exception:
+        return None
+
