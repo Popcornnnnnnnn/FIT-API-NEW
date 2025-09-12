@@ -25,7 +25,7 @@ class SeriesType(str, Enum):
     TIME = "time"
     NONE = "none"
 
-from ..db.models import TbActivity, TbAthlete, TbAthletePowerRecords  # re-export for compatibility if needed
+# ORM models are defined in app/db/models.py; import them from there when needed.
 
 # 流数据模型
 class BaseStream(BaseModel):

@@ -20,6 +20,11 @@ from ..core.analytics.training import (
     calculate_training_load as _core_training_load,
     estimate_calories_with_power as _core_calories_power,
     estimate_calories_with_heartrate as _core_calories_hr,
+    aerobic_effect as _core_aerobic_effect,
+    anaerobic_effect as _core_anaerobic_effect,
+    power_zone_percentages as _core_zone_percentages,
+    power_zone_times as _core_zone_times,
+    primary_training_benefit as _core_primary_training_benefit,
 )
 
 # --------------数据库相关--------------
@@ -897,99 +902,17 @@ def calculate_and_save_training_load(
         return None
 
 
-def _calculate_aerobic_effect(
-    power_data: list, 
-    ftp: int
-) -> float:
-    try:
-        np = calculate_normalized_power(power_data)
-        intensity_factor = np / ftp
-        return round(min(5.0, intensity_factor * len(power_data) / 3600 + 0.5), 1)
-    except Exception as e:
-        print(f"计算有氧效果时出错: {str(e)}")
-        return 0.0
+def _calculate_aerobic_effect(power_data: list, ftp: int) -> float:
+    return _core_aerobic_effect(power_data, ftp)
 
-def _calculate_anaerobic_effect(
-    power_data: list, 
-    ftp: int
-) -> float:
-    try:
-        if len(power_data) < 30:
-            return 0.0
-        
-        # 计算30秒峰值功率 - 使用滑动窗口，假设数据点是每秒一个
-        peak_power_30s = 0
-        for i in range(len(power_data) - 29):  # 确保有30个数据点
-            window_avg = sum(power_data[i:i+30]) / 30
-            if window_avg > peak_power_30s:
-                peak_power_30s = window_avg
-        
-        # 计算无氧容量（超过FTP的功率总和，单位：千焦）
-        # 假设数据点是每秒一个，所以功率值直接相加就是焦耳
-        anaerobic_capacity = sum([max(0, p - ftp) for p in power_data if p > ftp]) / 1000
-        
-        # 计算无氧效果
-        anaerobic_effect = min(4.0, 0.1 * (peak_power_30s / ftp) + 0.05 * anaerobic_capacity)
-        return round(anaerobic_effect, 1)
-    except Exception as e:
-        print(f"计算无氧效果时出错: {str(e)}")
-        return 0.0
+def _calculate_anaerobic_effect(power_data: list, ftp: int) -> float:
+    return _core_anaerobic_effect(power_data, ftp)
 
-def _get_power_zone_percentages(
-    power_data: list, 
-    ftp: int
-) -> list:
-    from .zone_analyzer import ZoneAnalyzer
-    zones = ZoneAnalyzer.analyze_power_zones(power_data, ftp)
-    percentages = []
-    for zone in zones:
-        # zone['percentage'] 形如 "12.5%"
-        percent_str = zone.get('percentage', '0.0%').replace('%', '')
-        try:
-            percent = float(percent_str)
-        except Exception:
-            percent = 0.0
-        percentages.append(percent)
-    return percentages
+def _get_power_zone_percentages(power_data: list, ftp: int) -> list:
+    return _core_zone_percentages(power_data, ftp)
 
-def _get_power_zone_time(
-    power_data: list, 
-    ftp: int
-) -> list:
-    from .zone_analyzer import ZoneAnalyzer
-    zones = ZoneAnalyzer.analyze_power_zones(power_data, ftp)
-    times = []
-    for zone in zones:
-        # zone['time'] 形如 "1:23:45" 或 "45s"
-        time_str = zone.get('time', '0s')
-        # 解析时间字符串为秒
-        if 's' in time_str:
-            try:
-                seconds = int(time_str.replace('s', ''))
-            except Exception:
-                seconds = 0
-        elif ':' in time_str:
-            parts = time_str.split(':')
-            try:
-                if len(parts) == 2:
-                    # mm:ss
-                    minutes = int(parts[0])
-                    seconds = int(parts[1])
-                    seconds = minutes * 60 + seconds
-                elif len(parts) == 3:
-                    # hh:mm:ss
-                    hours = int(parts[0])
-                    minutes = int(parts[1])
-                    seconds = int(parts[2])
-                    seconds = hours * 3600 + minutes * 60 + seconds
-                else:
-                    seconds = 0
-            except Exception:
-                seconds = 0
-        else:
-            seconds = 0
-        times.append(seconds)
-    return times
+def _get_power_zone_time(power_data: list, ftp: int) -> list:
+    return _core_zone_times(power_data, ftp)
 
 def _get_primary_training_benefit(
     zone_distribution: list,
@@ -1000,107 +923,7 @@ def _get_primary_training_benefit(
     ftp: int,
     max_power: int,
 ) -> tuple:
-    if duration_min < 5:
-        return "时间过短, 无法判断", []
-
-    ae_to_ne_ratio = aerobic_effect / (anaerobic_effect + 0.001)
-    # 注意：zone_distribution 和 zone_times 已经是正确的索引（0-6对应Zone 1-7）
-    intensity_ratio = max_power / ftp
-
-    rules = [
-        {
-            "name": "Recovery",
-            "conditions": [
-                zone_distribution[0] > 85,  # Zone 1
-                aerobic_effect < 1.5,
-                anaerobic_effect < 0.5,
-                duration_min < 90,
-            ],
-            "required_matches": 3
-        },
-        {
-            "name": "Endurance (LSD)",
-            "conditions": [
-                zone_distribution[1] > 60,  # Zone 2
-                aerobic_effect > 2.5,
-                anaerobic_effect < 1.0,
-                duration_min >= 90,
-                ae_to_ne_ratio > 3.0
-            ],
-            "required_matches": 4
-        },
-        {
-            "name": "Tempo",
-            "conditions": [
-                zone_distribution[2] > 40,  # Zone 3
-                zone_distribution[3] < 30,  # Zone 4
-                aerobic_effect > 2.0,
-                anaerobic_effect < 1.5,
-                ae_to_ne_ratio > 1.5
-            ],
-            "required_matches": 4
-        },
-        {
-            "name": "Threshold",
-            "conditions": [
-                zone_distribution[3] > 35,  # Zone 4
-                zone_distribution[4] < 25,  # Zone 5
-                aerobic_effect > 3.0,
-                anaerobic_effect > 1.0,
-                1.0 < ae_to_ne_ratio < 2.5
-            ],
-            "required_matches": 4
-        },
-        {
-            "name": "VO2Max Intervals",
-            "conditions": [
-                zone_distribution[4] > 25,  # Zone 5
-                zone_times[4] > 8 * 60,  # 至少8分钟在Z5
-                anaerobic_effect > 2.5,
-                intensity_ratio > 1.3,
-                ae_to_ne_ratio < 1.5
-            ],
-            "required_matches": 4
-        },
-        {
-            "name": "Anaerobic Intervals",
-            "conditions": [
-                zone_distribution[5] > 15,  # Zone 6
-                anaerobic_effect > 3.0,
-                intensity_ratio > 1.5,
-                ae_to_ne_ratio < 1.0,
-                zone_times[5] > 3 * 60  # 至少3分钟在Z6
-            ],
-            "required_matches": 4
-        },
-        {
-            "name": "Sprint Training",
-            "conditions": [
-                zone_distribution[6] > 8,  # Zone 7
-                anaerobic_effect > 3.5,
-                intensity_ratio > 1.8,
-                zone_times[6] > 60,  # 至少1分钟在Z7
-                ae_to_ne_ratio < 0.5
-            ],
-            "required_matches": 4
-        }
-    ]
-
-    # 评估所有规则
-    matched_types = []
-    for rule in rules:
-        matches = sum(1 for cond in rule["conditions"] if cond)
-        if matches >= rule["required_matches"]:
-            matched_types.append(rule["name"])
-
-    if not matched_types:
-        primary_type = "Mixed"
-        secondary_type = []
-    else:
-        primary_type = matched_types[0]
-        secondary_type = matched_types[1:]
-
-    return primary_type, secondary_type
+    return _core_primary_training_benefit(zone_distribution, zone_times, duration_min, aerobic_effect, anaerobic_effect, ftp, max_power)
 
 # --------------功率相关函数--------------
 def calculate_normalized_power(

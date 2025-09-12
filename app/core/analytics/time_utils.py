@@ -17,3 +17,24 @@ def format_time(seconds: int) -> Optional[str]:
     except (ValueError, TypeError):
         return None
 
+
+def parse_time_str(time_str: str) -> int:
+    """Parse a time string like "45s", "mm:ss" or "hh:mm:ss" into seconds.
+
+    Returns 0 if parsing fails.
+    """
+    try:
+        s = (time_str or '').strip()
+        if s.endswith('s'):
+            return int(s[:-1])
+        if ':' in s:
+            parts = s.split(':')
+            if len(parts) == 2:
+                m, sec = int(parts[0]), int(parts[1])
+                return m * 60 + sec
+            if len(parts) == 3:
+                h, m, sec = int(parts[0]), int(parts[1]), int(parts[2])
+                return h * 3600 + m * 60 + sec
+        return 0
+    except Exception:
+        return 0
