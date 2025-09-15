@@ -50,9 +50,15 @@ def analyze_power(activity_data: Dict[str, Any], stream_data: Dict[str, Any], ex
     try:
         power_stream = stream_data.get('watts', {})
         power = [p if p is not None else 0 for p in power_stream.get('data', [])]
-        _, athlete = _get_activity_athlete_by_external_id(db, external_id)
+        aa = _get_activity_athlete_by_external_id(db, external_id)
+        if not aa:
+            return None
+        _, athlete = aa
         ftp = int(athlete.ftp)
+        # 若无 w_balance 流，基于功率与 W' 粗略估算
         wbal = stream_data.get('w_balance', {}).get('data', []) if isinstance(stream_data.get('w_balance'), dict) else stream_data.get('w_balance', [])
+        if (not wbal) and power and getattr(athlete, 'w_balance', None):
+            wbal = _compute_w_balance_series(power, ftp, int(athlete.w_balance))
         return {
             'avg_power'             : int(activity_data.get('average_watts')) if activity_data.get('average_watts') else (int(sum(power)/len(power)) if power else None),
             'max_power'             : int(activity_data.get('max_watts')) if activity_data.get('max_watts') else (int(max(power)) if power else None),
@@ -60,10 +66,10 @@ def analyze_power(activity_data: Dict[str, Any], stream_data: Dict[str, Any], ex
             'intensity_factor'      : round(_np(power)/ftp, 2) if ftp else None,
             'total_work'            : round(sum(power)/1000, 0),
             'variability_index'     : round(_np(power)/(int(activity_data.get('average_watts')) or (sum(power)/len(power) if power else 1)), 2) if power else None,
-            'weighted_average_power': None,
+            'weighted_average_power': int(activity_data.get('weighted_average_watts')) if activity_data.get('weighted_average_watts') else None,
             'work_above_ftp'        : _work_above_ftp(power, ftp),
             'eftp'                  : None,
-            'w_balance_decline'     : _w_decline(wbal) if wbal else None,
+            'w_balance_decline'     : _w_decline(wbal) if (isinstance(wbal, list) and len(wbal) > 0) else None,
         }
     except Exception:
         return None
@@ -99,6 +105,22 @@ def analyze_cadence(activity_data: Dict[str, Any], stream_data: Dict[str, Any]) 
         cad = [c if c is not None else 0 for c in stream_data.get('cadence', {}).get('data', [])]
         if not cad:
             return None
+        # 估算总踏频（转数）：基于 time 流积分 cadence（rpm）
+        total_strokes = None
+        try:
+            t = stream_data.get('time', {}).get('data', [])
+            if t and len(t) == len(cad):
+                acc = 0.0
+                prev = t[0]
+                for i in range(1, len(t)):
+                    dt = max(0, (t[i] or 0) - (prev or 0))
+                    acc += (cad[i] or 0) * (dt / 60.0)
+                    prev = t[i]
+                total_strokes = int(round(acc))
+            else:
+                total_strokes = int(round(sum(cad) / 60.0))
+        except Exception:
+            total_strokes = None
         return {
             'avg_cadence'               : int(sum(cad)/len(cad)) if cad else None,
             'max_cadence'               : int(max(cad)) if cad else None,
@@ -107,7 +129,7 @@ def analyze_cadence(activity_data: Dict[str, Any], stream_data: Dict[str, Any]) 
             'right_torque_effectiveness': None,
             'left_pedal_smoothness'     : None,
             'right_pedal_smoothness'    : None,
-            'total_strokes'             : None,
+            'total_strokes'             : total_strokes,
         }
     except Exception:
         return None
@@ -142,7 +164,10 @@ def analyze_training_effect(activity_data: Dict[str, Any], stream_data: Dict[str
         return None
     try:
         power = [p if p is not None else 0 for p in stream_data.get('watts', {}).get('data', [])]
-        _, athlete = _get_activity_athlete_by_external_id(db, external_id)
+        aa = _get_activity_athlete_by_external_id(db, external_id)
+        if not aa:
+            return None
+        _, athlete = aa
         ftp = int(athlete.ftp)
         ae = _aerobic(power, ftp)
         ne = _anaerobic(power, ftp)
@@ -150,12 +175,15 @@ def analyze_training_effect(activity_data: Dict[str, Any], stream_data: Dict[str
         zt = _zone_times(power, ftp)
         pb, _ = _primary_benefit(zd, zt, round(len(power)/60, 0), ae, ne, ftp, int(activity_data.get('max_watts') or 0))
         avg_power = int(activity_data.get('average_watts') or (sum(power)/len(power) if power else 0))
-        # training_load delegated to caller if needed
+        # 直接计算训练负荷
+        from ...core.analytics.training import calculate_training_load as _tl
+        moving_time = int(activity_data.get('moving_time') or len(power))
+        training_load = _tl(avg_power, ftp, moving_time) if (avg_power and ftp and moving_time) else None
         return {
             'primary_training_benefit': pb,
             'aerobic_effect': ae,
             'anaerobic_effect': ne,
-            'training_load': None,
+            'training_load': training_load,
             'carbohydrate_consumption': int(activity_data.get('calories', 0) / 4.138),
         }
     except Exception:
@@ -216,3 +244,25 @@ def analyze_zones(activity_data: Dict[str, Any], stream_data: Dict[str, Any], ex
         return zones_data or None
     except Exception:
         return None
+
+
+def _compute_w_balance_series(power: List[int], ftp: int, w_prime: int) -> List[float]:
+    """根据功率与 W'（w_prime）与 FTP 估算 w_balance 曲线（与 FIT 路径一致的简化模型）。"""
+    try:
+        if not power or not ftp or not w_prime:
+            return []
+        tau = 546.0
+        balance = float(w_prime)
+        out: List[float] = []
+        for p in power:
+            p = p or 0
+            if p > ftp * 1.05:
+                balance -= (p - ftp)
+            elif p < ftp * 0.95:
+                recovery = (w_prime - balance) / tau
+                balance += recovery
+            balance = max(0.0, min(float(w_prime), balance))
+            out.append(round(balance / 1000.0, 1))
+        return out
+    except Exception:
+        return []
