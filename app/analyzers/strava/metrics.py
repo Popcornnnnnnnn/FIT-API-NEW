@@ -29,16 +29,16 @@ def _get_activity_athlete_by_external_id(db: Session, external_id: int) -> Optio
 def analyze_overall(activity_data: Dict[str, Any], stream_data: Dict[str, Any], external_id: int, db: Session) -> Optional[Dict[str, Any]]:
     try:
         return {
-            'distance': round(activity_data.get('distance') / 1000, 2),
-            'moving_time': _fmt(int(activity_data.get('moving_time'))),
-            'average_speed': round(activity_data.get('average_speed') * 3.6, 1),
+            'distance'      : round(activity_data.get('distance') / 1000, 2),
+            'moving_time'   : _fmt(int(activity_data.get('moving_time'))),
+            'average_speed' : round(activity_data.get('average_speed') * 3.6, 1),
             'elevation_gain': int(activity_data.get('total_elevation_gain')),
-            'avg_power': int(activity_data.get('average_watts')) if activity_data.get('average_watts') else None,
-            'calories': int(activity_data.get('calories')),
-            'training_load': None,  # filled by caller if needed
-            'status': None,         # filled by caller if needed
-            'avg_heartrate': int(activity_data.get('average_heartrate')) if activity_data.get('average_heartrate') else None,
-            'max_altitude': int(activity_data.get('elev_high')),
+            'avg_power'     : int(activity_data.get('average_watts')) if activity_data.get('average_watts') else None,
+            'calories'      : int(activity_data.get('calories')),
+            'training_load' : None,                                                                                            # filled by caller if needed
+            'status'        : None,                                                                                            # filled by caller if needed
+            'avg_heartrate' : int(activity_data.get('average_heartrate')) if activity_data.get('average_heartrate') else None,
+            'max_altitude'  : int(activity_data.get('elev_high')),
         }
     except Exception:
         return None
@@ -54,16 +54,16 @@ def analyze_power(activity_data: Dict[str, Any], stream_data: Dict[str, Any], ex
         ftp = int(athlete.ftp)
         wbal = stream_data.get('w_balance', {}).get('data', []) if isinstance(stream_data.get('w_balance'), dict) else stream_data.get('w_balance', [])
         return {
-            'avg_power': int(activity_data.get('average_watts')) if activity_data.get('average_watts') else (int(sum(power)/len(power)) if power else None),
-            'max_power': int(activity_data.get('max_watts')) if activity_data.get('max_watts') else (int(max(power)) if power else None),
-            'normalized_power': int(_np(power)),
-            'intensity_factor': round(_np(power)/ftp, 2) if ftp else None,
-            'total_work': round(sum(power)/1000, 0),
-            'variability_index': round(_np(power)/(int(activity_data.get('average_watts')) or (sum(power)/len(power) if power else 1)), 2) if power else None,
+            'avg_power'             : int(activity_data.get('average_watts')) if activity_data.get('average_watts') else (int(sum(power)/len(power)) if power else None),
+            'max_power'             : int(activity_data.get('max_watts')) if activity_data.get('max_watts') else (int(max(power)) if power else None),
+            'normalized_power'      : int(_np(power)),
+            'intensity_factor'      : round(_np(power)/ftp, 2) if ftp else None,
+            'total_work'            : round(sum(power)/1000, 0),
+            'variability_index'     : round(_np(power)/(int(activity_data.get('average_watts')) or (sum(power)/len(power) if power else 1)), 2) if power else None,
             'weighted_average_power': None,
-            'work_above_ftp': _work_above_ftp(power, ftp),
-            'eftp': None,
-            'w_balance_decline': _w_decline(wbal) if wbal else None,
+            'work_above_ftp'        : _work_above_ftp(power, ftp),
+            'eftp'                  : None,
+            'w_balance_decline'     : _w_decline(wbal) if wbal else None,
         }
     except Exception:
         return None
@@ -77,12 +77,37 @@ def analyze_heartrate(activity_data: Dict[str, Any], stream_data: Dict[str, Any]
         pw = [p if p is not None else 0 for p in stream_data.get('watts', {}).get('data', [])] if 'watts' in stream_data else []
         ei = _np([p for p in pw if p > 0]) / (sum(hr)/len(hr)) if pw and hr and any(hr) else None
         return {
-            'avg_heartrate': int(activity_data.get('average_heartrate')) if activity_data.get('average_heartrate') else (int(sum(hr)/len(hr)) if hr else None),
-            'max_heartrate': int(activity_data.get('max_heartrate')) if activity_data.get('max_heartrate') else (int(max(hr)) if hr else None),
+            'avg_heartrate'          : int(activity_data.get('average_heartrate')) if activity_data.get('average_heartrate') else (int(sum(hr)/len(hr)) if hr else None),
+            'max_heartrate'          : int(activity_data.get('max_heartrate')) if activity_data.get('max_heartrate') else (int(max(hr)) if hr else None),
             'heartrate_recovery_rate': _hr_recovery(hr),
-            'heartrate_lag': _hr_lag(pw, hr) if pw else None,
-            'efficiency_index': round(ei, 2) if ei else None,
-            'decoupling_rate': _decouple(pw, hr) if pw else None,
+            'heartrate_lag'          : _hr_lag(pw, hr) if pw else None,
+            'efficiency_index'       : round(ei, 2) if ei else None,
+            'decoupling_rate'        : _decouple(pw, hr) if pw else None,
+        }
+    except Exception:
+        return None
+
+
+def analyze_cadence(activity_data: Dict[str, Any], stream_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """踏频指标（Strava 数据）。
+
+    仅使用 cadence 流计算平均和最大踏频；其他高级指标保留为空。
+    """
+    if 'cadence' not in stream_data:
+        return None
+    try:
+        cad = [c if c is not None else 0 for c in stream_data.get('cadence', {}).get('data', [])]
+        if not cad:
+            return None
+        return {
+            'avg_cadence'               : int(sum(cad)/len(cad)) if cad else None,
+            'max_cadence'               : int(max(cad)) if cad else None,
+            'left_right_balance'        : None,
+            'left_torque_effectiveness' : None,
+            'right_torque_effectiveness': None,
+            'left_pedal_smoothness'     : None,
+            'right_pedal_smoothness'    : None,
+            'total_strokes'             : None,
         }
     except Exception:
         return None
@@ -101,11 +126,11 @@ def analyze_speed(activity_data: Dict[str, Any], stream_data: Dict[str, Any]) ->
                 if v < 0.27778 or p < 10:
                     coasting += 1
         return {
-            'avg_speed': round(activity_data.get('average_speed') * 3.6, 1),
-            'max_speed': round(activity_data.get('max_speed') * 3.6, 1),
-            'moving_time': _fmt(int(activity_data.get('moving_time'))),
-            'total_time': _fmt(int(activity_data.get('elapsed_time'))),
-            'pause_time': _fmt(int(activity_data.get('elapsed_time')) - int(activity_data.get('moving_time'))),
+            'avg_speed'    : round(activity_data.get('average_speed') * 3.6, 1),
+            'max_speed'    : round(activity_data.get('max_speed') * 3.6, 1),
+            'moving_time'  : _fmt(int(activity_data.get('moving_time'))),
+            'total_time'   : _fmt(int(activity_data.get('elapsed_time'))),
+            'pause_time'   : _fmt(int(activity_data.get('elapsed_time')) - int(activity_data.get('moving_time'))),
             'coasting_time': _fmt(coasting),
         }
     except Exception:

@@ -1,10 +1,10 @@
 """
-本文件包含流数据相关的数据库操作函数（CRUD操作）。
+数据流 CRUD 层（与 FIT 解析器协作）
 
-提供以下功能：
-1. 流数据的获取和缓存
-2. FIT文件解析和流数据提取
-3. 流数据的重采样和格式化
+提供：
+1) 流数据的获取与统一返回格式；
+2) 从 FIT 文件解析 records，并构建 StreamData；
+3) 重采样（分辨率 high/medium/low）与 best_power 的附加处理（含可选写库）。
 """
 
 import base64
@@ -140,20 +140,35 @@ class StreamCRUD:
         activity_id: int
     ) -> Dict[str, Any]:
         activity = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
+        if not activity:
+            return {
+                "status": "error",
+                "message": "活动不存在",
+                "available_streams": [],
+                "total_streams": 0,
+            }
+
         stream_data = self._get_or_parse_stream_data(db, activity)
+        if not stream_data:
+            return {
+                "status": "error",
+                "message": "流数据不可用或解析失败",
+                "available_streams": [],
+                "total_streams": 0,
+            }
+
         available_streams = stream_data.get_available_streams()
-        
         return {
             "status": "success",
             "message": "获取成功",
             "available_streams": available_streams,
-            "total_streams": len(available_streams)
+            "total_streams": len(available_streams),
         }
     
     def _get_or_parse_stream_data(
-        self, 
-        db: Session, 
-        activity: models.TbActivity
+        self,
+        db: Session,
+        activity: TbActivity,
     ) -> Optional[models.StreamData]:
         try:
             response = requests.get(activity.upload_fit_url, timeout=30)

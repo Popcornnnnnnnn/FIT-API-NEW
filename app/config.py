@@ -65,12 +65,18 @@ def is_cache_enabled() -> bool:
         1. 环境变量 CACHE_ENABLED（优先）
         2. 本地 .cache_config 文件（兼容历史开关）
         3. 默认启用（True）
+
+    注意：之前的实现用了 `_is_cache_enabled_from_file() or True`，
+    会导致当文件为 `enabled=false` 时仍返回 True。这里修正为：
+    若文件存在则按文件值返回；否则才回退 True。
     """
     env_val = os.environ.get('CACHE_ENABLED')
     if env_val is not None:
         return env_val.lower() == 'true'
-    # fallback to .cache_config file switch
-    return _is_cache_enabled_from_file() or True
+    # 若存在配置文件，按文件值返回；否则默认启用
+    if os.path.exists('.cache_config'):
+        return _is_cache_enabled_from_file()
+    return True
 
 
 # Strava 调用配置
@@ -101,9 +107,9 @@ def get_database_url() -> str:
         return db_url
 
     # 2) 否则从拆分变量拼接（对密码进行 URL 编码）
-    host = os.environ.get('DB_HOST', '127.0.0.1:3306')
+    host = os.environ.get('DB_HOST', '121.41.238.53:3306')
     user = os.environ.get('DB_USER', 'root')
-    password = os.environ.get('DB_PASSWORD', '')
+    password = os.environ.get('DB_PASSWORD', '86230ce6558fd9a1')
     name = os.environ.get('DB_NAME', 'ry-system')
     encoded_password = quote_plus(password)
     return f"mysql+pymysql://{user}:{encoded_password}@{host}/{name}"

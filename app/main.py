@@ -11,8 +11,9 @@ from fastapi import FastAPI
 from .logging_config import setup_logging
 from .config import LOG_LEVEL
 
-from .streams.router import router as streams_router
+from .api.streams import router as streams_router
 from .api.activities import router as activities_router
+from .api.legacy.activities_legacy import router as activities_legacy_router
 
 setup_logging(LOG_LEVEL)
 app = FastAPI(title="FIT 文件分析 API")
@@ -20,5 +21,5 @@ app = FastAPI(title="FIT 文件分析 API")
 # 路由注册
 app.include_router(streams_router, tags=["数据流"])
 app.include_router(activities_router, tags=["活动"])
-
+app.include_router(activities_legacy_router, tags=["活动-历史"])
 

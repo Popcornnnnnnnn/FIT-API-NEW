@@ -1,8 +1,3 @@
-"""
-Strava 最佳功率分析模块。
-用于计算不同区间的最佳平均功率，并可更新运动员功率记录。
-"""
-"""Strava 最佳功率分析与个人记录写库（简化实现）。"""
 from typing import Dict, Any, Optional, Tuple, List
 from sqlalchemy.orm import Session
 from ...db.models import TbActivity, TbAthlete, TbAthletePowerRecords

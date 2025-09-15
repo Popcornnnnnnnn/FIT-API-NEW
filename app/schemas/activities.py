@@ -176,3 +176,7 @@ class AllActivityDataResponse(BaseModel):
     streams: Optional[List[Dict[str, Any]]] = Field(None, description="流数据，数组格式，每个元素包含type、data、series_type、original_size、resolution字段")
     segment_records: Optional[List[SegmentRecord]] = Field(None, description="分段记录刷新信息")
 
+
+class BestPowerResponse(BaseModel):
+    """最佳功率响应"""
+    best_powers: Dict[str, int] = Field(..., description="各时间窗最佳功率，键如 5s/1min/20min 等")

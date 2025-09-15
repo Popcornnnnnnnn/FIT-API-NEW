@@ -13,11 +13,11 @@ def compute_altitude_info(stream_data: Dict[str, Any], session_data: Optional[Di
         res['elevation_gain'] = int(session_data['total_ascent'])
     else:
         res['elevation_gain'] = int(elevation_gain(altitude_data))
-    res['max_altitude'] = int(max(altitude_data)) if altitude_data else 0
-    res['max_grade'] = max_grade_percent(altitude_data, distance_data)
-    res['total_descent'] = int(session_data['total_descent']) if session_data and session_data.get('total_descent') else int(total_descent(altitude_data))
-    res['min_altitude'] = int(min(altitude_data)) if altitude_data else 0
-    up_km, down_km = uphill_downhill_distance_km(altitude_data, distance_data)
-    res['uphill_distance'] = up_km
-    res['downhill_distance'] = down_km
+    res  ['max_altitude']      = int(max(altitude_data)) if altitude_data else 0
+    res  ['max_grade']         = max_grade_percent(altitude_data, distance_data)
+    res  ['total_descent']     = int(session_data['total_descent']) if session_data and session_data.get('total_descent') else int(total_descent(altitude_data))
+    res  ['min_altitude']      = int(min(altitude_data)) if altitude_data else 0
+    up_km, down_km             = uphill_downhill_distance_km(altitude_data, distance_data)
+    res  ['uphill_distance']   = up_km
+    res  ['downhill_distance'] = down_km
     return res

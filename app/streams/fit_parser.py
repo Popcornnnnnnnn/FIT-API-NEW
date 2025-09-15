@@ -1,8 +1,5 @@
 """
-FIT文件解析器
-
-用于解析FIT文件中的records数据，提取各种流数据。
-使用fitparse库进行真实的FIT文件解析。
+FIT 文件解析器（基于 fitparse）：解析记录、计算衍生指标、返回 StreamData。
 """
 
 import base64
@@ -256,4 +253,3 @@ class FitParser:
         
         # 过滤异常值
         return [v if -5000 <= v <= 5000 else 0 for v in vam]
-

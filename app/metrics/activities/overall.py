@@ -5,7 +5,7 @@ from ...core.analytics.altitude import elevation_gain
 from ...core.analytics.training import calculate_training_load, estimate_calories_with_power, estimate_calories_with_heartrate
 
 
-def compute_overall_info(stream_data: Dict[str, Any], session_data: Optional[Dict[str, Any]], athlete: Any) -> Optional[Dict[str, Any]]:
+def compute_overall_info(stream_data: Dict[str, Any], session_data: Optional[Dict[str, Any]], athlete: Any, status: Optional[int] = None) -> Optional[Dict[str, Any]]:
     if not stream_data:
         return None
     res: Dict[str, Any] = {}
@@ -46,7 +46,7 @@ def compute_overall_info(stream_data: Dict[str, Any], session_data: Optional[Dic
         res['training_load'] = calculate_training_load(res['avg_power'], ftp, moving_time)
     else:
         res['training_load'] = None
-    res['status'] = None
+    res['status'] = status 
     if session_data and 'avg_heart_rate' in session_data:
         res['avg_heartrate'] = int(session_data['avg_heart_rate'])
     elif 'heart_rate' in stream_data:
