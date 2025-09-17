@@ -161,6 +161,18 @@ class SegmentRecord(BaseModel):
     improvement: Optional[Union[int, float]] = Field(None, description="提升值")
 
 
+class BestPowerResponse(BaseModel):
+    """最佳功率响应"""
+    best_powers: Dict[str, int] = Field(..., description="各时间窗最佳功率，键如 5s/1min/20min 等")
+
+
+class BestPowerCurveRecord(BaseModel):
+    """运动员全局最佳功率曲线（逐秒）。"""
+    athlete_id: int = Field(..., description="运动员ID（本地）")
+    length: int = Field(..., description="曲线长度（秒）")
+    best_curve: List[int] = Field(..., description="每秒最佳平均功率数组")
+
+
 class AllActivityDataResponse(BaseModel):
     """活动所有数据响应"""
     overall: Optional[OverallResponse] = Field(None, description="总体信息")
@@ -175,8 +187,4 @@ class AllActivityDataResponse(BaseModel):
     best_powers: Optional[Dict[str, int]] = Field(None, description="最佳功率信息")
     streams: Optional[List[Dict[str, Any]]] = Field(None, description="流数据，数组格式，每个元素包含type、data、series_type、original_size、resolution字段")
     segment_records: Optional[List[SegmentRecord]] = Field(None, description="分段记录刷新信息")
-
-
-class BestPowerResponse(BaseModel):
-    """最佳功率响应"""
-    best_powers: Dict[str, int] = Field(..., description="各时间窗最佳功率，键如 5s/1min/20min 等")
+    best_power_record: Optional[BestPowerCurveRecord] = Field(None, description="运动员全局最佳功率曲线（逐秒）")

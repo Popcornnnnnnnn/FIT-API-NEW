@@ -59,9 +59,16 @@ def update_best_powers(
         cur1 = getattr(rec, f1)
         cur2 = getattr(rec, f2)
         cur3 = getattr(rec, f3)
+        cur1a = getattr(rec, f1a)
+        cur2a = getattr(rec, f2a)
+        cur3a = getattr(rec, f3a)
 
         rank = 0
         prev = None
+
+        # 若该活动已在该时间窗的任一排名中，占位，则跳过该时间窗，避免重复请求将同一活动写入多个名次
+        if cur1a == activity_id_for_record or cur2a == activity_id_for_record or cur3a == activity_id_for_record:
+            continue
 
         if cur1 is None or value > (cur1 or 0):
             # shift down 1->2, 2->3
@@ -101,3 +108,100 @@ def update_best_powers(
 
     db.commit()
     return segment_records
+
+
+def _update_top3_single_metric(
+    db: Session,
+    rec: TbAthletePowerRecords,
+    base_field: str,
+    value: int,
+    activity_id_for_record: int,
+    record_type: str,
+    unit: str,
+    segment_name: str,
+) -> Optional[Dict[str, object]]:
+    """通用的单指标 Top3 更新：如最长骑行、最大爬升。
+
+    返回发生更新时的 segment_record 字典；否则返回 None。
+    """
+    f1 = f"{base_field}_1st"
+    f1a = f"{base_field}_1st_activity_id"
+    f2 = f"{base_field}_2nd"
+    f2a = f"{base_field}_2nd_activity_id"
+    f3 = f"{base_field}_3rd"
+    f3a = f"{base_field}_3rd_activity_id"
+
+    cur1 = getattr(rec, f1)
+    cur2 = getattr(rec, f2)
+    cur3 = getattr(rec, f3)
+
+    rank = 0
+    prev = None
+
+    if cur1 is None or value > (cur1 or 0):
+        setattr(rec, f3, cur2)
+        setattr(rec, f3a, getattr(rec, f2a))
+        setattr(rec, f2, cur1)
+        setattr(rec, f2a, getattr(rec, f1a))
+        prev = cur1
+        setattr(rec, f1, value)
+        setattr(rec, f1a, activity_id_for_record)
+        rank = 1
+    elif cur2 is None or value > (cur2 or 0):
+        setattr(rec, f3, cur2)
+        setattr(rec, f3a, getattr(rec, f2a))
+        prev = cur2
+        setattr(rec, f2, value)
+        setattr(rec, f2a, activity_id_for_record)
+        rank = 2
+    elif cur3 is None or value > (cur3 or 0):
+        prev = cur3
+        setattr(rec, f3, value)
+        setattr(rec, f3a, activity_id_for_record)
+        rank = 3
+
+    if rank > 0:
+        improvement = (value - prev) if prev is not None else value
+        return {
+            'segment_name': segment_name,
+            'current_value': value,
+            'rank': rank,
+            'activity_id': activity_id_for_record,
+            'record_type': record_type,
+            'unit': unit,
+            'previous_record': prev,
+            'improvement': improvement,
+        }
+    return None
+
+
+def update_longest_ride(
+    db: Session,
+    athlete_id: int,
+    distance_m: int,
+    activity_id_for_record: int,
+) -> Optional[Dict[str, object]]:
+    """更新最长骑行距离 Top3（单位：公里，四舍五入到整数公里）。"""
+    rec = get_or_create_records(db, athlete_id)
+    km = int(round((distance_m or 0) / 1000.0))
+    sr = _update_top3_single_metric(
+        db, rec, 'longest_ride', km, activity_id_for_record, 'distance', 'km', 'longest_ride'
+    )
+    db.commit()
+    return sr
+
+
+def update_max_elevation_gain(
+    db: Session,
+    athlete_id: int,
+    elevation_gain_m: int,
+    activity_id_for_record: int,
+) -> Optional[Dict[str, object]]:
+    """更新最大累计爬升 Top3（单位：米）。"""
+    rec = get_or_create_records(db, athlete_id)
+    meters = int(elevation_gain_m or 0)
+    sr = _update_top3_single_metric(
+        db, rec, 'max_elevation', meters, activity_id_for_record, 'elevation', 'm', 'max_elevation_gain'
+    )
+    db.commit()
+    return sr

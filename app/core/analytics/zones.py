@@ -80,3 +80,40 @@ def analyze_heartrate_zones(hr_data: List[int], max_hr: int) -> List[Dict[str, A
         })
     return out
 
+
+def analyze_heartrate_zones_lthr(hr_data: List[int], lthr: int) -> List[Dict[str, Any]]:
+    """基于阈值心率（LTHR）的心率分区：
+    Z1: <85% LTHR, Z2: 85–89%, Z3: 90–94%, Z4: 95–99%, Z5: ≥100%.
+    """
+    if not hr_data or lthr <= 0:
+        return []
+    zones = [
+        (0, int(lthr * 0.85)),
+        (int(lthr * 0.85), int(lthr * 0.90)),
+        (int(lthr * 0.90), int(lthr * 0.95)),
+        (int(lthr * 0.95), int(lthr * 1.00)),
+        (int(lthr * 1.00), float('inf')),
+    ]
+    zone_times = defaultdict(int)
+    valid = 0
+    for h in hr_data:
+        if h is None or h <= 0:
+            continue
+        valid += 1
+        for i, (mn, mx) in enumerate(zones):
+            if mn <= h < mx:
+                zone_times[i] += 1
+                break
+        else:
+            if h >= zones[-1][1]:
+                zone_times[len(zones) - 1] += 1
+    out = []
+    for i, (mn, mx) in enumerate(zones):
+        t = zone_times[i]
+        out.append({
+            'min': mn,
+            'max': -1 if mx == float('inf') else mx,
+            'time': format_time(t),
+            'percentage': _percentage(t, valid),
+        })
+    return out

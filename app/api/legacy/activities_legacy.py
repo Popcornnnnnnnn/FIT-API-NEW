@@ -59,7 +59,27 @@ async def get_activity_zones(
             zone_type = "power"
         elif key in (ZoneType.HEARTRATE, ZoneType.HEART_RATE):
             hr_data = stream_data.get('heart_rate', [])
-            distribution_buckets = ZoneAnalyzer.analyze_heartrate_zones(hr_data, athlete.max_heartrate)
+            # 若启用阈值心率，则按 LTHR 分区；否则按最大心率分区
+            try:
+                use_threshold = int(getattr(athlete, 'is_threshold_active', 0) or 0) == 1
+            except Exception:
+                use_threshold = False
+            lthr = None
+            if use_threshold and getattr(athlete, 'threshold_heartrate', None):
+                try:
+                    lthr = int(athlete.threshold_heartrate)
+                except Exception:
+                    lthr = None
+            max_hr = None
+            if getattr(athlete, 'max_heartrate', None):
+                try:
+                    max_hr = int(athlete.max_heartrate)
+                except Exception:
+                    max_hr = None
+            if use_threshold and lthr:
+                distribution_buckets = ZoneAnalyzer.analyze_heartrate_zones_lthr(hr_data, lthr)
+            else:
+                distribution_buckets = ZoneAnalyzer.analyze_heartrate_zones(hr_data, max_hr or 0)
             zone_type = "heartrate"
         else:
             distribution_buckets = []

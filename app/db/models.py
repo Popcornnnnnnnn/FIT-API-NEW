@@ -22,6 +22,9 @@ class TbAthlete(Base):
 
     id            = Column(BIGINT, primary_key=True, index=True)
     max_heartrate = Column(Integer)
+    # 新增：阈值心率与是否启用阈值分区
+    threshold_heartrate = Column(Integer)
+    is_threshold_active = Column(Integer, default=0)
     ftp           = Column(VARCHAR(255))
     w_balance     = Column(Integer)
     weight        = Column(Integer)

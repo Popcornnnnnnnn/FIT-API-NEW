@@ -235,10 +235,29 @@ def analyze_zones(activity_data: Dict[str, Any], stream_data: Dict[str, Any], ex
             buckets = _zones.analyze_power_zones(pd, ftp)
             if buckets:
                 zones_data.append({'distribution_buckets': buckets, 'type': 'power'})
-        if 'heartrate' in stream_data and getattr(athlete, 'max_heartrate', None):
-            mhr = int(athlete.max_heartrate)
+        if 'heartrate' in stream_data:
+            # 选择心率分区基准：若启用阈值且存在阈值，则采用 LTHR 分区，否则用最大心率分区
+            try:
+                use_threshold = int(getattr(athlete, 'is_threshold_active', 0) or 0) == 1
+            except Exception:
+                use_threshold = False
+            lthr = None
+            max_hr = None
+            if use_threshold and getattr(athlete, 'threshold_heartrate', None):
+                try:
+                    lthr = int(athlete.threshold_heartrate)
+                except Exception:
+                    lthr = None
+            if getattr(athlete, 'max_heartrate', None):
+                try:
+                    max_hr = int(athlete.max_heartrate)
+                except Exception:
+                    max_hr = None
             hd = [h if h is not None else 0 for h in stream_data.get('heartrate', {}).get('data', [])]
-            buckets = _zones.analyze_heartrate_zones(hd, mhr)
+            if use_threshold and lthr:
+                buckets = _zones.analyze_heartrate_zones_lthr(hd, lthr)
+            else:
+                buckets = _zones.analyze_heartrate_zones(hd, max_hr or 0)
             if buckets:
                 zones_data.append({'distribution_buckets': buckets, 'type': 'heartrate'})
         return zones_data or None

@@ -39,7 +39,45 @@ class ActivityService:
                 'time', 'distance', 'latlng', 'altitude', 'velocity_smooth',
                 'heartrate', 'cadence', 'watts', 'temp', 'moving', 'grade_smooth'
             ]
-            full = client.fetch_full(activity_id, keys=keys_list_all, resolution=None)
+            # 尝试将本地活动ID映射为 Strava external_id，再调用 Strava
+            strava_id = activity_id
+            try:
+                from ..db.models import TbActivity
+                local = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
+                if local and getattr(local, 'external_id', None):
+                    try:
+                        strava_id = int(str(local.external_id))
+                        logger.debug("[strava-id-map] local activity %s -> external_id %s", activity_id, strava_id)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            try:
+                full = client.fetch_full(strava_id, keys=keys_list_all, resolution=None)
+            except Exception as e:
+                # 统一转译为 HTTP 异常，便于路由返回明确信息
+                try:
+                    from ..clients.strava_client import StravaApiError
+                    from fastapi import HTTPException
+                except Exception:
+                    StravaApiError = None  # type: ignore
+                    HTTPException = Exception  # type: ignore
+
+                if StravaApiError and isinstance(e, StravaApiError):
+                    # 如果是 404，提示更明确的原因
+                    if e.status_code == 404:
+                        # 若当前 strava_id 就是传入 activity_id，提示可能传了本地ID
+                        if strava_id == activity_id:
+                            raise HTTPException(status_code=404, detail="Strava 活动不存在或无权限访问（404）。请确认传入的是 Strava 活动ID，或在本地活动上绑定 external_id 后重试。")
+                        else:
+                            raise HTTPException(status_code=404, detail="Strava 活动不存在或无权限访问（404）。external_id 无效或不可访问。")
+                    else:
+                        raise HTTPException(status_code=e.status_code, detail=f"Strava API 错误: {e.message}")
+                else:
+                    from fastapi import HTTPException
+                    raise HTTPException(status_code=500, detail=f"调用 Strava 失败: {str(e)}")
+
             activity_data = full['activity']
             stream_data = full['streams']
             athlete_data = full['athlete']
@@ -92,6 +130,24 @@ class ActivityService:
                     if result.overall is not None:
                         result.overall.status = tsb
                         result.overall.training_load = tl
+                # 附加 best_power_record（独立于分辨率）
+                try:
+                    from ..db.models import TbActivity
+                    from ..repositories.best_power_file_repo import load_best_curve
+                    # 尝试用 external_id 反查本地 athlete_id
+                    best_power_record = None
+                    local = db.query(TbActivity).filter(TbActivity.external_id == str(strava_id)).first()
+                    if local and getattr(local, 'athlete_id', None):
+                        curve = load_best_curve(int(local.athlete_id))
+                        if curve:
+                            best_power_record = {
+                                'athlete_id': int(local.athlete_id),
+                                'length': len(curve),
+                                'best_curve': curve,
+                            }
+                    result.best_power_record = best_power_record
+                except Exception:
+                    result.best_power_record = None
             except Exception:
                 pass
             return result
@@ -173,13 +229,36 @@ class ActivityService:
             logger.error(f"streams error: {e}")
             response_data["streams"] = None
 
-        # best powers (local path)
+        # best powers + segment_records（本地路径，封装到独立方法）
         try:
             stream_raw = activity_data_manager.get_activity_stream_data(db, activity_id)
             bp = self._extract_best_powers_from_stream(stream_raw)
             response_data["best_powers"] = bp if bp else None
+            response_data["segment_records"] = self._update_segment_records_from_local(db, activity_id, stream_raw, bp)
         except Exception:
             response_data["best_powers"] = None
+            response_data["segment_records"] = None
+
+        # best_power_record（独立于分辨率，从文件仓库读取）
+        try:
+            from ..repositories.activity_repo import get_activity_athlete
+            from ..repositories.best_power_file_repo import load_best_curve
+            pair = get_activity_athlete(db, activity_id)
+            if pair:
+                _activity, athlete = pair
+                curve = load_best_curve(int(athlete.id))
+                if curve:
+                    response_data["best_power_record"] = {
+                        'athlete_id': int(athlete.id),
+                        'length': len(curve),
+                        'best_curve': curve,
+                    }
+                else:
+                    response_data["best_power_record"] = None
+            else:
+                response_data["best_power_record"] = None
+        except Exception:
+            response_data["best_power_record"] = None
 
         return AllActivityDataResponse(**response_data)
 
@@ -206,8 +285,177 @@ class ActivityService:
         activity, athlete = pair
         stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
         hr = stream_data.get('heart_rate', [])
-        buckets = ZoneAnalyzer.analyze_heartrate_zones(hr, athlete.max_heartrate)
+        # 根据配置选择心率分区基准：阈值心率优先（is_threshold_active=1 且阈值存在），否则用最大心率
+        try:
+            use_threshold = int(getattr(athlete, 'is_threshold_active', 0) or 0) == 1
+        except Exception:
+            use_threshold = False
+        lthr = None
+        if use_threshold and getattr(athlete, 'threshold_heartrate', None):
+            try:
+                lthr = int(athlete.threshold_heartrate)
+            except Exception:
+                lthr = None
+        max_hr = None
+        if getattr(athlete, 'max_heartrate', None):
+            try:
+                max_hr = int(athlete.max_heartrate)
+            except Exception:
+                max_hr = None
+        if use_threshold and lthr:
+            buckets = ZoneAnalyzer.analyze_heartrate_zones_lthr(hr, lthr)
+        else:
+            buckets = ZoneAnalyzer.analyze_heartrate_zones(hr, max_hr or 0)
         return {"distribution_buckets": buckets, "type": "heartrate"}
+
+    def _update_segment_records_from_local(
+        self,
+        db: Session,
+        activity_id: int,
+        stream_raw: Dict[str, Any],
+        best_powers: Optional[Dict[str, int]],
+    ) -> Optional[List[Dict[str, Any]]]:
+        """基于本地 FIT 流与历史纪录（tb_athlete_power_records）刷新分段纪录。
+
+        - 读取运动员在 tb_athlete_power_records 的历史 Top3；
+        - 对比 best_powers、最长距离、最大爬升并写库更新；
+        - 返回本次进入 Top3 的刷新列表（供 segment_records 返回）。
+        """
+        try:
+            if not best_powers:
+                return None
+            from ..repositories.activity_repo import get_activity_athlete
+            from ..repositories.power_records_repo import (
+                update_best_powers as repo_update_best_powers,
+                update_longest_ride as repo_update_longest_ride,
+                update_max_elevation_gain as repo_update_max_elevation_gain,
+                get_or_create_records as repo_get_or_create_records,
+            )
+            from ..repositories.best_power_file_repo import update_with_activity_curve as repo_update_best_power_file
+            pair = get_activity_athlete(db, activity_id)
+            if not pair:
+                return None
+            activity, athlete = pair
+
+            # 归一化时间窗键到 repo 支持的格式
+            key_map = {
+                '5s': '5s', '15s': '15s', '30s': '30s',
+                '1min': '1m', '2min': '2m', '3min': '3m', '5min': '5m',
+                '10min': '10m', '15min': '15m', '20min': '20m', '30min': '30m',
+                '45min': '45m', '1h': '60m'
+            }
+            normalized = { key_map[k]: v for k, v in best_powers.items() if k in key_map }
+
+            # 调试：记录更新前 Top3 快照（功率/距离/爬升）
+            try:
+                rec_snapshot = repo_get_or_create_records(db, athlete.id)
+                # 仅对将要处理的时间窗打印
+                for suf in sorted(normalized.keys()):
+                    f1 = f"power_{suf}_1st"; f2 = f"power_{suf}_2nd"; f3 = f"power_{suf}_3rd"
+                    logger.info(
+                        "[segment-debug][before] athlete=%s interval=%s top3=(%s,%s,%s)",
+                        athlete.id, suf, getattr(rec_snapshot, f1), getattr(rec_snapshot, f2), getattr(rec_snapshot, f3)
+                    )
+                logger.info(
+                    "[segment-debug][before] athlete=%s longest_ride=(%s,%s,%s) max_elev=(%s,%s,%s)",
+                    athlete.id,
+                    getattr(rec_snapshot, 'longest_ride_1st'), getattr(rec_snapshot, 'longest_ride_2nd'), getattr(rec_snapshot, 'longest_ride_3rd'),
+                    getattr(rec_snapshot, 'max_elevation_1st'), getattr(rec_snapshot, 'max_elevation_2nd'), getattr(rec_snapshot, 'max_elevation_3rd'),
+                )
+            except Exception:
+                pass
+
+            seg_records: List[Dict[str, Any]] = []
+            try:
+                sr_list = repo_update_best_powers(db, athlete.id, normalized, activity.id)
+                if sr_list:
+                    seg_records.extend(sr_list)
+            except Exception:
+                pass
+
+            # 文件持久化：更新该运动员全局最佳曲线
+            try:
+                # 优先使用 best_power 流，其次按 power 计算
+                activity_curve = None
+                try:
+                    best_curve_stream = stream_raw.get('best_power') or []
+                    if best_curve_stream:
+                        # stream 的 best_power 可能按 1..N 下标对齐
+                        activity_curve = [int(x or 0) for x in best_curve_stream]
+                except Exception:
+                    activity_curve = None
+                if activity_curve is None:
+                    power = stream_raw.get('power') or []
+                    if power:
+                        activity_curve = self._compute_best_power_curve([int(p or 0) for p in power])
+                if activity_curve:
+                    repo_update_best_power_file(athlete.id, activity_curve)
+            except Exception:
+                pass
+
+            # 距离与累计爬升
+            distance_m = 0
+            try:
+                dist_stream = stream_raw.get('distance') or []
+                if dist_stream:
+                    distance_m = int(dist_stream[-1] or 0)
+            except Exception:
+                distance_m = 0
+
+            elevation_gain = 0
+            try:
+                alt = stream_raw.get('altitude') or []
+                if alt and len(alt) > 1:
+                    prev = alt[0]
+                    gain = 0
+                    for h in alt[1:]:
+                        if h is not None and prev is not None:
+                            d = h - prev
+                            if d > 0:
+                                gain += d
+                            prev = h
+                    elevation_gain = int(gain)
+            except Exception:
+                elevation_gain = 0
+
+            try:
+                if distance_m > 0:
+                    sr = repo_update_longest_ride(db, athlete.id, distance_m, activity.id)
+                    if sr:
+                        seg_records.append(sr)
+            except Exception:
+                pass
+            try:
+                if elevation_gain > 0:
+                    sr = repo_update_max_elevation_gain(db, athlete.id, elevation_gain, activity.id)
+                    if sr:
+                        seg_records.append(sr)
+            except Exception:
+                pass
+
+            # 调试：打印本次刷新明细与更新后 Top3 快照
+            try:
+                if seg_records:
+                    logger.debug("[segment-debug][applied] updates=%s", seg_records)
+                rec_after = repo_get_or_create_records(db, athlete.id)
+                for suf in sorted(normalized.keys()):
+                    f1 = f"power_{suf}_1st"; f2 = f"power_{suf}_2nd"; f3 = f"power_{suf}_3rd"
+                    logger.debug(
+                        "[segment-debug][after ] athlete=%s interval=%s top3=(%s,%s,%s)",
+                        athlete.id, suf, getattr(rec_after, f1), getattr(rec_after, f2), getattr(rec_after, f3)
+                    )
+                logger.debug(
+                    "[segment-debug][after ] athlete=%s longest_ride=(%s,%s,%s) max_elev=(%s,%s,%s)",
+                    athlete.id,
+                    getattr(rec_after, 'longest_ride_1st'), getattr(rec_after, 'longest_ride_2nd'), getattr(rec_after, 'longest_ride_3rd'),
+                    getattr(rec_after, 'max_elevation_1st'), getattr(rec_after, 'max_elevation_2nd'), getattr(rec_after, 'max_elevation_3rd'),
+                )
+            except Exception:
+                pass
+
+            return seg_records or None
+        except Exception:
+            return None
 
     def _upsert_activity_tss(
         self,
