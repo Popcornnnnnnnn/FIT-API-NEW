@@ -156,35 +156,43 @@ class ActivityService:
         response_data = {}
         try:
             response_data["overall"] = self.get_overall(db, activity_id)
-        except Exception:
+        except Exception as e:
+            logger.exception("[section-error][overall] activity_id=%s err=%s", activity_id, e)
             response_data["overall"] = None
         try:
             response_data["power"] = self.get_power(db, activity_id)
-        except Exception:
+        except Exception as e:
+            logger.exception("[section-error][power] activity_id=%s err=%s", activity_id, e)
             response_data["power"] = None
         try:
             response_data["heartrate"] = self.get_heartrate(db, activity_id)
-        except Exception:
+        except Exception as e:
+            logger.exception("[section-error][heartrate] activity_id=%s err=%s", activity_id, e)
             response_data["heartrate"] = None
         try:
             response_data["cadence"] = self.get_cadence(db, activity_id)
-        except Exception:
+        except Exception as e:
+            logger.exception("[section-error][cadence] activity_id=%s err=%s", activity_id, e)
             response_data["cadence"] = None
         try:
             response_data["speed"] = self.get_speed(db, activity_id)
-        except Exception:
+        except Exception as e:
+            logger.exception("[section-error][speed] activity_id=%s err=%s", activity_id, e)
             response_data["speed"] = None
         try:
             response_data["training_effect"] = self.get_training_effect(db, activity_id)
-        except Exception:
+        except Exception as e:
+            logger.exception("[section-error][training_effect] activity_id=%s err=%s", activity_id, e)
             response_data["training_effect"] = None
         try:
             response_data["altitude"] = self.get_altitude(db, activity_id)
-        except Exception:
+        except Exception as e:
+            logger.exception("[section-error][altitude] activity_id=%s err=%s", activity_id, e)
             response_data["altitude"] = None
         try:
             response_data["temp"] = self.get_temperature(db, activity_id)
-        except Exception:
+        except Exception as e:
+            logger.exception("[section-error][temp] activity_id=%s err=%s", activity_id, e)
             response_data["temp"] = None
 
         # zones
@@ -193,13 +201,15 @@ class ActivityService:
             pz = self._compute_power_zones(db, activity_id)
             if pz:
                 zones_data.append(ZoneData(**pz))
-        except Exception:
+        except Exception as e:
+            logger.exception("[section-error][zones-power] activity_id=%s err=%s", activity_id, e)
             pass
         try:
             hz = self._compute_heartrate_zones(db, activity_id)
             if hz:
                 zones_data.append(ZoneData(**hz))
-        except Exception:
+        except Exception as e:
+            logger.exception("[section-error][zones-hr] activity_id=%s err=%s", activity_id, e)
             pass
         response_data["zones"] = zones_data if zones_data else None
 
@@ -226,7 +236,7 @@ class ActivityService:
             else:
                 response_data["streams"] = None
         except Exception as e:
-            logger.error(f"streams error: {e}")
+            logger.exception("[section-error][streams] activity_id=%s err=%s", activity_id, e)
             response_data["streams"] = None
 
         # best powers + segment_records（本地路径，封装到独立方法）
@@ -235,7 +245,8 @@ class ActivityService:
             bp = self._extract_best_powers_from_stream(stream_raw)
             response_data["best_powers"] = bp if bp else None
             response_data["segment_records"] = self._update_segment_records_from_local(db, activity_id, stream_raw, bp)
-        except Exception:
+        except Exception as e:
+            logger.exception("[section-error][segments] activity_id=%s err=%s", activity_id, e)
             response_data["best_powers"] = None
             response_data["segment_records"] = None
 
@@ -257,7 +268,8 @@ class ActivityService:
                     response_data["best_power_record"] = None
             else:
                 response_data["best_power_record"] = None
-        except Exception:
+        except Exception as e:
+            logger.exception("[section-error][best_power_record] activity_id=%s err=%s", activity_id, e)
             response_data["best_power_record"] = None
 
         return AllActivityDataResponse(**response_data)

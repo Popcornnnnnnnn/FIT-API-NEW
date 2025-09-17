@@ -20,3 +20,4 @@
 - 2025-09-15 第12轮：修复模式定义顺序导致的 NameError，将 BestPowerCurveRecord 提前定义并在 AllActivityDataResponse 中引用。
 - 2025-09-15 第13轮：输出本次整体对话与改动要点的简要汇总。
 - 2025-09-17 第14轮：支持阈值心率分区。新增 tb_athlete.threshold_heartrate/is_threshold_active 模型字段；新增 LTHR 分区函数（app/core/analytics/zones.py: analyze_heartrate_zones_lthr，Z1<85%、Z2 85–89%、Z3 90–94%、Z4 95–99%、Z5≥100%）；在 zones 计算中（app/services/activity_service.py、app/api/legacy/activities_legacy.py、app/analyzers/strava/metrics.py）优先按阈值心率分区（is_threshold_active=1 且阈值存在），否则按最大心率，向下兼容并做空值回退。
+- 2025-09-17 第15轮：增加错误日志定位。为本地聚合各分项与 zones/streams/segments/best_power_record 增加 [section-error] 日志（含 activity_id 与堆栈）；仓储层对活动/运动员查询增加 [db-error] 日志，便于快速定位数据库列缺失（1054）等问题。
