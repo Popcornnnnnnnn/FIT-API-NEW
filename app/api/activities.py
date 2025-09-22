@@ -9,7 +9,7 @@ import logging
 import os
 
 from ..utils import get_db
-from ..schemas.activities import AllActivityDataResponse
+from ..schemas.activities import AllActivityDataResponse, IntervalsResponse
 from ..config import is_cache_enabled
 
 logger = logging.getLogger(__name__)
@@ -71,6 +71,37 @@ async def get_activity_all_data(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+
+
+@router.get("/{activity_id}/intervals", response_model=IntervalsResponse)
+async def get_activity_intervals(
+    activity_id: int,
+    access_token: Optional[str] = Query(None, description="Strava API访问令牌，可选"),
+    ftp: Optional[float] = Query(None, description="覆盖默认 FTP，用于区间检测"),
+    lthr: Optional[float] = Query(None, description="覆盖默认阈值心率"),
+    hr_max: Optional[float] = Query(None, description="覆盖默认最大心率"),
+    db: Session = Depends(get_db),
+):
+    try:
+        from ..services.activity_service import activity_service
+
+        intervals = activity_service.get_intervals(
+            db,
+            activity_id,
+            access_token=access_token,
+            ftp_override=ftp,
+            lthr_override=lthr,
+            hr_max_override=hr_max,
+            preview_dir="artifacts/Pics",
+        )
+
+        if not intervals:
+            raise HTTPException(status_code=404, detail="未能生成区间数据，请确认活动及 FTP 信息是否有效")
+        return intervals
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"生成区间数据时发生错误: {str(e)}")
 
 
 @router.delete("/cache/{activity_id}")

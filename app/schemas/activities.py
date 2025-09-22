@@ -173,6 +173,37 @@ class BestPowerCurveRecord(BaseModel):
     best_curve: List[int] = Field(..., description="每秒最佳平均功率数组")
 
 
+class IntervalItem(BaseModel):
+    """单个区间的统计信息"""
+
+    start: int = Field(..., description="区间起点（秒）")
+    end: int = Field(..., description="区间终点（秒，开区间）")
+    duration: int = Field(..., description="持续时间（秒）")
+    classification: str = Field(..., description="区间分类，如 sprint/vo2max 等")
+    average_power: float = Field(..., description="区间平均功率")
+    peak_power: float = Field(..., description="区间峰值功率")
+    normalized_power: float = Field(..., description="区间标准化功率")
+    intensity_factor: float = Field(..., description="区间强度因子")
+    power_ratio: float = Field(..., description="平均功率与 FTP 的比值")
+    time_above_95: float = Field(..., description="功率超过 95% FTP 的时间占比")
+    time_above_106: float = Field(..., description="功率超过 106% FTP 的时间占比")
+    time_above_120: float = Field(..., description="功率超过 120% FTP 的时间占比")
+    time_above_150: float = Field(..., description="功率超过 150% FTP 的时间占比")
+    heart_rate_avg: Optional[float] = Field(None, description="区间平均心率")
+    heart_rate_max: Optional[int] = Field(None, description="区间最大心率")
+    heart_rate_slope: Optional[float] = Field(None, description="心率斜率（bpm / s）")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="附加信息")
+
+
+class IntervalsResponse(BaseModel):
+    """活动区间识别结果"""
+
+    duration: int = Field(..., description="活动总时长（秒）")
+    ftp: float = Field(..., description="用于计算的 FTP")
+    items: List[IntervalItem] = Field(..., description="区间详情列表")
+    preview_image: Optional[str] = Field(None, description="预览图路径（相对于项目根目录）")
+
+
 class AllActivityDataResponse(BaseModel):
     """活动所有数据响应"""
     overall: Optional[OverallResponse] = Field(None, description="总体信息")
@@ -188,3 +219,4 @@ class AllActivityDataResponse(BaseModel):
     streams: Optional[List[Dict[str, Any]]] = Field(None, description="流数据，数组格式，每个元素包含type、data、series_type、original_size、resolution字段")
     segment_records: Optional[List[SegmentRecord]] = Field(None, description="分段记录刷新信息")
     best_power_record: Optional[BestPowerCurveRecord] = Field(None, description="运动员全局最佳功率曲线（逐秒）")
+    intervals: Optional[IntervalsResponse] = Field(None, description="区间识别结果")

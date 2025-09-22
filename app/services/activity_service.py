@@ -6,18 +6,26 @@
 - 暴露 get_overall/get_power/... 单项装配方法，便于路由端直接复用。
 """
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple, Sequence
 from datetime import datetime
 from sqlalchemy.orm import Session
 import logging
+from pathlib import Path
+from bisect import bisect_left
 
 from ..clients.strava_client import StravaClient
-from ..schemas.activities import AllActivityDataResponse, ZoneData
+from ..schemas.activities import AllActivityDataResponse, ZoneData, IntervalsResponse, IntervalItem
 from ..streams.crud import stream_crud
 from ..streams.models import Resolution
 from ..infrastructure.data_manager import activity_data_manager
 from ..analyzers.strava_analyzer import StravaAnalyzer
 from ..core.analytics import zones as ZoneAnalyzer
+from ..core.analytics.interval_detection import (
+    detect_intervals,
+    render_interval_preview,
+    summarize_window,
+    IntervalSummary,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -41,6 +49,7 @@ class ActivityService:
             ]
             # 尝试将本地活动ID映射为 Strava external_id，再调用 Strava
             strava_id = activity_id
+            athlete_obj = None
             try:
                 from ..db.models import TbActivity
                 local = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
@@ -50,6 +59,14 @@ class ActivityService:
                         logger.debug("[strava-id-map] local activity %s -> external_id %s", activity_id, strava_id)
                     except Exception:
                         pass
+                    if getattr(local, 'athlete_id', None):
+                        from ..repositories.activity_repo import get_activity_athlete
+                        try:
+                            pair_local = get_activity_athlete(db, activity_id)
+                            if pair_local:
+                                _, athlete_obj = pair_local
+                        except Exception:
+                            athlete_obj = None
             except Exception:
                 pass
 
@@ -148,6 +165,31 @@ class ActivityService:
                     result.best_power_record = best_power_record
                 except Exception:
                     result.best_power_record = None
+                try:
+                    power_series, timestamps, heart_rate_series = self._extract_series_from_streams(stream_data)
+                    ftp_value, lthr_value, hr_max_value = self._resolve_thresholds(
+                        athlete_obj,
+                        athlete_payload=athlete_data,
+                        activity_payload=activity_data,
+                    )
+                    if power_series and ftp_value and ftp_value > 0:
+                        preview_file = self._build_preview_path(
+                            None,
+                            default_name=f"interval_preview_strava_{strava_id}.png",
+                        )
+                        intervals_resp = self._build_interval_response(
+                            power_series,
+                            timestamps,
+                            heart_rate_series,
+                            ftp_value,
+                            lthr_value,
+                            hr_max_value,
+                            preview_file,
+                        )
+                        result.intervals = intervals_resp
+                except Exception:
+                    logger.exception("[section-error][intervals-strava] activity_id=%s", activity_id)
+                    pass
             except Exception:
                 pass
             return result
@@ -271,6 +313,12 @@ class ActivityService:
         except Exception as e:
             logger.exception("[section-error][best_power_record] activity_id=%s err=%s", activity_id, e)
             response_data["best_power_record"] = None
+
+        try:
+            response_data["intervals"] = self.get_intervals(db, activity_id)
+        except Exception as e:
+            logger.exception("[section-error][intervals] activity_id=%s err=%s", activity_id, e)
+            response_data["intervals"] = None
 
         return AllActivityDataResponse(**response_data)
 
@@ -708,6 +756,35 @@ class ActivityService:
         session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         return compute_power_info(stream_data, int(athlete.ftp), session_data)
 
+    def get_intervals(
+        self,
+        db: Session,
+        activity_id: int,
+        access_token: Optional[str] = None,
+        ftp_override: Optional[float] = None,
+        lthr_override: Optional[float] = None,
+        hr_max_override: Optional[float] = None,
+        preview_dir: Optional[str] = None,
+    ) -> Optional[IntervalsResponse]:
+        if access_token:
+            return self._get_intervals_from_strava(
+                db,
+                activity_id,
+                access_token,
+                ftp_override=ftp_override,
+                lthr_override=lthr_override,
+                hr_max_override=hr_max_override,
+                preview_dir=preview_dir,
+            )
+        return self._get_intervals_from_local(
+            db,
+            activity_id,
+            ftp_override=ftp_override,
+            lthr_override=lthr_override,
+            hr_max_override=hr_max_override,
+            preview_dir=preview_dir,
+        )
+
     def get_heartrate(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
         from ..metrics.activities.heartrate import compute_heartrate_info
         from ..repositories.activity_repo import get_activity_athlete
@@ -807,6 +884,334 @@ class ActivityService:
             'training_load': tss,
             'carbohydrate_consumption': carbohydrate,
         }
+
+    def _get_intervals_from_local(
+        self,
+        db: Session,
+        activity_id: int,
+        ftp_override: Optional[float] = None,
+        lthr_override: Optional[float] = None,
+        hr_max_override: Optional[float] = None,
+        preview_dir: Optional[str] = None,
+    ) -> Optional[IntervalsResponse]:
+        from ..repositories.activity_repo import get_activity_athlete
+
+        pair = get_activity_athlete(db, activity_id)
+        if not pair:
+            return None
+        activity, athlete = pair
+        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        if not stream_data:
+            return None
+
+        power_series = stream_data.get('power') or []
+        if not power_series:
+            return None
+        timestamps = stream_data.get('timestamp') or list(range(len(power_series)))
+        heart_rate_series = stream_data.get('heart_rate') or None
+
+        ftp_value, lthr_value, hr_max_value = self._resolve_thresholds(
+            athlete,
+            ftp_override=ftp_override,
+            lthr_override=lthr_override,
+            hr_max_override=hr_max_override,
+        )
+        if not ftp_value or ftp_value <= 0:
+            return None
+
+        preview_file = self._build_preview_path(
+            preview_dir,
+            default_name=f"interval_preview_{activity_id}.png",
+        )
+
+        return self._build_interval_response(
+            power_series,
+            timestamps,
+            heart_rate_series,
+            ftp_value,
+            lthr_value,
+            hr_max_value,
+            preview_file,
+        )
+
+    def _get_intervals_from_strava(
+        self,
+        db: Session,
+        activity_id: int,
+        access_token: str,
+        ftp_override: Optional[float] = None,
+        lthr_override: Optional[float] = None,
+        hr_max_override: Optional[float] = None,
+        preview_dir: Optional[str] = None,
+    ) -> Optional[IntervalsResponse]:
+        strava_id = activity_id
+        athlete_obj = None
+        try:
+            from ..db.models import TbActivity
+            local = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
+            if local and getattr(local, 'external_id', None):
+                try:
+                    strava_id = int(str(local.external_id))
+                except Exception:
+                    pass
+                if getattr(local, 'athlete_id', None):
+                    from ..repositories.activity_repo import get_activity_athlete
+                    pair = get_activity_athlete(db, activity_id)
+                    if pair:
+                        _, athlete_obj = pair
+        except Exception:
+            athlete_obj = None
+
+        client = StravaClient(access_token)
+        try:
+            keys = ['time', 'elapsed_time', 'watts', 'heartrate']
+            full = client.fetch_full(strava_id, keys=keys, resolution=None)
+        except Exception:
+            return None
+
+        stream_data = full.get('streams') or {}
+        activity_data = full.get('activity') or {}
+        athlete_data = full.get('athlete') or {}
+
+        power_series, timestamps, heart_rate_series = self._extract_series_from_streams(stream_data)
+        if not power_series:
+            return None
+
+        ftp_value, lthr_value, hr_max_value = self._resolve_thresholds(
+            athlete_obj,
+            ftp_override=ftp_override,
+            lthr_override=lthr_override,
+            hr_max_override=hr_max_override,
+            athlete_payload=athlete_data,
+            activity_payload=activity_data,
+        )
+        if not ftp_value or ftp_value <= 0:
+            return None
+
+        preview_file = self._build_preview_path(
+            preview_dir,
+            default_name=f"interval_preview_strava_{strava_id}.png",
+        )
+
+        return self._build_interval_response(
+            power_series,
+            timestamps,
+            heart_rate_series,
+            ftp_value,
+            lthr_value,
+            hr_max_value,
+            preview_file,
+        )
+
+
+    @staticmethod
+    def _locate_index(timeline: List[int], target: int, default: int = 0) -> int:
+        if not timeline:
+            return int(default)
+        target_val = int(target)
+        idx = bisect_left(timeline, target_val)
+        if idx >= len(timeline):
+            return len(timeline)
+        return idx
+
+    @staticmethod
+    def _interval_summary_to_item(
+        summary: IntervalSummary,
+        timeline: List[int],
+        start_override: Optional[int] = None,
+        end_override: Optional[int] = None,
+    ) -> IntervalItem:
+        if timeline:
+            start_idx = max(0, min(int(summary.start), len(timeline) - 1))
+            end_idx = max(start_idx + 1, min(int(summary.end), len(timeline)))
+            start_time = int(start_override) if start_override is not None else int(timeline[start_idx])
+            if end_override is not None:
+                end_time = int(end_override)
+            else:
+                ref_idx = min(end_idx - 1, len(timeline) - 1)
+                end_time = int(timeline[ref_idx] + 1)
+        else:
+            start_time = int(start_override) if start_override is not None else int(summary.start)
+            end_time = int(end_override) if end_override is not None else int(summary.end)
+
+        duration = max(end_time - start_time, int(summary.duration))
+        metadata = summary.metadata or {}
+        cleaned_metadata: Dict[str, Any] = {}
+        for key, value in metadata.items():
+            if isinstance(value, (int, float, bool, str, list, dict)) or value is None:
+                cleaned_metadata[key] = value
+            else:
+                try:
+                    cleaned_metadata[key] = float(value)
+                except Exception:
+                    cleaned_metadata[key] = value
+
+        return IntervalItem(
+            start=start_time,
+            end=end_time,
+            duration=duration,
+            classification=summary.classification,
+            average_power=float(summary.average_power),
+            peak_power=float(summary.peak_power),
+            normalized_power=float(summary.normalized_power),
+            intensity_factor=float(summary.intensity_factor),
+            power_ratio=float(summary.power_ratio),
+            time_above_95=float(summary.time_above_95),
+            time_above_106=float(summary.time_above_106),
+            time_above_120=float(summary.time_above_120),
+            time_above_150=float(summary.time_above_150),
+            heart_rate_avg=float(summary.heart_rate_avg) if summary.heart_rate_avg is not None else None,
+            heart_rate_max=int(summary.heart_rate_max) if summary.heart_rate_max is not None else None,
+            heart_rate_slope=float(summary.heart_rate_slope) if summary.heart_rate_slope is not None else None,
+            metadata=cleaned_metadata,
+        )
+
+    def _build_interval_response(
+        self,
+        power_series: Sequence[int],
+        timestamps: Sequence[int],
+        heart_rate_series: Optional[Sequence[int]],
+        ftp_value: float,
+        lthr_value: Optional[float],
+        hr_max_value: Optional[float],
+        preview_file: Optional[Path],
+    ) -> IntervalsResponse:
+        detection = detect_intervals(
+            timestamps,
+            power_series,
+            ftp_value,
+            heart_rate=heart_rate_series,
+            lthr=lthr_value,
+            hr_max=hr_max_value,
+        )
+
+        timeline = list(timestamps) if isinstance(timestamps, (list, tuple)) else list(timestamps)
+        items: List[IntervalItem] = []
+        for summary in detection.intervals:
+            items.append(self._interval_summary_to_item(summary, timeline))
+
+        if detection.repeats:
+            for block in detection.repeats:
+                start_idx = self._locate_index(timeline, block.start)
+                end_idx = self._locate_index(timeline, block.end, default=len(power_series))
+                repeat_summary = summarize_window(
+                    power_series,
+                    heart_rate_series,
+                    ftp_value,
+                    start_idx,
+                    end_idx,
+                    lthr=lthr_value,
+                    hr_max=hr_max_value,
+                )
+                repeat_summary.classification = block.classification
+                metadata = dict(repeat_summary.metadata)
+                metadata['cycles'] = block.cycles
+                repeat_summary.metadata = metadata
+                items.append(self._interval_summary_to_item(repeat_summary, timeline, block.start, block.end))
+
+        items.sort(key=lambda item: item.start)
+
+        preview_path = None
+        if preview_file is not None and items:
+            preview_file.parent.mkdir(parents=True, exist_ok=True)
+            render_interval_preview(detection, timeline, power_series, str(preview_file))
+            if preview_file.exists():
+                preview_path = str(preview_file)
+
+        return IntervalsResponse(
+            duration=int(detection.duration),
+            ftp=float(detection.ftp),
+            items=items,
+            preview_image=preview_path,
+        )
+
+    @staticmethod
+    def _build_preview_path(preview_dir: Optional[str], default_name: str) -> Optional[Path]:
+        if preview_dir is None:
+            preview_dir = 'artifacts'
+        try:
+            return Path(preview_dir) / default_name
+        except Exception:
+            return None
+
+    @staticmethod
+    def _extract_series_from_streams(stream_data: Dict[str, Any]) -> Tuple[List[int], List[int], Optional[List[int]]]:
+        def _stream_values(key: str) -> List[int]:
+            raw = stream_data.get(key)
+            if isinstance(raw, dict):
+                data = raw.get('data', [])
+            else:
+                data = raw or []
+            return [int(x or 0) for x in data]
+
+        power = _stream_values('watts')
+        timestamps = _stream_values('time')
+        if not timestamps:
+            timestamps = _stream_values('elapsed_time')
+        if not timestamps and power:
+            timestamps = list(range(len(power)))
+        heart_rate_vals = _stream_values('heartrate') if 'heartrate' in stream_data else []
+        heart_rate = heart_rate_vals if heart_rate_vals else None
+        return power, timestamps, heart_rate
+
+    @staticmethod
+    def _resolve_thresholds(
+        athlete: Optional[Any],
+        ftp_override: Optional[float] = None,
+        lthr_override: Optional[float] = None,
+        hr_max_override: Optional[float] = None,
+        athlete_payload: Optional[Dict[str, Any]] = None,
+        activity_payload: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+        ftp_value: Optional[float] = None
+        lthr_value: Optional[float] = None
+        hr_max_value: Optional[float] = None
+
+        if ftp_override and ftp_override > 0:
+            ftp_value = float(ftp_override)
+        elif athlete and getattr(athlete, 'ftp', None):
+            try:
+                ftp_value = float(getattr(athlete, 'ftp'))
+            except Exception:
+                ftp_value = None
+        elif athlete_payload and athlete_payload.get('ftp'):
+            try:
+                ftp_value = float(athlete_payload.get('ftp'))
+            except Exception:
+                ftp_value = None
+
+        if lthr_override and lthr_override > 0:
+            lthr_value = float(lthr_override)
+        elif athlete and int(getattr(athlete, 'is_threshold_active', 0) or 0) == 1 and getattr(athlete, 'threshold_heartrate', None):
+            try:
+                lthr_value = float(getattr(athlete, 'threshold_heartrate'))
+            except Exception:
+                lthr_value = None
+        elif athlete_payload and athlete_payload.get('lthr'):
+            try:
+                lthr_value = float(athlete_payload.get('lthr'))
+            except Exception:
+                lthr_value = None
+
+        if hr_max_override and hr_max_override > 0:
+            hr_max_value = float(hr_max_override)
+        elif athlete and getattr(athlete, 'max_heartrate', None):
+            try:
+                hr_max_value = float(getattr(athlete, 'max_heartrate'))
+            except Exception:
+                hr_max_value = None
+        elif athlete_payload and athlete_payload.get('max_heartrate'):
+            try:
+                hr_max_value = float(athlete_payload.get('max_heartrate'))
+            except Exception:
+                hr_max_value = None
+        elif activity_payload and activity_payload.get('max_heartrate'):
+            try:
+                hr_max_value = float(activity_payload.get('max_heartrate'))
+            except Exception:
+                hr_max_value = None
+
+        return ftp_value, lthr_value, hr_max_value
 
 
 activity_service = ActivityService()
