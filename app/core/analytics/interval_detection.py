@@ -155,15 +155,11 @@ def detect_intervals(
             continue
         coverage[idx] = _classification_from_ratio(float(ratios[idx]))
 
+    segments = _build_segments_from_coverage(coverage)
+    segments = _simplify_segments(segments, min_length=60)
+
     final_intervals: List[IntervalSummary] = []
-    idx = 0
-    while idx < pw.size:
-        label = coverage[idx] or "recovery"
-        start = idx
-        idx += 1
-        while idx < pw.size and coverage[idx] == label:
-            idx += 1
-        end = idx
+    for start, end, label in segments:
         summary = _summarize_interval((start, end), pw, hr, ftp, lthr, hr_max)
         summary.classification = label
         final_intervals.append(summary)
@@ -513,6 +509,78 @@ def _classification_from_ratio(ratio: float) -> str:
     return "recovery"
 
 
+def _build_segments_from_coverage(coverage: np.ndarray) -> List[Tuple[int, int, str]]:
+    segments: List[Tuple[int, int, str]] = []
+    idx = 0
+    n = coverage.size
+    while idx < n:
+        label = coverage[idx] or "recovery"
+        start = idx
+        idx += 1
+        while idx < n and coverage[idx] == label:
+            idx += 1
+        segments.append((start, idx, label))
+    return segments
+
+
+def _simplify_segments(
+    segments: List[Tuple[int, int, str]],
+    min_length: int,
+) -> List[Tuple[int, int, str]]:
+    if not segments:
+        return []
+
+    merged = _merge_adjacent_same_class(segments)
+
+    changed = True
+    while changed and len(merged) > 1:
+        changed = False
+        i = 0
+        while i < len(merged):
+            start, end, label = merged[i]
+            if end - start >= min_length or len(merged) == 1:
+                i += 1
+                continue
+
+            changed = True
+            if i == 0:
+                next_start, next_end, next_label = merged[1]
+                merged[1] = (start, next_end, next_label)
+                merged.pop(0)
+            elif i == len(merged) - 1:
+                prev_start, prev_end, prev_label = merged[i - 1]
+                merged[i - 1] = (prev_start, end, prev_label)
+                merged.pop()
+            else:
+                prev_start, prev_end, prev_label = merged[i - 1]
+                next_start, next_end, next_label = merged[i + 1]
+                prev_len = prev_end - prev_start
+                next_len = next_end - next_start
+                if prev_len >= next_len:
+                    merged[i - 1] = (prev_start, end, prev_label)
+                    merged.pop(i)
+                    i -= 1
+                else:
+                    merged[i + 1] = (start, next_end, next_label)
+                    merged.pop(i)
+            merged = _merge_adjacent_same_class(merged)
+        
+    return merged
+
+
+def _merge_adjacent_same_class(segments: List[Tuple[int, int, str]]) -> List[Tuple[int, int, str]]:
+    if not segments:
+        return []
+    merged: List[Tuple[int, int, str]] = [segments[0]]
+    for start, end, label in segments[1:]:
+        last_start, last_end, last_label = merged[-1]
+        if label == last_label:
+            merged[-1] = (last_start, end, label)
+        else:
+            merged.append((start, end, label))
+    return merged
+
+
 def _summarize_interval(
     segment: Tuple[int, int],
     power: np.ndarray,
@@ -771,32 +839,67 @@ def render_interval_preview(
     if pw.size != ts.size:
         ts = np.arange(pw.size)
 
-    fig, ax = plt.subplots(figsize=(12, 4))
-    ax.plot(ts, pw, color="#333333", linewidth=1.0, label="Power")
-    colour_map = {
-        "sprint": "#ff6b6b",
-        "anaerobic": "#ffa600",
-        "vo2max": "#ffb500",
-        "threshold": "#ffcc00",
-        "tempo": "#1d91c0",
-        "endurance": "#6baed6",
-        "recovery": "#bdbdbd",
-        "z2-z1-repeats": "#9c27b0",
-    }
-    for interval in result.intervals:
-        colour = colour_map.get(interval.classification, "#cccccc")
-        ax.axvspan(interval.start, interval.end, color=colour, alpha=0.25, label=interval.classification)
-    for repeat in result.repeats:
-        colour = colour_map.get("z2-z1-repeats", "#9c27b0")
-        ax.axvspan(repeat.start, repeat.end, color=colour, alpha=0.15, label="z2-z1-repeats")
+    fig, ax = plt.subplots(figsize=(12, 3.5))
 
-    handles, labels = ax.get_legend_handles_labels()
-    by_label = dict(zip(labels, handles))
-    ax.legend(by_label.values(), by_label.keys(), loc="upper right")
+    colour_map = {
+        "recovery": "#b0c4de",
+        "endurance": "#5cb85c",
+        "tempo": "#f0ad4e",
+        "threshold": "#f9c74f",
+        "vo2max": "#f9844a",
+        "anaerobic": "#f94144",
+        "sprint": "#9c27b0",
+    }
+    height_map = {
+        "recovery": 0.25,
+        "endurance": 0.4,
+        "tempo": 0.55,
+        "threshold": 0.7,
+        "vo2max": 0.82,
+        "anaerobic": 0.92,
+        "sprint": 1.0,
+    }
+
+    for interval in result.intervals:
+        label = interval.classification
+        colour = colour_map.get(label, "#cccccc")
+        height = height_map.get(label, 0.3)
+        start_idx = max(0, int(interval.start))
+        end_idx = max(start_idx + 1, int(interval.end))
+        if start_idx < ts.size:
+            start_time = float(ts[start_idx])
+        else:
+            start_time = float(start_idx)
+        if end_idx - 1 < ts.size:
+            end_time = float(ts[end_idx - 1] + 1)
+        else:
+            end_time = float(end_idx)
+        width = max(end_time - start_time, 1.0)
+        ax.bar(
+            start_time,
+            height,
+            width=width,
+            align='edge',
+            color=colour,
+            edgecolor='none',
+            alpha=0.9,
+        )
+
+    if result.intervals:
+        ftp = max(result.ftp, 1.0)
+        ratios = np.clip(pw / ftp, 0, 1.1)
+        window = min(max(len(ratios) // 40, 5), 90)
+        if window % 2 == 0:
+            window += 1
+        smoothed = _moving_average(ratios, window) if len(ratios) > window else ratios
+        ax.plot(ts[: len(smoothed)], smoothed[: len(ts)], color="#424242", alpha=0.18, linewidth=1.5)
+
+    ax.set_ylim(0, 1.1)
+    ax.set_xlim(float(ts[0]) if ts.size else 0.0, float(ts[-1] + 1) if ts.size else len(pw))
+    ax.set_yticks([])
     ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Power (W)")
-    ax.set_title("Interval Detection Preview")
-    ax.grid(alpha=0.2)
+    ax.set_ylabel("Intensity")
+    ax.grid(alpha=0.1, axis='y', linestyle='--')
     fig.tight_layout()
     fig.savefig(output_path, dpi=150)
     plt.close(fig)

@@ -28,3 +28,4 @@
 - 2025-09-17 第20轮：区间检测全覆盖优化。调整分类逻辑仅保留 recovery/endurance/tempo/threshold/vo2max/anaerobic/sprint 七档，并在剩余时间段按功率比例回填，保证整段活动无空白分类；优先级机制保留高强度区间，同时保持 Z2-Z1 repeats 输出。
 - 2025-09-17 第21轮：补充 `app/__init__.py`，使项目根目录可通过包导入（便于 `python -m tests.test` 运行自定义调试脚本）。
 - 2025-09-17 第22轮：区间检测扩展至 Strava 流程，并提供 `/activities/{id}/intervals` 接口。`ActivityService.get_all_data` 与 `get_intervals` 支持远端流数据，复用同一检测逻辑；新接口返回 `IntervalsResponse` 并在 `artifacts/Pics` 生成预览图以便排查。
+- 2025-09-17 第23轮：优化区间可视化与粒度。区间序列按 60s 最小窗口合并，图表改用连续柱状图表现强度，并以淡色曲线叠加功率趋势，减少噪声、提升可读性。

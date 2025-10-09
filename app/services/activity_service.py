@@ -1128,7 +1128,7 @@ class ActivityService:
     @staticmethod
     def _build_preview_path(preview_dir: Optional[str], default_name: str) -> Optional[Path]:
         if preview_dir is None:
-            preview_dir = 'artifacts'
+            preview_dir = 'artifacts/Pics'
         try:
             return Path(preview_dir) / default_name
         except Exception:
