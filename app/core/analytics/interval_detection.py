@@ -156,7 +156,8 @@ def detect_intervals(
         coverage[idx] = _classification_from_ratio(float(ratios[idx]))
 
     segments = _build_segments_from_coverage(coverage)
-    segments = _simplify_segments(segments, min_length=60)
+    ratios = pw / ftp if ftp else np.zeros_like(pw)
+    segments = _simplify_segments(segments, ratios, min_length=30)
 
     final_intervals: List[IntervalSummary] = []
     for start, end, label in segments:
@@ -523,8 +524,15 @@ def _build_segments_from_coverage(coverage: np.ndarray) -> List[Tuple[int, int, 
     return segments
 
 
+def _segment_mean_ratio(ratios: np.ndarray, start: int, end: int) -> float:
+    if end <= start:
+        return 0.0
+    return float(np.mean(ratios[start:end]))
+
+
 def _simplify_segments(
     segments: List[Tuple[int, int, str]],
+    ratios: np.ndarray,
     min_length: int,
 ) -> List[Tuple[int, int, str]]:
     if not segments:
@@ -554,9 +562,10 @@ def _simplify_segments(
             else:
                 prev_start, prev_end, prev_label = merged[i - 1]
                 next_start, next_end, next_label = merged[i + 1]
-                prev_len = prev_end - prev_start
-                next_len = next_end - next_start
-                if prev_len >= next_len:
+                short_mean = _segment_mean_ratio(ratios, start, end)
+                prev_mean = _segment_mean_ratio(ratios, prev_start, prev_end)
+                next_mean = _segment_mean_ratio(ratios, next_start, next_end)
+                if abs(short_mean - prev_mean) <= abs(short_mean - next_mean):
                     merged[i - 1] = (prev_start, end, prev_label)
                     merged.pop(i)
                     i -= 1
@@ -564,7 +573,7 @@ def _simplify_segments(
                     merged[i + 1] = (start, next_end, next_label)
                     merged.pop(i)
             merged = _merge_adjacent_same_class(merged)
-        
+
     return merged
 
 
@@ -842,28 +851,22 @@ def render_interval_preview(
     fig, ax = plt.subplots(figsize=(12, 3.5))
 
     colour_map = {
-        "recovery": "#b0c4de",
-        "endurance": "#5cb85c",
-        "tempo": "#f0ad4e",
-        "threshold": "#f9c74f",
-        "vo2max": "#f9844a",
-        "anaerobic": "#f94144",
-        "sprint": "#9c27b0",
-    }
-    height_map = {
-        "recovery": 0.25,
-        "endurance": 0.4,
-        "tempo": 0.55,
-        "threshold": 0.7,
-        "vo2max": 0.82,
-        "anaerobic": 0.92,
-        "sprint": 1.0,
+        "recovery": "#9ec1e6",
+        "endurance": "#66bb6a",
+        "tempo": "#ffca28",
+        "threshold": "#ffa000",
+        "vo2max": "#f95d6a",
+        "anaerobic": "#d81b60",
+        "sprint": "#8e24aa",
     }
 
+    ftp = max(result.ftp, 1.0)
     for interval in result.intervals:
         label = interval.classification
         colour = colour_map.get(label, "#cccccc")
-        height = height_map.get(label, 0.3)
+        ratio = max(interval.power_ratio, 0.05)
+        height = min(ratio, 1.4)
+
         start_idx = max(0, int(interval.start))
         end_idx = max(start_idx + 1, int(interval.end))
         if start_idx < ts.size:
@@ -882,19 +885,18 @@ def render_interval_preview(
             align='edge',
             color=colour,
             edgecolor='none',
-            alpha=0.9,
+            alpha=0.92,
         )
 
     if result.intervals:
-        ftp = max(result.ftp, 1.0)
-        ratios = np.clip(pw / ftp, 0, 1.1)
-        window = min(max(len(ratios) // 40, 5), 90)
+        ratios = np.clip(pw / ftp, 0, 1.4)
+        window = min(max(len(ratios) // 60, 7), 120)
         if window % 2 == 0:
             window += 1
         smoothed = _moving_average(ratios, window) if len(ratios) > window else ratios
-        ax.plot(ts[: len(smoothed)], smoothed[: len(ts)], color="#424242", alpha=0.18, linewidth=1.5)
+        ax.plot(ts[: len(smoothed)], smoothed[: len(ts)], color="#7f7f7f", alpha=0.12, linewidth=1.3)
 
-    ax.set_ylim(0, 1.1)
+    ax.set_ylim(0, 1.45)
     ax.set_xlim(float(ts[0]) if ts.size else 0.0, float(ts[-1] + 1) if ts.size else len(pw))
     ax.set_yticks([])
     ax.set_xlabel("Time (s)")
