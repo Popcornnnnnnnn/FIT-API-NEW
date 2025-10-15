@@ -14,6 +14,7 @@ class TbActivity(Base):
     external_id    = Column(VARCHAR(255))
     tss            = Column(Integer)
     tss_updated    = Column(Integer, default=0)
+    efficiency_factor = Column(Float)
     start_date     = Column(DateTime)
 
 

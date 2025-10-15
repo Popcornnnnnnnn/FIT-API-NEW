@@ -50,9 +50,12 @@ class ActivityService:
             # 尝试将本地活动ID映射为 Strava external_id，再调用 Strava
             strava_id = activity_id
             athlete_obj = None
+            local_activity = None
             try:
                 from ..db.models import TbActivity
                 local = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
+                if local:
+                    local_activity = local
                 if local and getattr(local, 'external_id', None):
                     try:
                         strava_id = int(str(local.external_id))
@@ -105,6 +108,27 @@ class ActivityService:
                 keys_list = ['time', 'distance', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp',  'best_power', 'torque', 'spi', 'power_hr_ratio', 'w_balance', 'vam']
 
             result = StravaAnalyzer.analyze_activity_data(activity_data, stream_data, athlete_data, activity_id, db, keys_list, resolution)
+            try:
+                hr_metrics = getattr(result, 'heartrate', None)
+            except Exception:
+                hr_metrics = None
+            efficiency_value = None
+            if hr_metrics is not None:
+                if isinstance(hr_metrics, dict):
+                    efficiency_value = hr_metrics.get('efficiency_index')
+                else:
+                    efficiency_value = getattr(hr_metrics, 'efficiency_index', None)
+            try:
+                from ..db.models import TbActivity
+                target_activity = local_activity
+                if target_activity is None:
+                    target_activity = db.query(TbActivity).filter(TbActivity.external_id == str(strava_id)).first()
+                if target_activity:
+                    if local_activity is None:
+                        local_activity = target_activity
+                    self._update_activity_efficiency_factor(db, target_activity, efficiency_value)
+            except Exception as e:
+                logger.exception("[db-error][efficiency-factor-strava] activity_id=%s err=%s", activity_id, e)
             # 计算 training_load，更新该活动的 TSS，并据此刷新 athlete 的 TSB（status）
             try:
                 from ..core.analytics.training import calculate_training_load
@@ -323,6 +347,19 @@ class ActivityService:
         return AllActivityDataResponse(**response_data)
 
     # ---- helpers ----
+    def _update_activity_efficiency_factor(self, db: Session, activity, value: Optional[float]) -> None:
+        if not hasattr(activity, 'efficiency_factor'):
+            return
+        current = getattr(activity, 'efficiency_factor', None)
+        if current == value:
+            return
+        try:
+            setattr(activity, 'efficiency_factor', value)
+            db.commit()
+        except Exception as e:
+            logger.exception("[db-error][efficiency-factor] activity_id=%s err=%s", getattr(activity, 'id', None), e)
+            db.rollback()
+
     def _compute_power_zones(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
         from ..repositories.activity_repo import get_activity_athlete
         pair = get_activity_athlete(db, activity_id)
@@ -795,7 +832,12 @@ class ActivityService:
         activity, athlete = pair
         stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
         session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
-        return compute_heartrate_info(stream_data, bool(stream_data.get('power')), session_data)
+        result = compute_heartrate_info(stream_data, bool(stream_data.get('power')), session_data)
+        efficiency_value = None
+        if isinstance(result, dict):
+            efficiency_value = result.get('efficiency_index')
+        self._update_activity_efficiency_factor(db, activity, efficiency_value)
+        return result
 
     def get_speed(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
         from ..metrics.activities.speed import compute_speed_info

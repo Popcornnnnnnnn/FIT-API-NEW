@@ -157,7 +157,7 @@ def detect_intervals(
 
     segments = _build_segments_from_coverage(coverage)
     ratios = pw / ftp if ftp else np.zeros_like(pw)
-    segments = _simplify_segments(segments, ratios, min_length=30)
+    segments = _simplify_segments(segments, ratios, default_min_length=30)
 
     final_intervals: List[IntervalSummary] = []
     for start, end, label in segments:
@@ -533,12 +533,22 @@ def _segment_mean_ratio(ratios: np.ndarray, start: int, end: int) -> float:
 def _simplify_segments(
     segments: List[Tuple[int, int, str]],
     ratios: np.ndarray,
-    min_length: int,
+    default_min_length: int,
 ) -> List[Tuple[int, int, str]]:
     if not segments:
         return []
 
     merged = _merge_adjacent_same_class(segments)
+
+    min_length_map = {
+        "recovery": 90,
+        "endurance": 75,
+        "tempo": 50,
+        "threshold": 40,
+        "vo2max": 25,
+        "anaerobic": 15,
+        "sprint": 6,
+    }
 
     changed = True
     while changed and len(merged) > 1:
@@ -546,6 +556,7 @@ def _simplify_segments(
         i = 0
         while i < len(merged):
             start, end, label = merged[i]
+            min_length = min_length_map.get(label, default_min_length)
             if end - start >= min_length or len(merged) == 1:
                 i += 1
                 continue
@@ -851,21 +862,21 @@ def render_interval_preview(
     fig, ax = plt.subplots(figsize=(12, 3.5))
 
     colour_map = {
-        "recovery": "#9ec1e6",
-        "endurance": "#66bb6a",
-        "tempo": "#ffca28",
-        "threshold": "#ffa000",
-        "vo2max": "#f95d6a",
-        "anaerobic": "#d81b60",
-        "sprint": "#8e24aa",
+        "recovery": "#a6c8ff",
+        "endurance": "#6dd17c",
+        "tempo": "#ffd166",
+        "threshold": "#ffa94d",
+        "vo2max": "#ff6f59",
+        "anaerobic": "#e63946",
+        "sprint": "#9d4edd",
     }
 
     ftp = max(result.ftp, 1.0)
     for interval in result.intervals:
         label = interval.classification
         colour = colour_map.get(label, "#cccccc")
-        ratio = max(interval.power_ratio, 0.05)
-        height = min(ratio, 1.4)
+        avg_ratio = max(interval.power_ratio, 0.02)
+        height = min(max(avg_ratio, 0.02), 1.6)
 
         start_idx = max(0, int(interval.start))
         end_idx = max(start_idx + 1, int(interval.end))
@@ -878,6 +889,7 @@ def render_interval_preview(
         else:
             end_time = float(end_idx)
         width = max(end_time - start_time, 1.0)
+
         ax.bar(
             start_time,
             height,
@@ -885,18 +897,18 @@ def render_interval_preview(
             align='edge',
             color=colour,
             edgecolor='none',
-            alpha=0.92,
+            alpha=0.9,
         )
 
     if result.intervals:
-        ratios = np.clip(pw / ftp, 0, 1.4)
-        window = min(max(len(ratios) // 60, 7), 120)
+        ratios = np.clip(pw / ftp, 0, 1.6)
+        window = min(max(len(ratios) // 80, 9), 150)
         if window % 2 == 0:
             window += 1
         smoothed = _moving_average(ratios, window) if len(ratios) > window else ratios
-        ax.plot(ts[: len(smoothed)], smoothed[: len(ts)], color="#7f7f7f", alpha=0.12, linewidth=1.3)
+        ax.plot(ts[: len(smoothed)], smoothed[: len(ts)], color="#6c757d", alpha=0.1, linewidth=1.2)
 
-    ax.set_ylim(0, 1.45)
+    ax.set_ylim(0, 1.8)
     ax.set_xlim(float(ts[0]) if ts.size else 0.0, float(ts[-1] + 1) if ts.size else len(pw))
     ax.set_yticks([])
     ax.set_xlabel("Time (s)")
