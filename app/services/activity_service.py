@@ -53,31 +53,8 @@ class ActivityService:
                 'time', 'distance', 'latlng', 'altitude', 'velocity_smooth',
                 'heartrate', 'cadence', 'watts', 'temp', 'moving', 'grade_smooth'
             ]
-            # 尝试将本地活动ID映射为 Strava external_id，再调用 Strava
-            strava_id = activity_id
-            athlete_obj = None
-            local_activity = None
-            try:
-                from ..db.models import TbActivity
-                local = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
-                if local:
-                    local_activity = local
-                if local and getattr(local, 'external_id', None):
-                    try:
-                        strava_id = int(str(local.external_id))
-                        logger.debug("[strava-id-map] local activity %s -> external_id %s", activity_id, strava_id)
-                    except Exception:
-                        pass
-                    if getattr(local, 'athlete_id', None):
-                        from ..repositories.activity_repo import get_activity_athlete
-                        try:
-                            pair_local = get_activity_athlete(db, activity_id)
-                            if pair_local:
-                                _, athlete_obj = pair_local
-                        except Exception:
-                            athlete_obj = None
-            except Exception:
-                pass
+            local_activity, athlete_obj = self._get_local_activity_pair(db, activity_id)
+            strava_id = self._resolve_strava_id(activity_id, local_activity)
 
             try:
                 full = client.fetch_full(strava_id, keys=keys_list_all, resolution=None)
@@ -108,50 +85,7 @@ class ActivityService:
             stream_data = full['streams']
             athlete_data = full['athlete']
 
-            athlete_profile: Optional[Dict[str, Any]] = None
-            profile_candidate: Dict[str, Any] = {}
-            if athlete_obj:
-                try:
-                    ftp_local = getattr(athlete_obj, 'ftp', None)
-                    if ftp_local:
-                        profile_candidate['ftp'] = int(ftp_local)
-                except Exception:
-                    pass
-                try:
-                    w_prime_local = getattr(athlete_obj, 'w_balance', None)
-                    if w_prime_local:
-                        profile_candidate['w_prime'] = int(w_prime_local)
-                except Exception:
-                    pass
-                try:
-                    weight_local = getattr(athlete_obj, 'weight', None)
-                    if weight_local:
-                        profile_candidate['weight'] = float(weight_local)
-                except Exception:
-                    pass
-
-            if isinstance(athlete_data, dict):
-                try:
-                    ftp_remote = athlete_data.get('ftp')
-                    if ftp_remote:
-                        profile_candidate.setdefault('ftp', int(ftp_remote))
-                except Exception:
-                    pass
-                try:
-                    weight_remote = athlete_data.get('weight') or athlete_data.get('weight_kg')
-                    if weight_remote:
-                        profile_candidate.setdefault('weight', float(weight_remote))
-                except Exception:
-                    pass
-                try:
-                    w_balance_remote = athlete_data.get('w_balance') or athlete_data.get('w_prime') or athlete_data.get('wj')
-                    if w_balance_remote:
-                        profile_candidate.setdefault('w_prime', float(w_balance_remote))
-                except Exception:
-                    pass
-
-            if profile_candidate:
-                athlete_profile = profile_candidate
+            athlete_profile = self._build_athlete_profile(athlete_obj, athlete_data)
 
             if keys:
                 keys_list = [k.strip() for k in keys.split(',') if k.strip()]
@@ -283,44 +217,51 @@ class ActivityService:
             return result
 
         # Local DB path: compose using service methods and metrics
+        local_pair = self._get_local_activity_pair(db, activity_id)
+        local_activity = local_pair[0] if local_pair else None
+        raw_stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        session_cache = None
+        if local_activity and getattr(local_activity, 'upload_fit_url', None):
+            session_cache = activity_data_manager.get_session_data(db, activity_id, local_activity.upload_fit_url)
+
         response_data = {}
         try:
-            response_data["overall"] = self.get_overall(db, activity_id)
+            response_data["overall"] = self.get_overall(db, activity_id, local_pair, raw_stream_data, session_cache)
         except Exception as e:
             logger.exception("[section-error][overall] activity_id=%s err=%s", activity_id, e)
             response_data["overall"] = None
         try:
-            response_data["power"] = self.get_power(db, activity_id)
+            response_data["power"] = self.get_power(db, activity_id, local_pair, raw_stream_data, session_cache)
         except Exception as e:
             logger.exception("[section-error][power] activity_id=%s err=%s", activity_id, e)
             response_data["power"] = None
         try:
-            response_data["heartrate"] = self.get_heartrate(db, activity_id)
+            response_data["heartrate"] = self.get_heartrate(db, activity_id, local_pair, raw_stream_data, session_cache)
         except Exception as e:
             logger.exception("[section-error][heartrate] activity_id=%s err=%s", activity_id, e)
             response_data["heartrate"] = None
         try:
-            response_data["cadence"] = self.get_cadence(db, activity_id)
+            response_data["cadence"] = self.get_cadence(db, activity_id, local_pair, raw_stream_data, session_cache)
         except Exception as e:
             logger.exception("[section-error][cadence] activity_id=%s err=%s", activity_id, e)
             response_data["cadence"] = None
         try:
-            response_data["speed"] = self.get_speed(db, activity_id)
+            response_data["speed"] = self.get_speed(db, activity_id, local_pair, raw_stream_data, session_cache)
         except Exception as e:
             logger.exception("[section-error][speed] activity_id=%s err=%s", activity_id, e)
             response_data["speed"] = None
         try:
-            response_data["training_effect"] = self.get_training_effect(db, activity_id)
+            response_data["training_effect"] = self.get_training_effect(db, activity_id, local_pair, raw_stream_data)
         except Exception as e:
             logger.exception("[section-error][training_effect] activity_id=%s err=%s", activity_id, e)
             response_data["training_effect"] = None
         try:
-            response_data["altitude"] = self.get_altitude(db, activity_id)
+            response_data["altitude"] = self.get_altitude(db, activity_id, local_pair, raw_stream_data, session_cache)
         except Exception as e:
             logger.exception("[section-error][altitude] activity_id=%s err=%s", activity_id, e)
             response_data["altitude"] = None
         try:
-            response_data["temp"] = self.get_temperature(db, activity_id)
+            response_data["temp"] = self.get_temperature(db, activity_id, raw_stream_data)
         except Exception as e:
             logger.exception("[section-error][temp] activity_id=%s err=%s", activity_id, e)
             response_data["temp"] = None
@@ -371,7 +312,7 @@ class ActivityService:
 
         # best powers + segment_records（本地路径，封装到独立方法）
         try:
-            stream_raw = activity_data_manager.get_activity_stream_data(db, activity_id)
+            stream_raw = raw_stream_data
             bp = self._extract_best_powers_from_stream(stream_raw)
             response_data["best_powers"] = bp if bp else None
             response_data["segment_records"] = self._update_segment_records_from_local(db, activity_id, stream_raw, bp)
@@ -411,6 +352,69 @@ class ActivityService:
         return AllActivityDataResponse(**response_data)
 
     # ---- helpers ----
+    def _get_local_activity_pair(
+        self,
+        db: Session,
+        activity_id: int,
+    ) -> Tuple[Optional[Any], Optional[Any]]:
+        from ..repositories.activity_repo import get_activity_athlete, get_activity_by_id
+
+        pair = get_activity_athlete(db, activity_id)
+        if pair:
+            return pair
+        activity = get_activity_by_id(db, activity_id)
+        return activity, None
+
+    @staticmethod
+    def _resolve_strava_id(activity_id: int, local_activity: Optional[Any]) -> int:
+        if local_activity and getattr(local_activity, 'external_id', None):
+            try:
+                resolved = int(str(local_activity.external_id))
+                if resolved != activity_id:
+                    logger.debug("[strava-id-map] local activity %s -> external_id %s", activity_id, resolved)
+                return resolved
+            except (TypeError, ValueError):
+                logger.debug("[strava-id-map] invalid external_id for activity %s", activity_id)
+        return activity_id
+
+    @staticmethod
+    def _build_athlete_profile(
+        athlete_obj: Optional[Any],
+        athlete_payload: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        profile: Dict[str, Any] = {}
+
+        def _set(key: str, value: Any, cast):
+            if value in (None, 0, 0.0):
+                return
+            try:
+                profile[key] = cast(value)
+            except (TypeError, ValueError):
+                pass
+
+        def _set_if_absent(key: str, value: Any, cast):
+            if key in profile:
+                return
+            _set(key, value, cast)
+
+        if athlete_obj is not None:
+            _set('ftp', getattr(athlete_obj, 'ftp', None), int)
+            _set('w_prime', getattr(athlete_obj, 'w_balance', None), int)
+            _set('weight', getattr(athlete_obj, 'weight', None), float)
+
+        if isinstance(athlete_payload, dict):
+            _set_if_absent('ftp', athlete_payload.get('ftp'), int)
+            _set_if_absent(
+                'w_prime',
+                athlete_payload.get('w_prime')
+                or athlete_payload.get('w_balance')
+                or athlete_payload.get('wj'),
+                float,
+            )
+            _set_if_absent('weight', athlete_payload.get('weight') or athlete_payload.get('weight_kg'), float)
+
+        return profile or None
+
     def _update_activity_efficiency_factor(self, db: Session, activity, value: Optional[float]) -> None:
         if not hasattr(activity, 'efficiency_factor'):
             return
@@ -807,16 +811,26 @@ class ActivityService:
             return []
 
     # Individual metric endpoints (local DB path)
-    def get_overall(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    def get_overall(
+        self,
+        db: Session,
+        activity_id: int,
+        pair: Optional[Tuple[Any, Any]] = None,
+        stream_data: Optional[Dict[str, Any]] = None,
+        session_data: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
         from ..metrics.activities.overall import compute_overall_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
-        pair = get_activity_athlete(db, activity_id)
+        if pair is None:
+            pair = get_activity_athlete(db, activity_id)
         if not pair:
             return None
         activity, athlete = pair
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
+        if stream_data is None:
+            stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        if session_data is None and getattr(activity, 'upload_fit_url', None):
+            session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         # 先装配 overall，写回当前活动 TSS，再刷新并注入 TSB
         result = compute_overall_info(stream_data, session_data, athlete)
         try:
@@ -845,16 +859,26 @@ class ActivityService:
                 pass
         return result
 
-    def get_power(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    def get_power(
+        self,
+        db: Session,
+        activity_id: int,
+        pair: Optional[Tuple[Any, Any]] = None,
+        stream_data: Optional[Dict[str, Any]] = None,
+        session_data: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
         from ..metrics.activities.power import compute_power_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
-        pair = get_activity_athlete(db, activity_id)
+        if pair is None:
+            pair = get_activity_athlete(db, activity_id)
         if not pair:
             return None
         activity, athlete = pair
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
+        if stream_data is None:
+            stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        if session_data is None and getattr(activity, 'upload_fit_url', None):
+            session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         return compute_power_info(stream_data, int(athlete.ftp), session_data)
 
     def get_intervals(
@@ -886,16 +910,26 @@ class ActivityService:
             preview_dir=preview_dir,
         )
 
-    def get_heartrate(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    def get_heartrate(
+        self,
+        db: Session,
+        activity_id: int,
+        pair: Optional[Tuple[Any, Any]] = None,
+        stream_data: Optional[Dict[str, Any]] = None,
+        session_data: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
         from ..metrics.activities.heartrate import compute_heartrate_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
-        pair = get_activity_athlete(db, activity_id)
+        if pair is None:
+            pair = get_activity_athlete(db, activity_id)
         if not pair:
             return None
         activity, athlete = pair
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
+        if stream_data is None:
+            stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        if session_data is None and getattr(activity, 'upload_fit_url', None):
+            session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         result = compute_heartrate_info(stream_data, bool(stream_data.get('power')), session_data)
         efficiency_value = None
         if isinstance(result, dict):
@@ -903,60 +937,104 @@ class ActivityService:
         self._update_activity_efficiency_factor(db, activity, efficiency_value)
         return result
 
-    def get_speed(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    def get_speed(
+        self,
+        db: Session,
+        activity_id: int,
+        pair: Optional[Tuple[Any, Any]] = None,
+        stream_data: Optional[Dict[str, Any]] = None,
+        session_data: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
         from ..metrics.activities.speed import compute_speed_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
-        pair = get_activity_athlete(db, activity_id)
+        if pair is None:
+            pair = get_activity_athlete(db, activity_id)
         if not pair:
             return None
         activity, _athlete = pair
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
+        if stream_data is None:
+            stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        if session_data is None and getattr(activity, 'upload_fit_url', None):
+            session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         return compute_speed_info(stream_data, session_data)
 
-    def get_cadence(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    def get_cadence(
+        self,
+        db: Session,
+        activity_id: int,
+        pair: Optional[Tuple[Any, Any]] = None,
+        stream_data: Optional[Dict[str, Any]] = None,
+        session_data: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
         from ..metrics.activities.cadence import compute_cadence_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
-        pair = get_activity_athlete(db, activity_id)
+        if pair is None:
+            pair = get_activity_athlete(db, activity_id)
         if not pair:
             return None
         activity, _athlete = pair
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
+        if stream_data is None:
+            stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        if session_data is None and getattr(activity, 'upload_fit_url', None):
+            session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         return compute_cadence_info(stream_data, session_data)
 
-    def get_altitude(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    def get_altitude(
+        self,
+        db: Session,
+        activity_id: int,
+        pair: Optional[Tuple[Any, Any]] = None,
+        stream_data: Optional[Dict[str, Any]] = None,
+        session_data: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
         from ..metrics.activities.altitude import compute_altitude_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
-        pair = get_activity_athlete(db, activity_id)
+        if pair is None:
+            pair = get_activity_athlete(db, activity_id)
         if not pair:
             return None
         activity, _athlete = pair
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
+        if stream_data is None:
+            stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        if session_data is None and getattr(activity, 'upload_fit_url', None):
+            session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         return compute_altitude_info(stream_data, session_data)
 
-    def get_temperature(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    def get_temperature(
+        self,
+        db: Session,
+        activity_id: int,
+        stream_data: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
         from ..metrics.activities.temperature import compute_temperature_info
         from ..infrastructure.data_manager import activity_data_manager
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        if stream_data is None:
+            stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
         return compute_temperature_info(stream_data)
 
-    def get_training_effect(self, db: Session, activity_id: int) -> Optional[Dict[str, Any]]:
+    def get_training_effect(
+        self,
+        db: Session,
+        activity_id: int,
+        pair: Optional[Tuple[Any, Any]] = None,
+        stream_data: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
         from ..core.analytics.training import (
             aerobic_effect, anaerobic_effect, power_zone_percentages,
             power_zone_times, calculate_training_load, estimate_calories_with_power, estimate_calories_with_heartrate
         )
-        pair = get_activity_athlete(db, activity_id)
+        if pair is None:
+            pair = get_activity_athlete(db, activity_id)
         if not pair:
             return None
         activity, athlete = pair
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        if stream_data is None:
+            stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
         power = stream_data.get('power', [])
         if not power:
             return None
