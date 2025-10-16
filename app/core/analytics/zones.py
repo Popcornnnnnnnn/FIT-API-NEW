@@ -82,7 +82,7 @@ def analyze_heartrate_zones(hr_data: List[int], max_hr: int) -> List[Dict[str, A
 
 
 def analyze_heartrate_zones_lthr(hr_data: List[int], lthr: int) -> List[Dict[str, Any]]:
-    """基于阈值心率（LTHR）的心率分区：
+    """基于阈值心率（LTHR）的心率分区： 
     Z1: <85% LTHR, Z2: 85–89%, Z3: 90–94%, Z4: 95–99%, Z5: ≥100%.
     """
     if not hr_data or lthr <= 0:

@@ -14,7 +14,13 @@ from pathlib import Path
 from bisect import bisect_left
 
 from ..clients.strava_client import StravaClient
-from ..schemas.activities import AllActivityDataResponse, ZoneData, IntervalsResponse, IntervalItem
+from ..schemas.activities import (
+    AllActivityDataResponse,
+    ZoneData,
+    IntervalsResponse,
+    IntervalItem,
+    BestPowerCurveRecord,
+)
 from ..streams.crud import stream_crud
 from ..streams.models import Resolution
 from ..infrastructure.data_manager import activity_data_manager
@@ -102,12 +108,66 @@ class ActivityService:
             stream_data = full['streams']
             athlete_data = full['athlete']
 
+            athlete_profile: Optional[Dict[str, Any]] = None
+            profile_candidate: Dict[str, Any] = {}
+            if athlete_obj:
+                try:
+                    ftp_local = getattr(athlete_obj, 'ftp', None)
+                    if ftp_local:
+                        profile_candidate['ftp'] = int(ftp_local)
+                except Exception:
+                    pass
+                try:
+                    w_prime_local = getattr(athlete_obj, 'w_balance', None)
+                    if w_prime_local:
+                        profile_candidate['w_prime'] = int(w_prime_local)
+                except Exception:
+                    pass
+                try:
+                    weight_local = getattr(athlete_obj, 'weight', None)
+                    if weight_local:
+                        profile_candidate['weight'] = float(weight_local)
+                except Exception:
+                    pass
+
+            if isinstance(athlete_data, dict):
+                try:
+                    ftp_remote = athlete_data.get('ftp')
+                    if ftp_remote:
+                        profile_candidate.setdefault('ftp', int(ftp_remote))
+                except Exception:
+                    pass
+                try:
+                    weight_remote = athlete_data.get('weight') or athlete_data.get('weight_kg')
+                    if weight_remote:
+                        profile_candidate.setdefault('weight', float(weight_remote))
+                except Exception:
+                    pass
+                try:
+                    w_balance_remote = athlete_data.get('w_balance') or athlete_data.get('w_prime') or athlete_data.get('wj')
+                    if w_balance_remote:
+                        profile_candidate.setdefault('w_prime', float(w_balance_remote))
+                except Exception:
+                    pass
+
+            if profile_candidate:
+                athlete_profile = profile_candidate
+
             if keys:
                 keys_list = [k.strip() for k in keys.split(',') if k.strip()]
             else:
                 keys_list = ['time', 'distance', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp',  'best_power', 'torque', 'spi', 'power_hr_ratio', 'w_balance', 'vam']
 
-            result = StravaAnalyzer.analyze_activity_data(activity_data, stream_data, athlete_data, activity_id, db, keys_list, resolution)
+            result = StravaAnalyzer.analyze_activity_data(
+                activity_data,
+                stream_data,
+                athlete_data,
+                activity_id,
+                db,
+                keys_list,
+                resolution,
+                athlete_profile=athlete_profile,
+            )
             try:
                 hr_metrics = getattr(result, 'heartrate', None)
             except Exception:
@@ -186,7 +246,11 @@ class ActivityService:
                                 'length': len(curve),
                                 'best_curve': curve,
                             }
-                    result.best_power_record = best_power_record
+                    result.best_power_record = (
+                        BestPowerCurveRecord.model_validate(best_power_record)
+                        if best_power_record
+                        else None
+                    )
                 except Exception:
                     result.best_power_record = None
                 try:

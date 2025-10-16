@@ -66,7 +66,7 @@ def max_grade_percent(altitude: List[int], distance: List[float], interval_point
     return round(max_grade, 2)
 
 
-def uphill_downhill_distance_km(altitude: List[int], distance: List[float], interval_points: int = 5, min_distance_interval: float = 50.0) -> (float, float):
+def uphill_downhill_distance_km(altitude: List[int], distance: List[float], interval_points: int = 5, min_distance_interval: float = 50.0) -> (float, float): # type: ignore
     if not altitude or not distance:
         return 0.0, 0.0
     n = min(len(altitude), len(distance))

@@ -23,7 +23,6 @@ class StreamCRUD:
     def __init__(self):
         """初始化CRUD操作"""
         self.fit_parser = FitParser()
-    
     def get_activity_streams(
         self, 
         db: Session, 
@@ -132,9 +131,8 @@ class StreamCRUD:
                         pass
 
                 result.append(item)
-        
         return result
-    
+
     def get_available_streams(
         self, db: Session, 
         activity_id: int

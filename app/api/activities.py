@@ -21,12 +21,6 @@ def _is_cache_enabled():
 
 router = APIRouter(prefix="/activities", tags=["活动"])
 
-
- 
-
-
-
-
 @router.get("/{activity_id}/all", response_model=AllActivityDataResponse)
 async def get_activity_all_data(
     activity_id: int,
