@@ -23,7 +23,7 @@ class StravaAnalyzer:
         db: Session,
         keys: Optional[List[str]] = None,
         resolution: str = "high",
-        athlete_profile: Optional[Dict[str, Any]] = None,
+        athlete_entry: Optional[Any] = None,
     ) -> AllActivityDataResponse:
         """整合 Strava 活动/流数据，返回聚合响应。
 
@@ -35,13 +35,13 @@ class StravaAnalyzer:
             db           : 数据库会话（用于查询/可选写库）
             keys         : 需要返回的流键（可选）
             resolution   : 目标分辨率（保留字段，无强制影响）
-            athlete_profile: 本地/远程运动员能力信息（ftp、w' 等），用于推导衍生流
+            athlete_entry: 本地/远程运动员能力信息（ftp、w' 等），用于推导衍生流
         """
         if stream_data and _ups.is_low_resolution(stream_data):
             prepared    = _ups.prepare_for_upsampling(stream_data)
             stream_data = _ups.upsample_low_resolution(prepared, activity_data.get('moving_time', 0))
 
-        stream_data = _extract.enrich_with_derived_streams(stream_data, activity_data, athlete_profile)
+        stream_data = _extract.enrich_with_derived_streams(stream_data, activity_data, athlete_entry)
 
         streams                      = _extract.extract_stream_data(stream_data, keys, resolution) if keys else None
         best_powers, segment_records = _best.analyze_best_powers(activity_data, stream_data, external_id, db, None)

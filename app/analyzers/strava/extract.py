@@ -124,7 +124,7 @@ def _calculate_w_balance(
 def enrich_with_derived_streams(
     stream_data: Dict[str, Any],
     activity_data: Optional[Dict[str, Any]] = None,
-    athlete_profile: Optional[Dict[str, Any]] = None,
+    athlete_entry: Optional[Any] = None,
 ) -> Dict[str, Any]:
     if not isinstance(stream_data, dict):
         return stream_data
@@ -185,19 +185,7 @@ def enrich_with_derived_streams(
             }
 
     if 'w_balance' not in enriched and power_data:
-        ftp = None
-        w_prime = None
-        if athlete_profile:
-            ftp = athlete_profile.get('ftp')
-            w_prime = (
-                athlete_profile.get('w_prime')
-                or athlete_profile.get('w_balance')
-                or athlete_profile.get('wj')
-            )
-        # 兼容 activity_data 中的 ftp 字段
-        if not ftp and activity_data:
-            ftp = activity_data.get('ftp')
-        arr = _calculate_w_balance(power_data, ftp, w_prime)
+        arr = _calculate_w_balance(power_data, athlete_entry.ftp, athlete_entry.w_balance)
         if arr:
             enriched['w_balance'] = {
                 'data': arr,
@@ -205,7 +193,6 @@ def enrich_with_derived_streams(
                 'original_size': len(arr),
                 'resolution': 'high',
             }
-
     return enriched
 
 
