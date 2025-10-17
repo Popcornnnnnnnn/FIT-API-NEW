@@ -12,7 +12,9 @@ from sqlalchemy.orm import Session
 import logging
 from pathlib import Path
 from bisect import bisect_left
+from time import perf_counter
 from app.db.models import TbActivity, TbAthlete
+from app.api.activities import log_perf_timeline
 
 from ..clients.strava_client import StravaClient
 from ..schemas.activities import (
@@ -37,7 +39,7 @@ from ..core.analytics.interval_detection import (
 
 logger = logging.getLogger(__name__)
 
-
+perf_timeline: List[Tuple[str, float]] = []
 class ActivityService:
     def get_all_data(
         self,
@@ -53,69 +55,100 @@ class ActivityService:
                 'time', 'distance', 'latlng', 'altitude', 'velocity_smooth',
                 'heartrate', 'cadence', 'watts', 'temp', 'moving', 'grade_smooth'
             ]
-            ID = db.query(TbActivity).filter(TbActivity.external_id == activity_id).first().id # 从external_id反查本地ID
-            activity_entry, athlete_entry = self._get_local_activity_pair(db, ID)
-
-            full = client.fetch_full(activity_id, keys=keys_list_all, resolution=None)
             
-            activity_data = full['activity']
-            stream_data = full['streams']
-            athlete_data = full['athlete']
-
-            if keys:
-                keys_list = [k.strip() for k in keys.split(',') if k.strip()]
-            else:
-                keys_list = ['time', 'distance', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp',  'best_power', 'torque', 'spi', 'power_hr_ratio', 'w_balance', 'vam']
-
-            result = StravaAnalyzer.analyze_activity_data(
-                activity_data,
-                stream_data,
-                athlete_data,
-                activity_id,
-                db,
-                keys_list,
-                resolution,
-                athlete_entry,
-            )
-
-            if getattr(result, 'heartrate', None) is not None:
-                self._update_activity_efficiency_factor(db, activity_entry, result.heartrate.efficiency_index)
-
-            # 计算 training_load，更新该活动的 TSS，并据此刷新 athlete 的 TSB（status）
+            self._mark(perf_timeline, "start")
             try:
-                from ..core.analytics.training import calculate_training_load
-                moving_time = int(activity_data.get('moving_time') or 0)
-                avg_power = activity_data.get('average_watts') or 0
+                # 优先用主键查活动；查不到再回退到 external_id
+                local_obj = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
+                if not local_obj:
+                    local_obj = db.query(TbActivity).filter(TbActivity.external_id == activity_id).first()
 
-                # 解析 Strava 活动开始时间，用于补齐本地 activity.start_date 便于窗口统计
-                raw = activity_data.get('start_date')
-                iso = raw.replace('Z', '+00:00')
-                start_dt = datetime.fromisoformat(iso).replace(tzinfo=None)
-                tss = self._upsert_activity_tss(db, activity_entry, athlete_entry, avg_power, moving_time, start_dt)
-                tsb = self._update_athlete_status(db, athlete_entry, start_dt)
-                result.overall.status = tsb
-                result.overall.training_load = tss
+                activity_entry, athlete_entry = self._get_local_activity_pair(db, getattr(local_obj, 'id', None) or activity_id)
+                self._mark(perf_timeline, "local_lookup")
 
-                # 附加 best_power_record（独立于分辨率）
+                full = client.fetch_full(activity_entry.external_id, keys=keys_list_all, resolution=None)
+                self._mark(perf_timeline, "fetch_full")
+
+                activity_data = full['activity']
+                stream_data = full['streams']
+                athlete_data = full['athlete']
+
+                if keys:
+                    keys_list = [k.strip() for k in keys.split(',') if k.strip()]
+                else:
+                    keys_list = ['time', 'distance', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp',  'best_power', 'torque', 'spi', 'power_hr_ratio', 'w_balance', 'vam']
+
+                result = StravaAnalyzer.analyze_activity_data(
+                    activity_data,
+                    stream_data,
+                    athlete_data,
+                    activity_entry.external_id,
+                    db,
+                    keys_list,
+                    resolution,
+                    athlete_entry,
+                    activity_entry,
+                )
+                self._mark(perf_timeline, "analyze")
+
+                if getattr(result, 'heartrate', None) is not None:
+                    self._update_activity_efficiency_factor(db, activity_entry, result.heartrate.efficiency_index)
+
+                # 计算 training_load，更新该活动的 TSS，并据此刷新 athlete 的 TSB（status）
+                self._mark(perf_timeline, "local_refresh")
                 try:
-                    from ..repositories.best_power_file_repo import load_best_curve
-                    best_power_record = None
+                    moving_time = int(activity_data.get('moving_time') or 0)
+                    avg_power = activity_data.get('average_watts') or 0
 
-                    curve = load_best_curve(athlete_entry.id)
-                    if curve:
-                        best_power_record = {
-                            'athlete_id': athlete_entry.id,
-                            'length': len(curve),
-                            'best_curve': curve,
-                        }
-                    result.best_power_record = best_power_record
+                    # 在返回中添加tss和tsb，并将相关指标（tss、tsb、ctl、atl、tss_updated）写库
+                    raw = activity_data.get('start_date')
+                    iso = raw.replace('Z', '+00:00')
+                    start_dt = datetime.fromisoformat(iso).replace(tzinfo=None)
+                    tss = self._upsert_activity_tss(db, activity_entry, athlete_entry, avg_power, moving_time, start_dt, perf_timeline)
+                    tsb = self._update_athlete_status(db, athlete_entry, start_dt, perf_timeline)
+                    result.overall.status = tsb
+                    result.overall.training_load = tss
+
+                    # 附加 best_power_record（独立于分辨率）
+                    try:
+                        from ..repositories.best_power_file_repo import load_best_curve
+                        best_power_record = None
+
+                        curve = load_best_curve(athlete_entry.id)
+                        if curve:
+                            best_power_record = {
+                                'athlete_id': athlete_entry.id,
+                                'length': len(curve),
+                                'best_curve': curve,
+                            }
+                        result.best_power_record = BestPowerCurveRecord.model_validate(best_power_record)
+                    except Exception:
+                        result.best_power_record = None
+                    finally:
+                        self._mark(perf_timeline, "best_power_record")
                 except Exception:
-                    result.best_power_record = None
-
-
+                    logger.exception(
+                        "[training-load][error] activity_id=%s activity_entry=%s athlete_entry=%s",
+                        activity_id,
+                        getattr(activity_entry, 'id', None),
+                        getattr(athlete_entry, 'id', None),
+                    )
+                finally:
+                    self._mark(perf_timeline, "training_load")
+                self._mark(perf_timeline, "post_process")
+                self._mark(perf_timeline, "done")
+                return result
             except Exception:
-                pass
-            return result
+                self._mark(perf_timeline, "error")
+                raise
+            finally:
+                log_perf_timeline(
+                    "service.strava.all",
+                    activity_id,
+                    perf_timeline,
+                    extra=f"strava_id={activity_id}",
+                )
+                print()
 
         # Local DB path: compose using service methods and metrics
         local_pair = self._get_local_activity_pair(db, activity_id)
@@ -259,7 +292,6 @@ class ActivityService:
         activity_id: int,
     ) -> Tuple[Optional[Any], Optional[Any]]:
         from ..repositories.activity_repo import get_activity_athlete, get_activity_by_id
-
         pair = get_activity_athlete(db, activity_id)
         if pair:
             return pair
@@ -277,6 +309,13 @@ class ActivityService:
             except (TypeError, ValueError):
                 logger.debug("[strava-id-map] invalid external_id for activity %s", activity_id)
         return activity_id
+
+
+
+    @staticmethod
+    def _mark(perf_timeline: Optional[List[Tuple[str, float]]], label: str) -> None:
+        if perf_timeline is not None:
+            perf_timeline.append((label, perf_counter()))
 
 
 
@@ -495,7 +534,11 @@ class ActivityService:
         avg_power: Optional[int],
         moving_time: Optional[int],
         start_date: Optional[datetime] = None,
+        perf_timeline: Optional[List[Tuple[str, float]]] = None,
     ) -> Optional[int]:
+        if not activity_entry or not athlete_entry:
+            return None
+        start_clock = perf_counter() if perf_timeline is not None else None
         try:
             from ..core.analytics.training import calculate_training_load
             tss_val = calculate_training_load(avg_power, athlete_entry.ftp, moving_time)
@@ -506,27 +549,35 @@ class ActivityService:
             return tss_val
         except Exception:
             db.rollback()
-            return 
+            return None
+        finally:
+            if start_clock is not None:
+                self._mark(perf_timeline, "upsert_tss")
 
     def _update_athlete_status(
             self, 
             db: Session, 
             athlete_entry: Optional[Any] = None,
-            ref_date: Optional[datetime] = None
+            ref_date: Optional[datetime] = None,
+            perf_timeline: Optional[List[Tuple[str, float]]] = None,
         ) -> Optional[int]:
         """计算并更新 Athlete 的 ctl/atl/tsb，返回 tsb（atl - ctl）。
 
         窗口基准时间：默认使用当前时间；若提供 ref_date，则以该时间为基准计算“过去7/42天”。
         适用于以“活动发生日期”为窗口参考的场景。
         """
-        try:
-            from sqlalchemy import func
-            from datetime import datetime, timedelta
+        from sqlalchemy import func
+        from datetime import datetime, timedelta
 
-            now = ref_date or datetime.now()
-            seven_days_ago = now - timedelta(days=7)
-            forty_two_days_ago = now - timedelta(days=42)
-            athlete_id = athlete_entry.id
+        if athlete_entry is None:
+            return None
+        now = ref_date or datetime.now()
+        seven_days_ago = now - timedelta(days=7)
+        forty_two_days_ago = now - timedelta(days=42)
+        athlete_id = athlete_entry.id
+        start_clock = perf_counter() if perf_timeline is not None else None
+
+        try:
 
             sum_tss_7 = db.query(func.sum(TbActivity.tss)).filter(
                 TbActivity.athlete_id == athlete_id,
@@ -567,8 +618,11 @@ class ActivityService:
             return tsb
         except Exception:
             db.rollback()
-            logger.exception("[status-calc] 计算/写入 atl/ctl/tsb 失败 athlete_id=%s", athlete_id)
+            logger.exception("[status-calc] 计算/写入 atl/ctl/tsb 失败 athlete_id=%s", getattr(athlete_entry, 'id', None))
             return None
+        finally:
+            if start_clock is not None:
+                self._mark(perf_timeline, "update_status")
 
     def _extract_best_powers_from_stream(self, stream_data: Dict[str, Any]) -> Optional[Dict[str, int]]:
         try:
@@ -651,7 +705,6 @@ class ActivityService:
             tl = None
         if tl is not None:
             try:
-                self._upsert_activity_tss(db, activity_id, None, None)  # 确保活动存在
                 act = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
                 if act and tl > 0:
                     act.tss = int(tl)
@@ -659,7 +712,7 @@ class ActivityService:
                     db.commit()
             except Exception:
                 db.rollback()
-        tsb_val = self._update_athlete_status(db, athlete.id, activity.start_date)
+        tsb_val = self._update_athlete_status(db, athlete, activity.start_date)
         if isinstance(result, dict):
             result['status'] = tsb_val
         else:

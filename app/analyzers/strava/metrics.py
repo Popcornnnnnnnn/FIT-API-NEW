@@ -75,7 +75,10 @@ def analyze_power(activity_data: Dict[str, Any], stream_data: Dict[str, Any], ex
         return None
 
 
-def analyze_heartrate(activity_data: Dict[str, Any], stream_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def analyze_heartrate(
+    activity_data: Dict[str, Any], 
+    stream_data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
     if 'heartrate' not in stream_data:
         return None
     try:

@@ -11,27 +11,36 @@ Strava 流数据抽取模块
     [{ 'type': 字段名, 'data': 列表, 'series_type': 'time'|'distance', 'original_size': N, 'resolution': 'high' }]
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import math
+import logging
+from time import perf_counter
+import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
-def _best_power_curve(powers: List[Optional[int]]) -> List[int]:
-    n = len(powers)
-    out: List[int] = []
-    vals = [int(p or 0) for p in powers]
+def _best_power_curve(vals: List[int]) -> List[int]:
+    """计算 1..N 每个窗口长度下的最佳平均功率曲线。
+
+    备注：
+        - 旧实现使用两层 Python 循环，复杂度 O(n^2) 且运行在解释器里，数据量稍大就会卡顿。
+        - 这里改用 numpy 前缀和，将「长度为 w 的窗口和」改写为向量化减法，
+          每个窗口长度仍需 O(n) 次运算，但都在 C 层完成，显著降低 Python 端开销。
+    """
+    if not vals:
+        return []
+
+    arr = np.asarray(vals, dtype=np.float64)
+    n = arr.size
+    prefix = np.concatenate(([0.0], arr.cumsum()))
+    best = np.empty(n, dtype=np.int32)
+
     for window in range(1, n + 1):
-        if n < window:
-            out.append(0)
-            continue
-        wsum = sum(vals[:window])
-        max_avg = wsum / window
-        for i in range(1, n - window + 1):
-            wsum = wsum - vals[i - 1] + vals[i + window - 1]
-            avg = wsum / window
-            if avg > max_avg:
-                max_avg = avg
-        out.append(int(round(max_avg)))
-    return out
+        window_sums = prefix[window:] - prefix[:-window]
+        best[window - 1] = int(round(window_sums.max() / window))
+
+    return best.tolist()
 
 
 def _calculate_power_hr_ratio(powers: List[Optional[int]], heart_rates: List[Optional[int]]) -> List[float]:
@@ -199,55 +208,78 @@ def enrich_with_derived_streams(
 def extract_stream_data(stream_data: Dict[str, Any], keys: List[str], resolution: str = 'high') -> Optional[List[Dict[str, Any]]]:
     if not stream_data or not keys:
         return None
+    perf_marks: List[Tuple[str, float]] = [("start", perf_counter())]
     result: List[Dict[str, Any]] = []
-    for field in keys:
-        if field == 'velocity_smooth' and 'velocity_smooth' in stream_data:
-            item = stream_data['velocity_smooth']
-            raw = item.get('data', [])
-            speed = [round((v or 0) * 3.6, 1) for v in raw]
-            result.append({
-                'type': 'speed',
-                'data': speed,
-                'series_type': item.get('series_type', 'time'),
-                'original_size': len(speed),
-                'resolution': 'high'
-            })
-            continue
-        if field in stream_data:
-            item = stream_data[field]
-            if isinstance(item, dict) and 'data' in item:
+    try:
+        for field in keys:
+            if field == 'velocity_smooth' and 'velocity_smooth' in stream_data:
+                item = stream_data['velocity_smooth']
+                raw = item.get('data', [])
+                speed = [round((v or 0) * 3.6, 1) for v in raw]
                 result.append({
-                    'type': field,
-                    'data': item['data'],
+                    'type': 'speed',
+                    'data': speed,
                     'series_type': item.get('series_type', 'time'),
-                    'original_size': item.get('original_size', len(item['data'])),
+                    'original_size': len(speed),
                     'resolution': 'high'
                 })
-            continue
-        if field in ['latitude', 'longitude'] and 'latlng' in stream_data:
-            latlng = stream_data['latlng']
-            data = latlng.get('data', [])
-            if field == 'latitude':
-                extracted = [p[0] if p and len(p) >= 2 else None for p in data]
-            else:
-                extracted = [p[1] if p and len(p) >= 2 else None for p in data]
-            result.append({
-                'type': field,
-                'data': extracted,
-                'series_type': latlng.get('series_type', 'time'),
-                'original_size': latlng.get('original_size', len(extracted)),
-                'resolution': 'high'
-            })
-            continue
-        if field == 'best_power' and 'watts' in stream_data:
-            watts = stream_data['watts']
-            powers = watts.get('data', [])
-            curve = _best_power_curve(powers or [])
-            result.append({
-                'type': 'best_power',
-                'data': curve,
-                'series_type': 'time',
-                'original_size': len(curve),
-                'resolution': 'high'
-            })
-    return result
+                perf_marks.append((f"field_{field}", perf_counter()))
+                continue
+            if field in stream_data:
+                item = stream_data[field]
+                if isinstance(item, dict) and 'data' in item:
+                    result.append({
+                        'type': field,
+                        'data': item['data'],
+                        'series_type': item.get('series_type', 'time'),
+                        'original_size': item.get('original_size', len(item['data'])),
+                        'resolution': 'high'
+                    })
+                perf_marks.append((f"field_{field}", perf_counter()))
+                continue
+            if field in ['latitude', 'longitude'] and 'latlng' in stream_data:
+                latlng = stream_data['latlng']
+                data = latlng.get('data', [])
+                if field == 'latitude':
+                    extracted = [p[0] if p and len(p) >= 2 else None for p in data]
+                else:
+                    extracted = [p[1] if p and len(p) >= 2 else None for p in data]
+                result.append({
+                    'type': field,
+                    'data': extracted,
+                    'series_type': latlng.get('series_type', 'time'),
+                    'original_size': latlng.get('original_size', len(extracted)),
+                    'resolution': 'high'
+                })
+                perf_marks.append((f"field_{field}", perf_counter()))
+                continue
+            if field == 'best_power' and 'watts' in stream_data:
+                watts = stream_data['watts']
+                powers = watts.get('data', [])
+                curve = _best_power_curve(powers or []) # ! SLOW
+                result.append({
+                    'type': 'best_power',
+                    'data': curve,
+                    'series_type': 'time',
+                    'original_size': len(curve),
+                    'resolution': 'high'
+                })
+                perf_marks.append(("field_best_power", perf_counter()))
+                continue
+            perf_marks.append((f"field_{field}_skip", perf_counter()))
+        return result
+    finally:
+        perf_marks.append(("end", perf_counter()))
+        # _log_perf("extract.streams", perf_marks)
+
+
+def _log_perf(tag: str, marks: List[Tuple[str, float]]) -> None:
+    if not marks or len(marks) < 2:
+        return
+    segments = []
+    prev = marks[0][1]
+    for label, ts in marks[1:]:
+        segments.append(f"{label}={(ts - prev) * 1000:.1f}ms")
+        prev = ts
+    total = (marks[-1][1] - marks[0][1]) * 1000
+    logger.info("[perf][%s] total=%.1fms %s\n", tag, total, " | ".join(segments))
