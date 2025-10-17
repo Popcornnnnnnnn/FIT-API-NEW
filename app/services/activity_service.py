@@ -151,12 +151,19 @@ class ActivityService:
                 print()
 
         # Local DB path: compose using service methods and metrics
+        perf_timeline_local: List[Tuple[str, float]] = []
+        self._mark(perf_timeline_local, "start")
+
         local_pair = self._get_local_activity_pair(db, activity_id)
+        self._mark(perf_timeline_local, "pair") # ! 400ms
         local_activity = local_pair[0] if local_pair else None
+
         raw_stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
+        self._mark(perf_timeline_local, "raw_streams") # ! SLOW
         session_cache = None
         if local_activity and getattr(local_activity, 'upload_fit_url', None):
             session_cache = activity_data_manager.get_session_data(db, activity_id, local_activity.upload_fit_url)
+        self._mark(perf_timeline_local, "session_data") # ! SLOW
 
         response_data = {}
         try:
@@ -164,41 +171,64 @@ class ActivityService:
         except Exception as e:
             logger.exception("[section-error][overall] activity_id=%s err=%s", activity_id, e)
             response_data["overall"] = None
+        finally:
+            self._mark(perf_timeline_local, "overall") # ! 400ms
+
         try:
             response_data["power"] = self.get_power(db, activity_id, local_pair, raw_stream_data, session_cache)
         except Exception as e:
             logger.exception("[section-error][power] activity_id=%s err=%s", activity_id, e)
             response_data["power"] = None
+        finally:
+            self._mark(perf_timeline_local, "power")
+
         try:
             response_data["heartrate"] = self.get_heartrate(db, activity_id, local_pair, raw_stream_data, session_cache)
         except Exception as e:
             logger.exception("[section-error][heartrate] activity_id=%s err=%s", activity_id, e)
             response_data["heartrate"] = None
+        finally:
+            self._mark(perf_timeline_local, "heartrate")
+
         try:
             response_data["cadence"] = self.get_cadence(db, activity_id, local_pair, raw_stream_data, session_cache)
         except Exception as e:
             logger.exception("[section-error][cadence] activity_id=%s err=%s", activity_id, e)
             response_data["cadence"] = None
+        finally:
+            self._mark(perf_timeline_local, "cadence")
+
         try:
             response_data["speed"] = self.get_speed(db, activity_id, local_pair, raw_stream_data, session_cache)
         except Exception as e:
             logger.exception("[section-error][speed] activity_id=%s err=%s", activity_id, e)
             response_data["speed"] = None
+        finally:
+            self._mark(perf_timeline_local, "speed")
+
         try:
             response_data["training_effect"] = self.get_training_effect(db, activity_id, local_pair, raw_stream_data)
         except Exception as e:
             logger.exception("[section-error][training_effect] activity_id=%s err=%s", activity_id, e)
             response_data["training_effect"] = None
+        finally:
+            self._mark(perf_timeline_local, "training_effect")
+
         try:
             response_data["altitude"] = self.get_altitude(db, activity_id, local_pair, raw_stream_data, session_cache)
         except Exception as e:
             logger.exception("[section-error][altitude] activity_id=%s err=%s", activity_id, e)
             response_data["altitude"] = None
+        finally:
+            self._mark(perf_timeline_local, "altitude")
+
         try:
             response_data["temp"] = self.get_temperature(db, activity_id, raw_stream_data)
         except Exception as e:
             logger.exception("[section-error][temp] activity_id=%s err=%s", activity_id, e)
             response_data["temp"] = None
+        finally:
+            self._mark(perf_timeline_local, "temp")
 
         # zones
         zones_data: List[ZoneData] = []
@@ -209,6 +239,8 @@ class ActivityService:
         except Exception as e:
             logger.exception("[section-error][zones-power] activity_id=%s err=%s", activity_id, e)
             pass
+        finally:
+            self._mark(perf_timeline_local, "zones_power")
         try:
             hz = self._compute_heartrate_zones(db, activity_id)
             if hz:
@@ -216,6 +248,8 @@ class ActivityService:
         except Exception as e:
             logger.exception("[section-error][zones-hr] activity_id=%s err=%s", activity_id, e)
             pass
+        finally:
+            self._mark(perf_timeline_local, "zones_hr")
         response_data["zones"] = zones_data if zones_data else None
 
         # streams
@@ -243,6 +277,8 @@ class ActivityService:
         except Exception as e:
             logger.exception("[section-error][streams] activity_id=%s err=%s", activity_id, e)
             response_data["streams"] = None
+        finally:
+            self._mark(perf_timeline_local, "streams") # ! SLOW
 
         # best powers + segment_records（本地路径，封装到独立方法）
         try:
@@ -254,6 +290,8 @@ class ActivityService:
             logger.exception("[section-error][segments] activity_id=%s err=%s", activity_id, e)
             response_data["best_powers"] = None
             response_data["segment_records"] = None
+        finally:
+            self._mark(perf_timeline_local, "segments")
 
         # best_power_record（独立于分辨率，从文件仓库读取）
         try:
@@ -276,12 +314,12 @@ class ActivityService:
         except Exception as e:
             logger.exception("[section-error][best_power_record] activity_id=%s err=%s", activity_id, e)
             response_data["best_power_record"] = None
+        finally:
+            self._mark(perf_timeline_local, "best_power_record_local")
 
-        try:
-            response_data["intervals"] = self.get_intervals(db, activity_id)
-        except Exception as e:
-            logger.exception("[section-error][intervals] activity_id=%s err=%s", activity_id, e)
-            response_data["intervals"] = None
+
+        self._mark(perf_timeline_local, "done")
+        log_perf_timeline("service.local.all", activity_id, perf_timeline_local)
 
         return AllActivityDataResponse(**response_data)
 

@@ -118,26 +118,36 @@ class FitParser:
             right_pedal_smoothness.append(float(rps) if rps is not None else 0.0)
 
         # 计算elapsed_time
-        elapsed_time = []
-        prev_ts = None
-        total_elapsed = 0
-        
-        for ts in timestamp:
-            if prev_ts is None:
-                elapsed_time.append(0)
-            else:
-                delta = ts - prev_ts
-                total_elapsed += min(delta, 1)  # 最大间隔1秒
-                elapsed_time.append(int(total_elapsed))
-            prev_ts = ts
+        timestamp_np = np.asarray(timestamp, dtype=np.int32)
+        if timestamp_np.size:
+            diffs = np.diff(timestamp_np, prepend=timestamp_np[0])
+            diffs = np.clip(diffs, 0, 1)
+            elapsed_time_np = np.cumsum(diffs)
+            elapsed_time = elapsed_time_np.astype(int).tolist()
+        else:
+            elapsed_time = []
 
         # 计算衍生指标
-        best_power     = self._calculate_best_power_curve(power)
-        power_hr_ratio = [round(p/hr, 2) if p > 0 and hr > 0 else 0.0 for p, hr in zip(power, heart_rate)]
-        torque         = [int(round(p/(c*2*3.1415926/60))) if p > 0 and c > 0 else 0 for p, c in zip(power, cadence)]
-        spi            = [round(p/c, 2) if p > 0 and c > 0 else 0.0 for p, c in zip(power, cadence)]
-        w_balance      = self._calculate_w_balance(power, athlete_info)
-        vam            = self._calculate_vam(timestamp, altitude)
+        power_np = np.asarray(power, dtype=np.float64)
+        heart_rate_np = np.asarray(heart_rate, dtype=np.float64)
+        cadence_np = np.asarray(cadence, dtype=np.float64)
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            ratio = np.divide(power_np, heart_rate_np, out=np.zeros_like(power_np), where=(power_np > 0) & (heart_rate_np > 0))
+        power_hr_ratio = np.round(ratio, 2).tolist()
+
+        torque_np = np.zeros_like(power_np)
+        mask = (power_np > 0) & (cadence_np > 0)
+        torque_np[mask] = power_np[mask] / (cadence_np[mask] * 2 * np.pi / 60)
+        torque = np.round(torque_np).astype(int).tolist()
+
+        spi_np = np.zeros_like(power_np)
+        spi_np[mask] = power_np[mask] / cadence_np[mask]
+        spi = np.round(spi_np, 2).tolist()
+
+        best_power = self._calculate_best_power_curve(power_np)
+        w_balance  = self._calculate_w_balance(power_np.tolist(), athlete_info)
+        vam        = self._calculate_vam(timestamp_np, np.asarray(altitude, dtype=np.float64))
 
         return StreamData(
             timestamp                  = timestamp,
@@ -166,24 +176,16 @@ class FitParser:
             vam                        = vam
         )
 
-    def _calculate_best_power_curve(
-        self, 
-        powers: list
-    ) -> list:
-        n = len(powers)
-        best_powers = []
-        for window in range(1, n + 1):
-            max_avg = 0
-            if n >= window:
-                window_sum = sum(powers[:window])
-                max_avg = window_sum / window
-                for i in range(1, n - window + 1):
-                    window_sum = window_sum - powers[i - 1] + powers[i + window - 1]
-                    avg = window_sum / window
-                    if avg > max_avg:
-                        max_avg = avg
-            best_powers.append(int(round(max_avg)))
-        return best_powers
+    def _calculate_best_power_curve(self, powers: np.ndarray) -> List[int]:
+        max_duration = min(len(powers), 3600)
+        if max_duration == 0:
+            return []
+        prefix = np.concatenate(([0.0], powers.cumsum()))
+        best = np.zeros(max_duration, dtype=np.int32)
+        for window in range(1, max_duration + 1):
+            window_sums = prefix[window:] - prefix[:-window]
+            best[window - 1] = int(round(window_sums.max() / window))
+        return best.tolist()
 
     def _calculate_w_balance(
         self, 
@@ -214,42 +216,20 @@ class FitParser:
 
     def _calculate_vam(
         self, 
-        timestamps: list, 
-        altitudes: list, 
+        timestamps: np.ndarray, 
+        altitudes: np.ndarray, 
         window_seconds: int = 50
-    ) -> list:
-        vam = []
-
-        for i in range(len(timestamps)):
-            try:
-                t_end = timestamps[i]
-                t_start = t_end - window_seconds
-                
-                # 找到窗口起点
-                idx_start = None
-                for j in range(i, -1, -1):
-                    if timestamps[j] <= t_start:
-                        idx_start = j
-                        break
-                
-                # 计算VAM
-                if idx_start is None:
-                    if i >= window_seconds:
-                        delta_alt = altitudes[i] - altitudes[i-window_seconds]
-                        delta_time = timestamps[i] - timestamps[i-window_seconds]
-                        vam_value = delta_alt / (delta_time / 3600.0) if delta_time >= window_seconds * 0.7 else 0.0
-                    else:
-                        vam_value = 0.0
-                elif idx_start == i:
-                    vam_value = 0.0
-                else:
-                    delta_alt = altitudes[i] - altitudes[idx_start]
-                    delta_time = timestamps[i] - timestamps[idx_start]
-                    vam_value = delta_alt / (delta_time / 3600.0) if delta_time >= window_seconds * 0.5 else 0.0
-                
-                vam.append(int(round(vam_value * 1.4)))
-            except Exception:
-                vam.append(0)
-        
-        # 过滤异常值
-        return [v if -5000 <= v <= 5000 else 0 for v in vam]
+    ) -> List[int]:
+        if timestamps.size == 0 or altitudes.size == 0:
+            return []
+        start_times = timestamps - window_seconds
+        idx = np.searchsorted(timestamps, start_times, side='left')
+        idx = np.minimum(idx, np.arange(timestamps.size))
+        delta_time = timestamps - timestamps[idx]
+        delta_alt = altitudes - altitudes[idx]
+        vam = np.zeros_like(delta_alt)
+        valid = delta_time >= window_seconds * 0.5
+        with np.errstate(divide='ignore', invalid='ignore'):
+            vam[valid] = (delta_alt[valid] / (delta_time[valid] / 3600.0)) * 1.4
+        vam = np.clip(vam, -5000, 5000)
+        return np.round(vam).astype(int).tolist()

@@ -54,7 +54,19 @@ class StravaAnalyzer:
             streams = _extract.extract_stream_data(stream_data, keys, resolution) if keys else None
             perf_marks.append(("extract", perf_counter())) # ! SLOW
 
-            best_powers, segment_records = _best.analyze_best_powers(activity_data, stream_data, external_id, db, athlete_entry, activity_entry)
+            athlete_id_for_best = None
+            if athlete_entry is not None:
+                athlete_id_for_best = getattr(athlete_entry, 'id', None)
+            if athlete_id_for_best is None and activity_entry is not None:
+                athlete_id_for_best = getattr(activity_entry, 'athlete_id', None)
+
+            best_powers, segment_records = _best.analyze_best_powers(
+                activity_data,
+                stream_data,
+                external_id,
+                db,
+                athlete_id_for_best,
+            )
             perf_marks.append(("best_powers", perf_counter())) # ! SLOW
 
             overall = _metrics.analyze_overall(activity_data, stream_data, external_id, db)

@@ -226,6 +226,9 @@ class StreamData(BaseModel):
             return result[:target_size]
     
     def get_available_streams(self) -> List[str]:
+        cached = getattr(self, "_available_cache", None)
+        if cached is not None:
+            return cached
         available = []
         for field_name in StreamData.model_fields:
             data = getattr(self, field_name)
@@ -261,4 +264,5 @@ class StreamData(BaseModel):
             # 其它流只要有非 None/非 0 数据即可
             if data and any(x is not None and x != 0 for x in data):
                 available.append(field_name)
+        object.__setattr__(self, "_available_cache", available)
         return available

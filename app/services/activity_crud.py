@@ -11,6 +11,7 @@ from io import BytesIO
 from ..db.models import TbActivity, TbAthlete
 from ..repositories.activity_repo import update_field as repo_update_field, get_activity_athlete as repo_get_activity_athlete
 from ..infrastructure.data_manager import activity_data_manager
+from ..streams.crud import stream_crud
 
 
 def update_database_field(db: Session, table_class, record_id: int, field_name: str, value: Any) -> bool:
@@ -107,4 +108,3 @@ def get_activity_best_power_info(db: Session, activity_id: int) -> Optional[Dict
         return {"best_powers": best_powers}
     except Exception:
         return None
-
