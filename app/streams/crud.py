@@ -223,7 +223,8 @@ class StreamCRUD:
                             stream_data_stub,
                             external_id=None,
                             db=db,
-                            athlete_id=activity.athlete_id
+                            athlete=activity.athlete_id,
+                            activity_entry=activity,
                         )
 
                         if best_powers:

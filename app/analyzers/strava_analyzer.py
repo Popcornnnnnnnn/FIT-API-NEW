@@ -54,18 +54,13 @@ class StravaAnalyzer:
             streams = _extract.extract_stream_data(stream_data, keys, resolution) if keys else None
             perf_marks.append(("extract", perf_counter())) # ! SLOW
 
-            athlete_id_for_best = None
-            if athlete_entry is not None:
-                athlete_id_for_best = getattr(athlete_entry, 'id', None)
-            if athlete_id_for_best is None and activity_entry is not None:
-                athlete_id_for_best = getattr(activity_entry, 'athlete_id', None)
-
             best_powers, segment_records = _best.analyze_best_powers(
                 activity_data,
                 stream_data,
                 external_id,
                 db,
-                athlete_id_for_best,
+                athlete_entry if athlete_entry is not None else getattr(activity_entry, 'athlete_id', None),
+                activity_entry,
             )
             perf_marks.append(("best_powers", perf_counter())) # ! SLOW
 
@@ -112,13 +107,14 @@ class StravaAnalyzer:
     @staticmethod
     def analyze_best_powers(
         activity_data: Dict[str, Any],
-        stream_data  : Dict[str, Any],
-        external_id  : Optional[int] = None,
-        db           : Optional[Session] = None,
-        athlete_id   : Optional[int] = None,
+        stream_data: Dict[str, Any],
+        external_id: Optional[int] = None,
+        db: Optional[Session] = None,
+        athlete: Optional[Any] = None,
+        activity_entry: Optional[Any] = None,
     ):
         """提取最佳功率曲线并尝试更新个人纪录（安全失败）。"""
-        return _best.analyze_best_powers(activity_data, stream_data, external_id, db, athlete_id)
+        return _best.analyze_best_powers(activity_data, stream_data, external_id, db, athlete, activity_entry)
 
     @staticmethod
     def _log_perf_timeline(tag: str, activity_id: int, marks: List[Tuple[str, float]]) -> None:

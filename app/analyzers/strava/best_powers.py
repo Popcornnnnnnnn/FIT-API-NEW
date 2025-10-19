@@ -1,9 +1,9 @@
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, Tuple, List, cast
 from sqlalchemy.orm import Session
 from time import perf_counter
 import logging
 import numpy as np
-from ...db.models import TbActivity, TbAthlete, TbAthletePowerRecords
+from ...db.models import TbActivity, TbAthlete
 from ...repositories.power_records_repo import (
     update_best_powers as repo_update_best_powers,
     update_longest_ride as repo_update_longest_ride,
@@ -61,13 +61,13 @@ def _best_power_curve(vals: List[int]) -> List[int]:
 
 
 def analyze_best_powers(
-    activity_data: Dict[str, Any], 
-    stream_data: Dict[str, Any], 
-    external_id: Optional[int], 
-    db: Optional[Session], 
-    athlete_entry: Optional[int],
+    activity_data: Dict[str, Any],
+    stream_data: Dict[str, Any],
+    external_id: Optional[int],
+    db: Optional[Session],
+    athlete_entry: Optional[Any],
     activity_entry: Optional[Any] = None,
-    ) -> Tuple[Optional[Dict[str, int]], Optional[List[SegmentRecord]]]:
+) -> Tuple[Optional[Dict[str, int]], Optional[List[SegmentRecord]]]:
     perf_marks: List[Tuple[str, float]] = [("start", perf_counter())]
     if 'watts' not in stream_data:
         perf_marks.append(("no_watts", perf_counter()))
@@ -89,39 +89,84 @@ def analyze_best_powers(
 
         # Optionally update athlete records and produce segment records
         segment_records: List[SegmentRecord] = []
-        if db is not None: # ! SLOW
-            sr_dicts = repo_update_best_powers(db, athlete_entry.id, best_powers, activity_entry.id)
-            for sd in sr_dicts:
-                segment_records.append(SegmentRecord(**sd))
 
-            perf_marks.append(("db_power_records", perf_counter())) 
+        athlete_obj: Optional[TbAthlete] = None
+        athlete_id: Optional[int] = None
+        if athlete_entry is not None:
+            if isinstance(athlete_entry, int):
+                athlete_id = athlete_entry
+                if db is not None:
+                    athlete_obj = db.query(TbAthlete).filter(TbAthlete.id == athlete_entry).first()
+            else:
+                candidate_id = getattr(athlete_entry, "id", None)
+                if candidate_id is not None:
+                    athlete_obj = cast(TbAthlete, athlete_entry)
+                    athlete_id = candidate_id
+
+        activity_obj: Optional[TbActivity] = None
+        activity_id: Optional[int] = None
+        if activity_entry is not None:
+            if isinstance(activity_entry, int):
+                activity_id = activity_entry
+                if db is not None:
+                    activity_obj = db.query(TbActivity).filter(TbActivity.id == activity_entry).first()
+            else:
+                candidate_id = getattr(activity_entry, "id", None)
+                if candidate_id is not None:
+                    activity_obj = cast(TbActivity, activity_entry)
+                    activity_id = candidate_id
+
+        if db is not None and external_id is not None and (athlete_obj is None or activity_obj is None):
+            pair = _get_activity_athlete_by_external_id(db, external_id)
+            if pair:
+                act, ath = pair
+                if activity_obj is None:
+                    activity_obj = act
+                    activity_id = getattr(act, "id", activity_id)
+                if athlete_obj is None:
+                    athlete_obj = ath
+                    athlete_id = getattr(ath, "id", athlete_id)
+
+        if athlete_id is None and athlete_obj is not None:
+            athlete_id = getattr(athlete_obj, "id", None)
+        if activity_id is None and activity_obj is not None:
+            activity_id = getattr(activity_obj, "id", None)
+
+        if db is not None and athlete_id is not None and activity_id is not None:
+            try:
+                sr_dicts = repo_update_best_powers(db, athlete_id, best_powers, activity_id)
+                for sd in sr_dicts:
+                    segment_records.append(SegmentRecord(**sd))
+                perf_marks.append(("db_power_records", perf_counter()))
+            except Exception:
+                pass
 
             dist_m = int(activity_data.get('distance') or 0)
             elev_gain = int(activity_data.get('total_elevation_gain') or 0)
 
             if dist_m > 0:
                 try:
-                    sr = repo_update_longest_ride(db, athlete_entry.id, dist_m, activity_entry.id)
+                    sr = repo_update_longest_ride(db, athlete_id, dist_m, activity_id)
                     if sr:
                         segment_records.append(SegmentRecord(**sr))
                 except Exception:
                     pass
             if elev_gain > 0:
                 try:
-                    sr = repo_update_max_elevation_gain(db, athlete_entry.id, elev_gain, activity_entry.id)
+                    sr = repo_update_max_elevation_gain(db, athlete_id, elev_gain, activity_id)
                     if sr:
                         segment_records.append(SegmentRecord(**sr))
                 except Exception:
                     pass
             perf_marks.append(("db_longest_elev", perf_counter()))
 
-            # 文件持久化：更新该运动员的全局最佳功率曲线（按秒）
-            try:
-                if best_curve:
-                    repo_update_best_power_file(athlete_entry.id, best_curve)
-            except Exception:
-                pass
+            if best_curve:
+                try:
+                    repo_update_best_power_file(athlete_id, best_curve)
+                except Exception:
+                    pass
             perf_marks.append(("file_persist", perf_counter()))
+
         return best_powers, segment_records or None
     except Exception:
         return None, None
