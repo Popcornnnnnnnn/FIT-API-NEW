@@ -1,0 +1,707 @@
+{
+  "file": "/Users/popcornnnnnn/Code/Work/Test/Fits/1760622831991_20251016215351A007.fit",
+  "file_id": {
+    "type": {
+      "value": "activity"
+    },
+    "manufacturer": {
+      "value": 294
+    },
+    "time_created": {
+      "value": "2025-10-16T13:52:53"
+    },
+    "product": {
+      "value": 804
+    },
+    "product_name": {
+      "value": "COROS PACE 3"
+    }
+  },
+  "activity": {
+    "timestamp": {
+      "value": "2025-10-16T13:15:36"
+    },
+    "total_timer_time": {
+      "value": 2187.23,
+      "units": "s"
+    },
+    "local_timestamp": {
+      "value": "2025-10-16T21:15:36"
+    },
+    "num_sessions": {
+      "value": 1
+    },
+    "event": {
+      "value": "activity"
+    },
+    "event_type": {
+      "value": "stop"
+    }
+  },
+  "events": [
+    {
+      "timestamp": {
+        "value": "2025-10-16T13:15:36"
+      },
+      "event": {
+        "value": "timer"
+      },
+      "event_type": {
+        "value": "start"
+      },
+      "event_group": {
+        "value": 0
+      }
+    },
+    {
+      "timestamp": {
+        "value": "2025-10-16T13:48:06"
+      },
+      "event": {
+        "value": "timer"
+      },
+      "event_type": {
+        "value": "stop_all"
+      },
+      "event_group": {
+        "value": 0
+      }
+    },
+    {
+      "timestamp": {
+        "value": "2025-10-16T13:15:36+00:00"
+      },
+      "event": {
+        "value": "timer"
+      },
+      "event_type": {
+        "value": "start"
+      },
+      "event_group": {
+        "value": 0
+      }
+    },
+    {
+      "timestamp": {
+        "value": "2025-10-16T13:48:06+00:00"
+      },
+      "event": {
+        "value": "timer"
+      },
+      "event_type": {
+        "value": "stop_all"
+      },
+      "event_group": {
+        "value": 0
+      }
+    },
+    {
+      "timestamp": {
+        "value": "2025-10-16T13:48:32+00:00"
+      },
+      "event": {
+        "value": "timer"
+      },
+      "event_type": {
+        "value": "start"
+      },
+      "event_group": {
+        "value": 0
+      },
+      "timer_trigger": {
+        "value": [
+          0
+        ]
+      }
+    }
+  ],
+  "laps": [
+    {
+      "lap_index": 0,
+      "fields": {
+        "timestamp": {
+          "value": "2025-10-16T13:23:13+00:00"
+        },
+        "start_time": {
+          "value": "2025-10-16T13:15:36+00:00"
+        },
+        "total_timer_time": {
+          "value": 457.03,
+          "units": "s"
+        },
+        "total_elapsed_time": {
+          "value": 457.03,
+          "units": "s"
+        },
+        "total_distance": {
+          "value": 1000.0,
+          "units": "m"
+        },
+        "total_calories": {
+          "value": 80,
+          "units": "kcal"
+        },
+        "max_heart_rate": {
+          "value": 146,
+          "units": "bpm"
+        },
+        "min_heart_rate": {
+          "value": 96,
+          "units": "bpm"
+        },
+        "avg_heart_rate": {
+          "value": 139,
+          "units": "bpm"
+        },
+        "avg_temperature": {
+          "value": 22,
+          "units": "C"
+        },
+        "enhanced_max_speed": {
+          "value": 2.331,
+          "units": "m/s"
+        },
+        "max_speed": {
+          "value": 2.331,
+          "units": "m/s"
+        },
+        "enhanced_avg_speed": {
+          "value": 2.188,
+          "units": "m/s"
+        },
+        "avg_speed": {
+          "value": 2.188,
+          "units": "m/s"
+        },
+        "avg_running_cadence": {
+          "value": 84,
+          "units": "strides/min"
+        },
+        "avg_step_length": {
+          "value": 780.0,
+          "units": "mm"
+        },
+        "total_descent": {
+          "value": 1,
+          "units": "m"
+        },
+        "total_ascent": {
+          "value": 0,
+          "units": "m"
+        },
+        "avg_power": {
+          "value": 181,
+          "units": "watts"
+        },
+        "avg_stance_time": {
+          "value": 0.0,
+          "units": "ms"
+        },
+        "avg_stance_time_percent": {
+          "value": 0.0,
+          "units": "percent"
+        },
+        "avg_vertical_oscillation": {
+          "value": 0.0,
+          "units": "mm"
+        },
+        "avg_vertical_ratio": {
+          "value": 0.0,
+          "units": "percent"
+        }
+      }
+    },
+    {
+      "lap_index": 1,
+      "fields": {
+        "timestamp": {
+          "value": "2025-10-16T13:30:39+00:00"
+        },
+        "start_time": {
+          "value": "2025-10-16T13:23:13+00:00"
+        },
+        "total_timer_time": {
+          "value": 446.8,
+          "units": "s"
+        },
+        "total_elapsed_time": {
+          "value": 446.8,
+          "units": "s"
+        },
+        "total_distance": {
+          "value": 1000.0,
+          "units": "m"
+        },
+        "total_calories": {
+          "value": 84,
+          "units": "kcal"
+        },
+        "max_heart_rate": {
+          "value": 150,
+          "units": "bpm"
+        },
+        "min_heart_rate": {
+          "value": 137,
+          "units": "bpm"
+        },
+        "avg_heart_rate": {
+          "value": 144,
+          "units": "bpm"
+        },
+        "avg_temperature": {
+          "value": 21,
+          "units": "C"
+        },
+        "enhanced_max_speed": {
+          "value": 2.326,
+          "units": "m/s"
+        },
+        "max_speed": {
+          "value": 2.326,
+          "units": "m/s"
+        },
+        "enhanced_avg_speed": {
+          "value": 2.238,
+          "units": "m/s"
+        },
+        "avg_speed": {
+          "value": 2.238,
+          "units": "m/s"
+        },
+        "avg_running_cadence": {
+          "value": 85,
+          "units": "strides/min"
+        },
+        "avg_step_length": {
+          "value": 790.0,
+          "units": "mm"
+        },
+        "total_descent": {
+          "value": 1,
+          "units": "m"
+        },
+        "total_ascent": {
+          "value": 2,
+          "units": "m"
+        },
+        "avg_power": {
+          "value": 186,
+          "units": "watts"
+        },
+        "avg_stance_time": {
+          "value": 0.0,
+          "units": "ms"
+        },
+        "avg_stance_time_percent": {
+          "value": 0.0,
+          "units": "percent"
+        },
+        "avg_vertical_oscillation": {
+          "value": 0.0,
+          "units": "mm"
+        },
+        "avg_vertical_ratio": {
+          "value": 0.0,
+          "units": "percent"
+        }
+      }
+    },
+    {
+      "lap_index": 2,
+      "fields": {
+        "timestamp": {
+          "value": "2025-10-16T13:37:54+00:00"
+        },
+        "start_time": {
+          "value": "2025-10-16T13:30:39+00:00"
+        },
+        "total_timer_time": {
+          "value": 435.0,
+          "units": "s"
+        },
+        "total_elapsed_time": {
+          "value": 435.0,
+          "units": "s"
+        },
+        "total_distance": {
+          "value": 1000.0,
+          "units": "m"
+        },
+        "total_calories": {
+          "value": 84,
+          "units": "kcal"
+        },
+        "max_heart_rate": {
+          "value": 149,
+          "units": "bpm"
+        },
+        "min_heart_rate": {
+          "value": 143,
+          "units": "bpm"
+        },
+        "avg_heart_rate": {
+          "value": 147,
+          "units": "bpm"
+        },
+        "avg_temperature": {
+          "value": 20,
+          "units": "C"
+        },
+        "enhanced_max_speed": {
+          "value": 2.387,
+          "units": "m/s"
+        },
+        "max_speed": {
+          "value": 2.387,
+          "units": "m/s"
+        },
+        "enhanced_avg_speed": {
+          "value": 2.299,
+          "units": "m/s"
+        },
+        "avg_speed": {
+          "value": 2.299,
+          "units": "m/s"
+        },
+        "avg_running_cadence": {
+          "value": 85,
+          "units": "strides/min"
+        },
+        "avg_step_length": {
+          "value": 810.0,
+          "units": "mm"
+        },
+        "total_descent": {
+          "value": 2,
+          "units": "m"
+        },
+        "total_ascent": {
+          "value": 0,
+          "units": "m"
+        },
+        "avg_power": {
+          "value": 193,
+          "units": "watts"
+        },
+        "avg_stance_time": {
+          "value": 0.0,
+          "units": "ms"
+        },
+        "avg_stance_time_percent": {
+          "value": 0.0,
+          "units": "percent"
+        },
+        "avg_vertical_oscillation": {
+          "value": 0.0,
+          "units": "mm"
+        },
+        "avg_vertical_ratio": {
+          "value": 0.0,
+          "units": "percent"
+        }
+      }
+    },
+    {
+      "lap_index": 3,
+      "fields": {
+        "timestamp": {
+          "value": "2025-10-16T13:45:00+00:00"
+        },
+        "start_time": {
+          "value": "2025-10-16T13:37:54+00:00"
+        },
+        "total_timer_time": {
+          "value": 425.58,
+          "units": "s"
+        },
+        "total_elapsed_time": {
+          "value": 425.58,
+          "units": "s"
+        },
+        "total_distance": {
+          "value": 1000.0,
+          "units": "m"
+        },
+        "total_calories": {
+          "value": 87,
+          "units": "kcal"
+        },
+        "max_heart_rate": {
+          "value": 148,
+          "units": "bpm"
+        },
+        "min_heart_rate": {
+          "value": 144,
+          "units": "bpm"
+        },
+        "avg_heart_rate": {
+          "value": 147,
+          "units": "bpm"
+        },
+        "avg_temperature": {
+          "value": 19,
+          "units": "C"
+        },
+        "enhanced_max_speed": {
+          "value": 2.451,
+          "units": "m/s"
+        },
+        "max_speed": {
+          "value": 2.451,
+          "units": "m/s"
+        },
+        "enhanced_avg_speed": {
+          "value": 2.35,
+          "units": "m/s"
+        },
+        "avg_speed": {
+          "value": 2.35,
+          "units": "m/s"
+        },
+        "avg_running_cadence": {
+          "value": 85,
+          "units": "strides/min"
+        },
+        "avg_step_length": {
+          "value": 820.0,
+          "units": "mm"
+        },
+        "total_descent": {
+          "value": 0,
+          "units": "m"
+        },
+        "total_ascent": {
+          "value": 0,
+          "units": "m"
+        },
+        "avg_power": {
+          "value": 195,
+          "units": "watts"
+        },
+        "avg_stance_time": {
+          "value": 0.0,
+          "units": "ms"
+        },
+        "avg_stance_time_percent": {
+          "value": 0.0,
+          "units": "percent"
+        },
+        "avg_vertical_oscillation": {
+          "value": 0.0,
+          "units": "mm"
+        },
+        "avg_vertical_ratio": {
+          "value": 0.0,
+          "units": "percent"
+        }
+      }
+    },
+    {
+      "lap_index": 4,
+      "fields": {
+        "timestamp": {
+          "value": "2025-10-16T13:51:58+00:00"
+        },
+        "start_time": {
+          "value": "2025-10-16T13:45:00+00:00"
+        },
+        "total_timer_time": {
+          "value": 392.85,
+          "units": "s"
+        },
+        "total_elapsed_time": {
+          "value": 417.85,
+          "units": "s"
+        },
+        "total_distance": {
+          "value": 1000.0,
+          "units": "m"
+        },
+        "total_calories": {
+          "value": 86,
+          "units": "kcal"
+        },
+        "max_heart_rate": {
+          "value": 161,
+          "units": "bpm"
+        },
+        "min_heart_rate": {
+          "value": 146,
+          "units": "bpm"
+        },
+        "avg_heart_rate": {
+          "value": 154,
+          "units": "bpm"
+        },
+        "avg_temperature": {
+          "value": 19,
+          "units": "C"
+        },
+        "enhanced_max_speed": {
+          "value": 3.344,
+          "units": "m/s"
+        },
+        "max_speed": {
+          "value": 3.344,
+          "units": "m/s"
+        },
+        "enhanced_avg_speed": {
+          "value": 2.545,
+          "units": "m/s"
+        },
+        "avg_speed": {
+          "value": 2.545,
+          "units": "m/s"
+        },
+        "avg_running_cadence": {
+          "value": 85,
+          "units": "strides/min"
+        },
+        "avg_step_length": {
+          "value": 900.0,
+          "units": "mm"
+        },
+        "total_descent": {
+          "value": 1,
+          "units": "m"
+        },
+        "total_ascent": {
+          "value": 2,
+          "units": "m"
+        },
+        "avg_power": {
+          "value": 213,
+          "units": "watts"
+        },
+        "avg_stance_time": {
+          "value": 0.0,
+          "units": "ms"
+        },
+        "avg_stance_time_percent": {
+          "value": 0.0,
+          "units": "percent"
+        },
+        "avg_vertical_oscillation": {
+          "value": 0.0,
+          "units": "mm"
+        },
+        "avg_vertical_ratio": {
+          "value": 0.0,
+          "units": "percent"
+        }
+      }
+    },
+    {
+      "lap_index": 5,
+      "fields": {
+        "timestamp": {
+          "value": "2025-10-16T13:52:03+00:00"
+        },
+        "start_time": {
+          "value": "2025-10-16T13:51:58+00:00"
+        },
+        "total_timer_time": {
+          "value": 4.93,
+          "units": "s"
+        },
+        "total_elapsed_time": {
+          "value": 4.93,
+          "units": "s"
+        },
+        "total_distance": {
+          "value": 12.81,
+          "units": "m"
+        },
+        "total_calories": {
+          "value": 1,
+          "units": "kcal"
+        },
+        "max_heart_rate": {
+          "value": 160,
+          "units": "bpm"
+        },
+        "min_heart_rate": {
+          "value": 160,
+          "units": "bpm"
+        },
+        "avg_heart_rate": {
+          "value": 160,
+          "units": "bpm"
+        },
+        "avg_temperature": {
+          "value": 19,
+          "units": "C"
+        },
+        "enhanced_max_speed": {
+          "value": 2.71,
+          "units": "m/s"
+        },
+        "max_speed": {
+          "value": 2.71,
+          "units": "m/s"
+        },
+        "enhanced_avg_speed": {
+          "value": 2.598,
+          "units": "m/s"
+        },
+        "avg_speed": {
+          "value": 2.598,
+          "units": "m/s"
+        },
+        "avg_running_cadence": {
+          "value": 83,
+          "units": "strides/min"
+        },
+        "avg_step_length": {
+          "value": 930.0,
+          "units": "mm"
+        },
+        "total_descent": {
+          "value": 0,
+          "units": "m"
+        },
+        "total_ascent": {
+          "value": 0,
+          "units": "m"
+        },
+        "avg_power": {
+          "value": 221,
+          "units": "watts"
+        },
+        "avg_stance_time": {
+          "value": 0.0,
+          "units": "ms"
+        },
+        "avg_stance_time_percent": {
+          "value": 0.0,
+          "units": "percent"
+        },
+        "avg_vertical_oscillation": {
+          "value": 0.0,
+          "units": "mm"
+        },
+        "avg_vertical_ratio": {
+          "value": 0.0,
+          "units": "percent"
+        }
+      }
+    }
+  ],
+  "totals": {
+    "total_distance": {
+      "value": 5012.81,
+      "units": "m"
+    },
+    "total_timer_time": {
+      "value": 2162.19,
+      "units": "s"
+    },
+    "total_elapsed_time": {
+      "value": 2187.19,
+      "units": "s"
+    },
+    "lap_count": {
+      "value": 6
+    }
+  }
+}

@@ -85,7 +85,15 @@ class StreamCRUD:
     ) -> Optional[models.StreamData]:
         """解析活动对应的 FIT 数据并返回 StreamData，默认启用进程内缓存。"""
         if use_cache and activity_id in self._parsed_cache:
-            return self._parsed_cache[activity_id]
+            cached = self._parsed_cache[activity_id]
+            if getattr(cached, "_parse_failed", False) or getattr(cached, "_fit_backend", None) is None:
+                logger.info(
+                    "[stream-crud] dropping stale cached stream for activity_id=%s",
+                    activity_id,
+                )
+                self._parsed_cache.pop(activity_id, None)
+            else:
+                return cached
 
         if activity is None:
             activity = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
@@ -293,13 +301,24 @@ class StreamCRUD:
             }
             parsed = self.fit_parser.parse_fit_file(file_data, athlete_info)
             perf_marks.append(("parse", perf_counter()))
+            if getattr(parsed, "_parse_failed", False):
+                logger.error(
+                    "[stream-crud] parsing failed for activity_id=%s; clearing cached raw data",
+                    activity.id,
+                )
+                if use_cache:
+                    self._raw_fit_cache.pop(activity.id, None)
+                    self._parsed_cache.pop(activity.id, None)
+                return None
+            backend = getattr(parsed, "_fit_backend", "unknown")
             if use_cache:
                 self._parsed_cache[activity.id] = parsed
                 self._session_cache[activity.id] = self._parse_session_from_bytes(file_data)
             perf_marks.append(("session", perf_counter()))
             logger.info(
-                "[perf][stream_crud.parse] activity_id=%s total=%.1fms %s\n",
+                "[perf][stream_crud.parse] activity_id=%s backend=%s total=%.1fms %s\n",
                 activity.id,
+                backend,
                 (perf_marks[-1][1] - perf_marks[0][1]) * 1000,
                 " | ".join(f"{label}={(perf_marks[i][1]-perf_marks[i-1][1])*1000:.1f}ms" for i, (label, _) in enumerate(perf_marks[1:], start=1)),
             )
