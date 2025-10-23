@@ -81,7 +81,7 @@ def analyze_heartrate_zones(hr_data: List[int], max_hr: int) -> List[Dict[str, A
     return out
 
 
-def analyze_heartrate_zones_lthr(hr_data: List[int], lthr: int) -> List[Dict[str, Any]]:
+def analyze_heartrate_zones_lthr(hr_data: List[int], lthr: int, max_hr: int) -> List[Dict[str, Any]]:
     """基于阈值心率（LTHR）的心率分区： 
     Z1 Recovery: 0-84% LTHR, Z2 Aerobic: 85-90%, Z3 Tempo: 90-95%, 
     Z4 SubThreshold: 95-99%, Z5 SuperThreshold: 100-102%, 
@@ -96,7 +96,7 @@ def analyze_heartrate_zones_lthr(hr_data: List[int], lthr: int) -> List[Dict[str
         (int(lthr * 0.95), int(lthr * 0.99)),    # Z4 SubThreshold: 95-99%
         (int(lthr * 1.00), int(lthr * 1.02)),    # Z5 SuperThreshold: 100-102%
         (int(lthr * 1.03), int(lthr * 1.05)),    # Z6 Aerobic Capacity: 103-105%
-        (int(lthr * 1.05), float('inf')),         # Z7 Anaerobic: 105%+
+        (int(lthr * 1.05), max_hr),         # Z7 Anaerobic: 105%+
     ]
     zone_times = defaultdict(int)
     valid = 0

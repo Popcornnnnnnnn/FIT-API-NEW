@@ -258,7 +258,7 @@ def analyze_zones(activity_data: Dict[str, Any], stream_data: Dict[str, Any], ex
                     max_hr = None
             hd = [h if h is not None else 0 for h in stream_data.get('heartrate', {}).get('data', [])]
             if use_threshold and lthr:
-                buckets = _zones.analyze_heartrate_zones_lthr(hd, lthr)
+                buckets = _zones.analyze_heartrate_zones_lthr(hd, lthr, max_hr)
             else:
                 buckets = _zones.analyze_heartrate_zones(hd, max_hr or 0)
             if buckets:

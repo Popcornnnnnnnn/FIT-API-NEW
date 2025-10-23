@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>心率训练区间划分的研究与应用综述</title>
+  <style>
+    :root {
+      color-scheme: light;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Helvetica Neue", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.7;
+      color: #1f2933;
+      background: #f5f7fb;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    header {
+      background: linear-gradient(135deg, #1e88e5, #43a047);
+      color: #fff;
+      padding: 48px 20px 56px;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 2.4rem;
+      letter-spacing: 0.04em;
+    }
+
+    header p {
+      margin: 16px 0 0;
+      max-width: 720px;
+      font-size: 1.05rem;
+    }
+
+    .page {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 32px;
+      max-width: 1280px;
+      margin: -40px auto 64px;
+      padding: 0 20px 40px;
+    }
+
+    nav.toc {
+      background: #ffffff;
+      border-radius: 20px;
+      padding: 24px;
+      box-shadow: 0 16px 40px rgba(30, 56, 88, 0.12);
+      position: sticky;
+      top: 32px;
+      align-self: start;
+      max-height: calc(100vh - 48px);
+      overflow: auto;
+    }
+
+    nav.toc h2 {
+      margin-top: 0;
+      font-size: 1.2rem;
+      color: #163d71;
+    }
+
+    nav.toc ol,
+    nav.toc li {
+      margin: 0;
+      padding: 0;
+      list-style-position: inside;
+    }
+
+    nav.toc > ol > li {
+      margin-bottom: 12px;
+    }
+
+    nav.toc ol ol {
+      margin-top: 6px;
+      margin-left: 16px;
+    }
+
+    nav.toc a {
+      color: inherit;
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+      padding-bottom: 2px;
+      transition: color 0.2s ease, border-color 0.2s ease;
+    }
+
+    nav.toc a:hover {
+      color: #1e88e5;
+      border-color: rgba(30, 136, 229, 0.35);
+    }
+
+    main {
+      background: #ffffff;
+      border-radius: 24px;
+      padding: 48px;
+      box-shadow: 0 20px 48px rgba(15, 35, 64, 0.14);
+    }
+
+    section + section {
+      margin-top: 64px;
+    }
+
+    h2 {
+      margin-top: 0;
+      font-size: 1.8rem;
+      color: #163d71;
+    }
+
+    h3 {
+      margin-top: 40px;
+      font-size: 1.45rem;
+      color: #1e88e5;
+    }
+
+    h4 {
+      margin-top: 24px;
+      font-size: 1.15rem;
+      color: #2d4a72;
+    }
+
+    p {
+      margin: 16px 0;
+      text-align: justify;
+    }
+
+    ul, ol {
+      margin: 16px 0 16px 24px;
+    }
+
+    li + li {
+      margin-top: 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 24px 0;
+      overflow: hidden;
+      border-radius: 16px;
+      box-shadow: 0 0 0 1px rgba(22, 61, 113, 0.12);
+    }
+
+    th, td {
+      padding: 14px 16px;
+      vertical-align: top;
+    }
+
+    thead tr {
+      background: #edf4ff;
+      color: #163d71;
+      font-weight: 600;
+    }
+
+    tbody tr:nth-child(even) {
+      background: rgba(235, 242, 250, 0.6);
+    }
+
+    tbody tr:hover {
+      background: rgba(30, 136, 229, 0.08);
+    }
+
+    blockquote {
+      margin: 24px 0;
+      padding: 20px 24px;
+      border-left: 4px solid #1e88e5;
+      background: rgba(30, 136, 229, 0.08);
+      border-radius: 0 12px 12px 0;
+      color: #2d4a72;
+    }
+
+    footer {
+      max-width: 1280px;
+      margin: 0 auto 48px;
+      padding: 0 24px;
+      color: #607286;
+    }
+
+    code {
+      background: rgba(15, 35, 64, 0.08);
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+    }
+
+    sup.ref {
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-left: 4px;
+    }
+
+    sup.ref a {
+      color: inherit;
+      text-decoration: none;
+      margin: 0 2px;
+    }
+
+    sup.ref a:hover {
+      color: #1e88e5;
+    }
+
+    @media (max-width: 1100px) {
+      .page {
+        grid-template-columns: 1fr;
+      }
+
+      nav.toc {
+        position: static;
+        max-height: none;
+        margin-bottom: 28px;
+      }
+
+      main {
+        padding: 32px 24px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      header {
+        padding: 40px 16px 48px;
+      }
+
+      header h1 {
+        font-size: 1.9rem;
+      }
+
+      main {
+        padding: 24px 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>心率训练区间划分的研究与应用综述</h1>
+    <p>
+      本文汇总了常见的心率分区方法、训练应用场景、
+      以及近年在心率分区算法上的研究进展。
+    </p>
+  </header>
+
+  <div class="page">
+    <nav class="toc" aria-labelledby="toc-title">
+      <h2 id="toc-title">目录</h2>
+      <ol>
+        <li><a href="#intro">引言</a></li>
+        <li>
+          <a href="#methods">常见心率区间划分方法</a>
+          <ol>
+            <li><a href="#method-hrmax">最大心率百分比法（%HRmax）</a></li>
+            <li><a href="#method-hrr">储备心率法（Karvonen公式）</a></li>
+            <li><a href="#method-lthr">乳酸阈值法（LTHR划分）</a></li>
+            <li><a href="#method-ftp">临界功率/FTP对应心率划分</a></li>
+            <li><a href="#method-hrv">心率变异性（HRV）划分模型</a></li>
+            <li><a href="#method-intervals">基于阈值心率的七区模型</a></li>
+          </ol>
+        </li>
+        <li><a href="#comparison">不同方法的应用比较</a></li>
+        <li><a href="#recent">心率分区算法的最新进展</a></li>
+        <li><a href="#references">参考文献</a></li>
+      </ol>
+    </nav>
+
+    <main>
+      <section id="intro">
+        <h2>引言</h2>
+        <p>
+          在跑步、自行车等耐力运动中，训练计划往往通过心率区间来控制强度和监控体能变化。最常见的做法是先估计或测试出某些关键生理阈值（如最大心率、乳酸阈值），再据此划定不同的训练区。区间越清晰，越能确保训练目的明确：例如在低强度区间发展有氧能力，在阈值附近强化乳酸代谢，在高强度区间刺激无氧和
+          神经肌肉适应。
+        </p>
+        <p>
+          传统的“五区心率法”利用最大心率百分比来划分强度，图省事但个体化不足。随着运动科学发展，加入静息心率的Karvonen公式、直接围绕乳酸阈值或FTP的划分、基于心率变异性的自动阈值识别等方法逐渐普及。这些新方法强调个体差异，也更契合现代运动手表、功率计、HRV传感器等设备提供的数据。
+          <sup class="ref"><a href="#ref-1">[1]</a><a href="#ref-2">[2]</a></sup>
+        </p>
+      </section>
+
+      <section id="methods">
+        <h2>常见心率区间划分方法</h2>
+        <p>
+          本节按照复杂程度，从简单的经验公式到精细的阈值检测，依次介绍六类常见心率分区方法，它们在训练中的适用对象与细节要求差异较大。
+        </p>
+
+        <section id="method-hrmax">
+          <h3>最大心率百分比法（%HRmax）</h3>
+          <h4>原理与算法</h4>
+          <p>
+            以个人最大心率（HRmax）为基准，将训练强度定义为 HRmax 的不同百分比。常见的五区模型包括：恢复区 50&ndash;60% HRmax、有氧耐力区 60&ndash;70%、中等强度区 70&ndash;80%、无氧阈值区 80&ndash;90% 以及高强度区 90&ndash;100%。若没有实测 HRmax，可通过 <code>220 - 年龄</code> 或 Tanaka 公式 <code>208 - 0.7 × 年龄</code>
+            等经验公式估算。
+            <sup class="ref"><a href="#ref-1">[1]</a><a href="#ref-2">[2]</a></sup>
+          </p>
+          <h4>所需参数</h4>
+          <p>仅需年龄或一次最大努力测试获得的 HRmax。</p>
+          <h4>优点</h4>
+          <p>操作简单、成本低，是大众健身、入门耐力训练或设备默认设置的常用方案。</p>
+          <h4>局限</h4>
+          <p>
+            由于个体差异大，公式估算的 HRmax 误差可达 ±10 bpm。同一百分比下，不同人所处的代谢强度差异可能
+            很大，容易出现训练强度被高估或低估的情况，因此需要结合自我感受或其他指标调整。
+          </p>
+        </section>
+
+        <section id="method-hrr">
+          <h3>储备心率法（Karvonen 公式）</h3>
+          <h4>原理与算法</h4>
+          <p>
+            考虑静息心率（Resting HR, RHR），先计算心率储备（HRR = HRmax − RHR），再按百分比划分。目标心率 = RHR + HRR × 强度百分比。例如 40 岁运动员 HRmax 估计为 180、静息心率 60，则 HRR = 120，想要 70% 强度时的心率为 60 + 120 × 0.7 = 144 bpm。
+            <sup class="ref"><a href="#ref-1">[1]</a></sup>
+          </p>
+          <h4>所需参数</h4>
+          <p>最大心率（估算或实测）与静息心率。静息心率通常清晨多日测量后取平均。</p>
+          <h4>优点</h4>
+          <p>
+            兼顾个体差异，%HRR 与 %VO<sub>2</sub> Reserve 近似线性，对不同体能水平的人更友好，是医学运动处方中常用的分区方式。
+            <sup class="ref"><a href="#ref-5">[5]</a></sup>
+          </p>
+          <h4>局限</h4>
+          <p>
+            仍依赖准确的 HRmax 测量；静息心率受疲劳、睡眠等影响需定期更新。对普通爱好者而言略比 %HRmax繁琐，但现代设备已普遍内置该算法。
+          </p>
+        </section>
+
+        <section id="method-lthr">
+          <h3>乳酸阈值法（LTHR 划分）</h3>
+          <h4>原理与算法</h4>
+          <p>
+            乳酸阈值（通常指第二阈值 LT2）被视为有氧与无氧代谢的分界。常见流程是通过实验室乳酸测试或场地测试（如 30 分钟全力，取后 20 分钟平均心率）获得乳酸阈心率（LTHR），然后围绕 LTHR 划分区间：例如恢复区 < 80% LTHR，耐力区 81&ndash;89%，节奏区 90&ndash;94%，阈值区 95&ndash;99%，VO<sub>2</sub>max 区 >
+            100%。
+            <sup class="ref"><a href="#ref-8">[8]</a><a href="#ref-9">[9]</a></sup>
+          </p>
+          <h4>所需参数</h4>
+          <p>需要乳酸阈值测试或可信的场地替代测试数据，最好配合 HRmax 进行合理性校验。</p>
+          <h4>优点</h4>
+          <p>
+            针对个体生理指标，强度划分精确，可动态反映训练进步。高水平耐力运动员依赖该方法安排阈值跑、节奏骑等关键训练。
+          </p>
+          <h4>局限</h4>
+          <p>
+            获取阈值需要测试，存在成本与技术门槛；阈值心率受疲劳与环境影响需定期复测。对初学者而言操作较复杂，通常需要教练指导。
+          </p>
+        </section>
+
+        <section id="method-ftp">
+          <h3>临界功率 / FTP 对应心率划分</h3>
+          <h4>原理与算法</h4>
+          <p>
+            临界功率（CP）或功能阈值功率（FTP）与乳酸阈值强度相近。通过功率测试得到 FTP 及对应的平均心率，以该阈值心率为锚点，按照功率训练的七区模型（如 Coggan 区间）推导出心率区间，使心率与功率分析指标保持一致。
+          </p>
+          <h4>所需参数</h4>
+          <p>FTP 测试（或阈值配速测试）结果及测试时的平均心率。</p>
+          <h4>优点</h4>
+          <p>
+            将外部负荷（功率）与内部反应（心率）关联，适合需要统一分析跑步、骑行等多项目数据的选手。Intervals.icu 等平台可根据阈值心率自动生成七区划分。
+            <sup class="ref"><a href="#ref-6">[6]</a><a href="#ref-8">[8]</a><a href="#ref-10">[10]</a></sup>
+          </p>
+          <h4>局限</h4>
+          <p>
+            FTP 测试本身强度较高，需要定期更新；心率对短时冲刺存在滞后，高区间的心率指导意义有限，因此更适合中低强度持续训练的强度控制。
+          </p>
+        </section>
+
+        <section id="method-hrv">
+          <h3>心率变异性（HRV）划分模型</h3>
+          <h4>HRV 阈值法（HRVT）</h4>
+          <p>
+            通过渐进负荷测试记录 R-R 间期，分析心率变异性指标（如 DFA α1、样本熵、HRV 频域功率）的突变来推断阈值。当 DFA α1 降至约 0.75 时往往对应第一通气阈（LT1），降至约 0.5 时接近第二阈值（LT2）。多项研究表明 HRVT 与传统乳酸/通气阈值高度吻合，个体化程度高且无需采血。
+            <sup class="ref"><a href="#ref-11">[11]</a><a href="#ref-12">[12]</a></sup>
+          </p>
+          <h4>HRV 指导训练</h4>
+          <p>
+            每日监测静息 HRV（如 rMSSD），当状态显著低于基线时降低训练强度或安排恢复；当 HRV 正常或偏高时执行计划中的高强度单元。随机对照研究显示，HRV 自适应训练可在保证进步的同时提高依从性，已被多款训练软件和教练实践采用。
+            <sup class="ref"><a href="#ref-13">[13]</a></sup>
+          </p>
+          <h4>局限</h4>
+          <p>
+            HRV 测量易受睡眠、温度、设备精度等因素干扰；算法与阈值判据尚未完全标准化，对女性人群的验证仍不足。在实际应用中常与传统区间划分配合使用。
+          </p>
+        </section>
+
+        <section id="method-intervals">
+          <h3>基于阈值心率的七区心率模型</h3>
+          <p>
+            Intervals.icu 等平台基于 Joe Friel 的心率区间体系，将心率划分为七个区间以匹配功率训练语言。用户输入阈值心率和最大心率后，平台提供如 Friel 7 区、80/20 五区等多种预设。Friel 七区（以阈值心率计）示例：
+            <sup class="ref"><a href="#ref-6">[6]</a><a href="#ref-7">[7]</a><a href="#ref-8">[8]</a><a href="#ref-14">[14]</a></sup>
+          </p>
+          <ul>
+            <li>Zone 1 &mdash; 积极恢复：&lt; ~81% 阈值 HR（跑步约 &lt;85%）。</li>
+            <li>Zone 2 &mdash; 有氧耐力：81&ndash;89% 阈值 HR。</li>
+            <li>Zone 3 &mdash; 节奏：90&ndash;93% 阈值 HR。</li>
+            <li>Zone 4 &mdash; 阈值：94&ndash;99% 阈值 HR。</li>
+            <li>Zone 5 &mdash; VO<sub>2</sub>max：100&ndash;102% 阈值 HR。</li>
+            <li>Zone 6 &mdash; 无氧：103&ndash;106% 阈值 HR。</li>
+            <li>Zone 7 &mdash; 神经肌肉冲刺：&gt; 106% 阈值 HR（接近 HRmax）。</li>
+          </ul>
+          <p>
+            该模型使不同运动项目（骑行、跑步等）的数据分析语言统一，便于量化低强度训练时间、阈值训练负荷和无氧冲刺投入。缺点是区间较多，对初学者略显复杂，但对高水平选手可提供更细致的强度管理。
+            <sup class="ref"><a href="#ref-10">[10]</a><a href="#ref-14">[14]</a></sup>
+          </p>
+        </section>
+      </section>
+
+      <section id="comparison">
+        <h2>不同方法的应用比较</h2>
+        <p>
+          下表概述了主要心率划分方法的依据、示例计算、优点与应用建议，便于快速挑选适合自身训练阶段与设备
+          条件的方案。
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>方法</th>
+              <th>主要依据</th>
+              <th>示例计算</th>
+              <th>优点</th>
+              <th>局限与应用建议</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>最大心率百分比</td>
+              <td>人群经验公式或实测 HRmax</td>
+              <td>HRmax = 180 时，Zone2 ≈ 108&ndash;126 bpm（60&ndash;70% HRmax）</td>
+              <td>最易上手，无需测试设备，适合大众健身</td>
+              <td>个体偏差大，难以精确对应阈值；需结合主观感觉调整</td>
+            </tr>
+            <tr>
+              <td>储备心率（Karvonen）</td>
+              <td>HRR = HRmax − RHR</td>
+              <td>HRmax 180、RHR 60；70% HRR = 60 + 120 × 0.7 = 144 bpm</td>
+              <td>考虑静息心率，强度与 VO<sub>2</sub> 储备更匹配</td>
+              <td>仍依赖准确 HRmax；需持续追踪静息心率</td>
+            </tr>
+            <tr>
+              <td>乳酸阈值法</td>
+              <td>个体 LT2（可参考 LT1）</td>
+              <td>LTHR = 160；Zone4 ≈ 152&ndash;158 bpm（95&ndash;99% LTHR）</td>
+              <td>精准锚定阈值训练，能反映训练进步</td>
+              <td>测试成本高，受疲劳影响大；适用于有经验的耐力运动员</td>
+            </tr>
+            <tr>
+              <td>FTP/临界功率对应心率</td>
+              <td>FTP 功率与场测 LTHR</td>
+              <td>FTP 测试平均心率 160，按七区对应 81%&ndash;&gt;106% 阈值比例</td>
+              <td>与功率/配速训练语言统一，便于多项目比较</td>
+              <td>FTP 测试要求高；心率对短时冲刺滞后，需与功率结合解读</td>
+            </tr>
+            <tr>
+              <td>HRV 阈值/指导模型</td>
+              <td>渐增试验中的 HRV 指标或日常 HRV</td>
+              <td>DFA α1 = 0.75 对应 LT1，0.5 对应 LT2；rMSSD 低于基线时降强度</td>
+              <td>无创、个体化，可实时监测恢复状态</td>
+              <td>测量受干扰，算法尚需标准化；推荐与传统区间配合</td>
+            </tr>
+            <tr>
+              <td>七区模型</td>
+              <td>阈值心率 + 经验比例</td>
+              <td>阈值 160、HRmax 180；Zone1 &lt; 134，Zone7 &gt; 171 bpm</td>
+              <td>覆盖恢复、有氧、阈值、无氧各层次；与功率区间匹配</td>
+              <td>区间较多需学习；必须先确定可靠的阈值心率</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>训练应用要点</h3>
+        <ul>
+          <li>
+            <strong>恢复与有氧基础：</strong>初学者可用 %HRmax 或 %HRR 控制在 60&ndash;70% 强度；竞技选手更倾向以
+            LT1 或 MAF180 公式等阈值指标限定 Zone 1&ndash;2，避免无意间进入“中强度陷阱”。
+            <sup class="ref"><a href="#ref-2">[2]</a><a href="#ref-3">[3]</a><a href="#ref-4">[4]</a></sup>
+          </li>
+          <li>
+            <strong>阈值训练：</strong>阈值跑/骑需踩在 LTHR 附近，乳酸阈值法与 FTP 心率划分能提供最精确的目标
+            区间。经验百分比法的误差容易导致训练偏离目标。
+            <sup class="ref"><a href="#ref-8">[8]</a><a href="#ref-9">[9]</a></sup>
+          </li>
+          <li>
+            <strong>高强度间歇：</strong>短时冲刺时心率存在滞后，高区间更多用于统计与回顾。实际执行应结合功率、
+            配速或主观感受控制节奏。
+            <sup class="ref"><a href="#ref-10">[10]</a></sup>
+          </li>
+          <li>
+            <strong>训练分布与监控：</strong>极化训练（如 80/20）要求绝大多数时间处于低强度。使用阈值或 HRV 划
+            分更容易保证统计准确；简单百分比法可能误判强度导致“中等强度过多”。
+            <sup class="ref"><a href="#ref-3">[3]</a><a href="#ref-4">[4]</a><a href="#ref-11">[11]</a></sup>
+          </li>
+        </ul>
+      </section>
+
+      <section id="recent">
+        <h2>心率分区算法的最新进展</h2>
+        <p>近三年的研究主要集中在提升个体化、自动化和实时调控能力，重点包括：</p>
+        <ul>
+          <li>
+            <strong>强调个体差异：</strong>最新对 Zone2 划分的比较研究表明，固定的 HRmax 百分比无法适配所有人；
+            采用 VT1、FatMax 等个体生理阈值能更准确地界定纯有氧区间。
+            <sup class="ref"><a href="#ref-3">[3]</a><a href="#ref-4">[4]</a></sup>
+          </li>
+          <li>
+            <strong>HRV 阈值的验证：</strong>系统综述显示，HRV 低强度阈值（DFA α1 ≈ 0.75）与传统 LT1/VT1 的偏差不足 1% 心率，高强度阈值（DFA α1 ≈ 0.5）亦具备较好一致性。实时算法仍在优化，以提升抗噪能力与
+            女性人群数据积累。
+            <sup class="ref"><a href="#ref-11">[11]</a><a href="#ref-12">[12]</a></sup>
+          </li>
+          <li>
+            <strong>人工智能与自动识别：</strong>利用迁移学习和 RNN 的模型已能在户外跑步数据中自动估计乳酸阈值心率，平均误差约 ±4&ndash;9 bpm，显示了将 AI 嵌入运动穿戴设备以自动更新区间的潜力。
+            <sup class="ref"><a href="#ref-15">[15]</a></sup>
+          </li>
+          <li>
+            <strong>训练负荷新指标：</strong>结合心率区间、心率恢复速度等多变量评估训练刺激的研究不断涌现，尽管仍属渐进式改进，但体现了心率分区在训练监控中的核心地位。
+          </li>
+        </ul>
+        <blockquote>
+          核心趋势是：从“一刀切”走向“个性化”的阈值识别，并结合日常 HRV、AI 模型等手段实现更动态的训
+          练强度管理。
+        </blockquote>
+      </section>
+
+      <section id="references">
+        <h2>参考文献</h2>
+        <ol>
+          <li id="ref-1">TrainingTilt. <a href="https://trainingtilt.com/how-to-calculate-heart-rate-zones" target="_blank" rel="noopener noreferrer">How to Calculate Heart Rate Zones</a>.</li>
+          <li id="ref-2">Runner&rsquo;s World. <a href="https://www.runnersworld.com/training/a62370801/heart-rate-training/" target="_blank" rel="noopener noreferrer">Heart Rate Training: Benefits of Heart Rate to Boost Performance</a>.</li>
+          <li id="ref-3">Consensus. <a href="https://consensus.app/papers/zone-2-intensity-a-critical-comparison-of-individual-meixner-filipas/ea8497c1a27156f38d9ef380706b641b/" target="_blank" rel="noopener noreferrer">Zone 2 Intensity: A Critical Comparison of Individual Variability in Different Submaximal Exercise Intensity Boundaries</a>.</li>
+          <li id="ref-4">Intervals.icu Forum. <a href="https://forum.intervals.icu/t/zone-2-intensity-comparison-of-individual-variability-research/96432" target="_blank" rel="noopener noreferrer">Zone 2 Intensity: Comparison of Individual Variability Research</a>.</li>
+          <li id="ref-5">Swain, D. P., Leutholtz, B. C., King, M. E., Haas, L. A., &amp; Branch, J. D. (1998). <a href="https://pubmed.ncbi.nlm.nih.gov/9139182/" target="_blank" rel="noopener noreferrer">Heart rate reserve is equivalent to %VO<sub>2</sub> reserve, not to %VO<sub>2</sub>max</a>. <em>Medicine &amp; Science in Sports &amp; Exercise</em>.</li>
+          <li id="ref-6">Intervals.icu Forum. <a href="https://forum.intervals.icu/t/about-different-hr-zone-models/97977" target="_blank" rel="noopener noreferrer">About different HR zone models</a>.</li>
+          <li id="ref-7">Intervals.icu Forum. <a href="https://forum.intervals.icu/t/guide-to-setting-up-hr-zones/19622" target="_blank" rel="noopener noreferrer">Guide to Setting Up HR Zones</a>.</li>
+          <li id="ref-8">TrainingPeaks. <a href="https://www.trainingpeaks.com/learn/articles/joe-friel-s-quick-guide-to-setting-zones/" target="_blank" rel="noopener noreferrer">Joe Friel&rsquo;s Quick Guide to Setting Zones</a>.</li>
+          <li id="ref-9">Intervals.icu Forum. <a href="https://forum.intervals.icu/t/setting-lactate-threshold-hr-power/5803" target="_blank" rel="noopener noreferrer">Setting Lactate Threshold HR/Power</a>.</li>
+          <li id="ref-10">Intervals.icu Forum. <a href="https://forum.intervals.icu/t/heart-rate-zones-range-settings-in-i-icu-was-different-from-strava-now-not-matching-power-zones/1094" target="_blank" rel="noopener noreferrer">Heart Rate Zones range settings in i.icu (was: &ldquo;different from Strava&rdquo;; now: &ldquo;not matching power zones&rdquo;)</a>.</li>
+          <li id="ref-11">Kaufmann, P., et al. (2023). <a href="https://sportsmedicine-open.springeropen.com/articles/10.1186/s40798-023-00607-2" target="_blank" rel="noopener noreferrer">Heart Rate Variability-Derived Thresholds for Exercise Intensity Prescription in Endurance Sports: A Systematic Review of Interrelations and Agreement with Different Ventilatory and Blood Lactate Thresholds</a>. <em>Sports Medicine &ndash; Open</em>.</li>
+          <li id="ref-12"><em>European Journal of Applied Physiology</em> (2023). <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9916349/" target="_blank" rel="noopener noreferrer">Automatic Detection of Aerobic Threshold through Recurrence Quantification Analysis of Heart Rate Variability</a>.</li>
+          <li id="ref-13">Casanova-Lizón, A., et al. (2025). <a href="https://www.frontiersin.org/journals/sports-and-active-living/articles/10.3389/fspor.2025.1578478/full" target="_blank" rel="noopener noreferrer">Impact of heart rate variability-based exercise prescription: self-guided by technology and trainer-guided exercise in sedentary adults</a>. <em>Frontiers in Sports and Active Living</em>.</li>
+          <li id="ref-14">Intervals.icu Forum. <a href="https://forum.intervals.icu/t/heart-rate-zones/76615" target="_blank" rel="noopener noreferrer">Heart Rate Zones</a>.</li>
+          <li id="ref-15">Zhu, Z., Cui, W., Lu, C., Shen, Y., &amp; Pan, B. (2025). <a href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5417016" target="_blank" rel="noopener noreferrer">Automatic Estimation of Lactate Threshold Heart Rate and Pace in Real-World Running Based on Transfer Learning</a>. SSRN.</li>
+        </ol>
+      </section>
+    </main>
+  </div>
+
+  <footer>
+    <p>2025/10/24</p>
+  </footer>
+</body>
+</html>

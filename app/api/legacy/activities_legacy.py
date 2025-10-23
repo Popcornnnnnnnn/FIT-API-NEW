@@ -77,7 +77,7 @@ async def get_activity_zones(
                 except Exception:
                     max_hr = None
             if use_threshold and lthr:
-                distribution_buckets = ZoneAnalyzer.analyze_heartrate_zones_lthr(hr_data, lthr)
+                distribution_buckets = ZoneAnalyzer.analyze_heartrate_zones_lthr(hr_data, lthr, max_hr)
             else:
                 distribution_buckets = ZoneAnalyzer.analyze_heartrate_zones(hr_data, max_hr or 0)
             zone_type = "heartrate"

@@ -421,7 +421,7 @@ class ActivityService:
             except Exception:
                 max_hr = None
         if use_threshold and lthr:
-            buckets = ZoneAnalyzer.analyze_heartrate_zones_lthr(hr, lthr)
+            buckets = ZoneAnalyzer.analyze_heartrate_zones_lthr(hr, lthr, max_hr)
         else:
             buckets = ZoneAnalyzer.analyze_heartrate_zones(hr, max_hr or 0)
         return {"distribution_buckets": buckets, "type": "heartrate"}
