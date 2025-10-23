@@ -73,6 +73,11 @@ class ActivityService:
                 stream_data = full['streams']
                 athlete_data = full['athlete']
 
+                # 如果本地数据库没有ftp信息，优先使用strava上的ftp信息
+                if athlete_entry.ftp is None:
+                    athlete_entry.ftp = athlete_data.get('ftp')
+
+
                 if keys:
                     keys_list = [k.strip() for k in keys.split(',') if k.strip()]
                 else:
@@ -157,6 +162,12 @@ class ActivityService:
         local_pair = self._get_local_activity_pair(db, activity_id)
         self._mark(perf_timeline_local, "pair") # ! 400ms
         local_activity = local_pair[0] if local_pair else None
+        # 本地fit文件处理，没有输入ftp的时候，进行ftp估算
+        if local_pair[1].ftp is None or local_pair[1].ftp <= 0:
+            from app.core.analytics.ftp_estimator import estimate_ftp_from_best_curve, _load_best_curve
+            if _load_best_curve(int(local_pair[1].id)) is None: # 防止是第一次活动，没有历史的功率数据
+                return
+            local_pair[1].ftp = round(estimate_ftp_from_best_curve(local_pair[1].id).ftp)
 
         raw_stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
         self._mark(perf_timeline_local, "raw_streams") # ! SLOW
@@ -647,7 +658,7 @@ class ActivityService:
             sum42 = float(sum_tss_42 or 0)
             atl = int(round(sum7 / 7.0, 0))
             ctl = int(round(sum42 / 42.0, 0))
-            tsb = atl - ctl
+            tsb = ctl - atl
 
             athlete_entry.atl = atl
             athlete_entry.ctl = ctl
@@ -726,10 +737,6 @@ class ActivityService:
         from ..metrics.activities.overall import compute_overall_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
-        if pair is None:
-            pair = get_activity_athlete(db, activity_id)
-        if not pair:
-            return None
         activity, athlete = pair
         if stream_data is None:
             stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
@@ -771,10 +778,6 @@ class ActivityService:
         from ..metrics.activities.power import compute_power_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
-        if pair is None:
-            pair = get_activity_athlete(db, activity_id)
-        if not pair:
-            return None
         activity, athlete = pair
         if stream_data is None:
             stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
@@ -822,10 +825,6 @@ class ActivityService:
         from ..metrics.activities.heartrate import compute_heartrate_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
-        if pair is None:
-            pair = get_activity_athlete(db, activity_id)
-        if not pair:
-            return None
         activity, athlete = pair
         if stream_data is None:
             stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
@@ -849,10 +848,6 @@ class ActivityService:
         from ..metrics.activities.speed import compute_speed_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
-        if pair is None:
-            pair = get_activity_athlete(db, activity_id)
-        if not pair:
-            return None
         activity, _athlete = pair
         if stream_data is None:
             stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
@@ -871,10 +866,6 @@ class ActivityService:
         from ..metrics.activities.cadence import compute_cadence_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
-        if pair is None:
-            pair = get_activity_athlete(db, activity_id)
-        if not pair:
-            return None
         activity, _athlete = pair
         if stream_data is None:
             stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
@@ -893,10 +884,6 @@ class ActivityService:
         from ..metrics.activities.altitude import compute_altitude_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
-        if pair is None:
-            pair = get_activity_athlete(db, activity_id)
-        if not pair:
-            return None
         activity, _athlete = pair
         if stream_data is None:
             stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
@@ -929,10 +916,6 @@ class ActivityService:
             aerobic_effect, anaerobic_effect, power_zone_percentages,
             power_zone_times, calculate_training_load, estimate_calories_with_power, estimate_calories_with_heartrate
         )
-        if pair is None:
-            pair = get_activity_athlete(db, activity_id)
-        if not pair:
-            return None
         activity, athlete = pair
         if stream_data is None:
             stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
@@ -940,6 +923,9 @@ class ActivityService:
         if not power:
             return None
         ftp = int(athlete.ftp)
+        if ftp is None or ftp <= 0:
+            logger.warning("[training-effect] missing ftp for athlete_id=%s activity_id=%s", getattr(athlete, 'id', None), activity_id)
+            return None
         ae = aerobic_effect(power, ftp)
         ne = anaerobic_effect(power, ftp)
         zd = power_zone_percentages(power, ftp)
