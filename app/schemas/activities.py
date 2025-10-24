@@ -195,6 +195,18 @@ class IntervalItem(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict, description="附加信息")
 
 
+class ZoneSegmentVisual(BaseModel):
+    metric: str = Field(..., description="强度来源类型（power 或 heart_rate）")
+    zone: Optional[str] = Field(None, description="所属区间编号，如 Z1")
+    label: Optional[str] = Field(None, description="区间名称")
+    start_time: float = Field(..., description="片段开始时间（秒）")
+    end_time: float = Field(..., description="片段结束时间（秒）")
+    duration_seconds: float = Field(..., description="片段持续时间（秒）")
+    height: float = Field(..., description="相对高度（0-1，映射到图形高度）")
+    intensity_ratio: float = Field(..., description="平均强度相对于阈值的比例")
+    average_value: float = Field(..., description="片段平均绝对值（功率或心率）")
+
+
 class IntervalsResponse(BaseModel):
     """活动区间识别结果"""
 
@@ -202,6 +214,10 @@ class IntervalsResponse(BaseModel):
     ftp: float = Field(..., description="用于计算的 FTP")
     items: List[IntervalItem] = Field(..., description="区间详情列表")
     preview_image: Optional[str] = Field(None, description="预览图路径（相对于项目根目录）")
+    zone_segments: Optional[List[ZoneSegmentVisual]] = Field(
+        None,
+        description="分区可视化片段列表，包含开始/结束时间、高度、强度等信息",
+    )
 
 
 class AllActivityDataResponse(BaseModel):
@@ -220,3 +236,4 @@ class AllActivityDataResponse(BaseModel):
     segment_records: Optional[List[SegmentRecord]] = Field(None, description="分段记录刷新信息")
     best_power_record: Optional[BestPowerCurveRecord] = Field(None, description="运动员全局最佳功率曲线（逐秒）")
     intervals: Optional[IntervalsResponse] = Field(None, description="区间识别结果")
+    zone_preview_path: Optional[str] = Field(None, description="分区预览图路径")

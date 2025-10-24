@@ -23,12 +23,18 @@ from ..schemas.activities import (
     IntervalsResponse,
     IntervalItem,
     BestPowerCurveRecord,
+    ZoneSegmentVisual,
 )
 from ..streams.crud import stream_crud
 from ..streams.models import Resolution
 from ..infrastructure.data_manager import activity_data_manager
 from ..analyzers.strava_analyzer import StravaAnalyzer
 from ..core.analytics import zones as ZoneAnalyzer
+from ..core.analytics.zone_histogram import (
+    render_zone_segments_chart,
+    generate_zone_segments_payload,
+    build_zone_segment_visuals,
+)
 from ..core.analytics.interval_detection import (
     detect_intervals,
     render_interval_preview,
@@ -96,6 +102,49 @@ class ActivityService:
                 )
                 self._mark(perf_timeline, "analyze")
 
+                try:
+                    preview_info = self._generate_zone_preview(
+                        stream_data,
+                        activity_data,
+                        athlete_entry,
+                        athlete_data,
+                        activity_entry,
+                    )
+                except Exception:
+                    logger.exception(
+                        "[zone-preview][generate-error] activity_id=%s",
+                        activity_id,
+                    )
+                    preview_info = None
+
+                if preview_info:
+                    result.zone_preview_path = preview_info.get("path")
+                    zone_segments_visuals = preview_info.get("segments") or []
+                    if zone_segments_visuals:
+                        zone_segments_models = [
+                            ZoneSegmentVisual.model_validate(seg) for seg in zone_segments_visuals
+                        ]
+                        if result.intervals is not None:
+                            result.intervals.zone_segments = zone_segments_models
+                            if not result.intervals.preview_image:
+                                result.intervals.preview_image = preview_info.get("path")
+                        else:
+                            duration_val = int(activity_data.get("moving_time") or 0)
+                            ftp_source = preview_info.get("reference")
+                            if ftp_source is None:
+                                ftp_source = getattr(athlete_entry, "ftp", None)
+                            try:
+                                ftp_val_float = float(ftp_source or 0)
+                            except Exception:
+                                ftp_val_float = 0.0
+                            result.intervals = IntervalsResponse(
+                                duration=duration_val,
+                                ftp=ftp_val_float,
+                                items=[],
+                                preview_image=preview_info.get("path"),
+                                zone_segments=zone_segments_models,
+                            )
+                
                 if getattr(result, 'heartrate', None) is not None:
                     self._update_activity_efficiency_factor(db, activity_entry, result.heartrate.efficiency_index)
 
@@ -1146,6 +1195,10 @@ class ActivityService:
         hr_max_value: Optional[float],
         preview_file: Optional[Path],
     ) -> IntervalsResponse:
+        sample_count = len(power_series) if power_series else len(heart_rate_series or [])
+        synthetic_activity_payload = {"moving_time": timestamps[-1] if timestamps else 0}
+        sample_interval = self._estimate_sample_interval(timestamps, synthetic_activity_payload, sample_count)
+
         detection = detect_intervals(
             timestamps,
             power_series,
@@ -1188,11 +1241,24 @@ class ActivityService:
             if preview_file.exists():
                 preview_path = str(preview_file)
 
+        zone_segments_raw = self._compute_zone_segments(
+            power_series,
+            heart_rate_series,
+            ftp_value,
+            lthr_value,
+            hr_max_value,
+            sample_interval,
+        )
+        zone_segments = None
+        if zone_segments_raw:
+            zone_segments = [ZoneSegmentVisual.model_validate(seg) for seg in zone_segments_raw]
+
         return IntervalsResponse(
             duration=int(detection.duration),
             ftp=float(detection.ftp),
             items=items,
             preview_image=preview_path,
+            zone_segments=zone_segments,
         )
 
     @staticmethod
@@ -1223,6 +1289,166 @@ class ActivityService:
         heart_rate_vals = _stream_values('heartrate') if 'heartrate' in stream_data else []
         heart_rate = heart_rate_vals if heart_rate_vals else None
         return power, timestamps, heart_rate
+
+    @staticmethod
+    def _estimate_sample_interval(
+        timestamps: Sequence[int],
+        activity_payload: Optional[Dict[str, Any]],
+        sample_count: int,
+    ) -> float:
+        if timestamps and len(timestamps) > 1:
+            start = timestamps[0]
+            end = timestamps[-1]
+            duration = end - start
+            steps = len(timestamps) - 1
+            if duration > 0 and steps > 0:
+                interval = duration / steps
+                if interval > 0:
+                    return max(0.5, float(interval))
+
+        if activity_payload:
+            moving_time = activity_payload.get("moving_time") or 0
+            if moving_time and sample_count:
+                interval = moving_time / sample_count
+                if interval > 0:
+                    return max(0.5, float(interval))
+        return 1.0
+
+    def _compute_zone_segments(
+        self,
+        power_series: Sequence[int],
+        heart_rate_series: Optional[Sequence[int]],
+        ftp_value: Optional[float],
+        lthr_value: Optional[float],
+        hr_max_value: Optional[float],
+        sample_interval: float,
+        min_segment_seconds: Optional[float] = None,
+    ) -> Optional[List[Dict[str, Any]]]:
+        min_segment = min_segment_seconds or max(5.0, sample_interval * 5)
+        try:
+            if power_series and ftp_value and ftp_value > 0:
+                payload = generate_zone_segments_payload(
+                    power_series,
+                    "power",
+                    ftp=int(round(ftp_value)),
+                    sample_interval=sample_interval,
+                    min_segment_seconds=min_segment,
+                )
+                return build_zone_segment_visuals(payload, "power")
+            if heart_rate_series and lthr_value and lthr_value > 0:
+                max_hr_arg = int(round(hr_max_value)) if hr_max_value else None
+                if max_hr_arg is not None and max_hr_arg <= int(round(lthr_value)):
+                    max_hr_arg = None
+                payload = generate_zone_segments_payload(
+                    heart_rate_series,
+                    "heart_rate",
+                    lthr=int(round(lthr_value)),
+                    max_hr=max_hr_arg,
+                    sample_interval=sample_interval,
+                    min_segment_seconds=min_segment,
+                )
+                return build_zone_segment_visuals(payload, "heart_rate")
+        except Exception:
+            logger.exception("[zone-segments][compute-error]")
+        return None
+
+    def _generate_zone_preview(
+        self,
+        stream_data: Dict[str, Any],
+        activity_payload: Dict[str, Any],
+        athlete_entry: Optional[Any],
+        athlete_payload: Optional[Dict[str, Any]],
+        activity_entry: Optional[Any],
+    ) -> Optional[Dict[str, Any]]:
+        power_series, timestamps, heart_rate_series = self._extract_series_from_streams(stream_data)
+
+        ftp_value, lthr_value, hr_max_value = self._resolve_thresholds(
+            athlete_entry,
+            athlete_payload=athlete_payload,
+            activity_payload=activity_payload,
+        )
+
+        sample_count = len(power_series) if power_series else len(heart_rate_series or [])
+        sample_interval = self._estimate_sample_interval(timestamps, activity_payload, sample_count)
+        min_segment_seconds = max(5.0, sample_interval * 5)
+
+        base_identifier = (
+            getattr(activity_entry, "external_id", None)
+            or getattr(activity_entry, "id", None)
+            or activity_payload.get("id")
+            or "strava"
+        )
+        base_str = str(base_identifier)
+        safe_base = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in base_str)
+        output_path = Path("data/zone_previews") / f"strava_{safe_base}_zones.png"
+
+        try:
+            payload = None
+            visuals: Optional[List[Dict[str, Any]]] = None
+            metric_used: Optional[str] = None
+            reference_value: Optional[float] = None
+
+            if power_series and ftp_value and ftp_value > 0:
+                payload = generate_zone_segments_payload(
+                    power_series,
+                    "power",
+                    ftp=int(round(ftp_value)),
+                    sample_interval=sample_interval,
+                    min_segment_seconds=min_segment_seconds,
+                )
+                visuals = build_zone_segment_visuals(payload, "power")
+                metric_used = "power"
+                reference_value = float(ftp_value)
+                preview_path = render_zone_segments_chart(
+                    power_series,
+                    "power",
+                    output_path,
+                    ftp=int(round(ftp_value)),
+                    sample_interval=sample_interval,
+                    min_segment_seconds=min_segment_seconds,
+                    precomputed_payload=payload,
+                )
+            elif heart_rate_series and lthr_value and lthr_value > 0:
+                max_hr_arg = int(round(hr_max_value)) if hr_max_value else None
+                if max_hr_arg is not None and max_hr_arg <= int(round(lthr_value)):
+                    max_hr_arg = None
+                payload = generate_zone_segments_payload(
+                    heart_rate_series,
+                    "heart_rate",
+                    lthr=int(round(lthr_value)),
+                    max_hr=max_hr_arg,
+                    sample_interval=sample_interval,
+                    min_segment_seconds=min_segment_seconds,
+                )
+                visuals = build_zone_segment_visuals(payload, "heart_rate")
+                metric_used = "heart_rate"
+                reference_value = float(lthr_value)
+                preview_path = render_zone_segments_chart(
+                    heart_rate_series,
+                    "heart_rate",
+                    output_path,
+                    lthr=int(round(lthr_value)),
+                    max_hr=max_hr_arg,
+                    sample_interval=sample_interval,
+                    min_segment_seconds=min_segment_seconds,
+                    precomputed_payload=payload,
+                )
+            else:
+                return None
+
+            return {
+                "path": preview_path,
+                "segments": visuals or [],
+                "metric": metric_used,
+                "reference": reference_value,
+                "sample_interval": sample_interval,
+            }
+        except Exception:
+            logger.exception(
+                "[zone-preview][render-error] base_identifier=%s",
+                base_identifier,
+            )
+        return None
 
     @staticmethod
     def _resolve_thresholds(
