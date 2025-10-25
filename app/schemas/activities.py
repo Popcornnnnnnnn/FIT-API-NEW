@@ -207,6 +207,25 @@ class ZoneSegmentVisual(BaseModel):
     average_value: float = Field(..., description="片段平均绝对值（功率或心率）")
 
 
+class SimplifiedIntervalItem(BaseModel):
+    """简化的区间信息，仅用于画图"""
+    start: int = Field(..., description="区间起点（秒）")
+    end: int = Field(..., description="区间终点（秒）")
+    duration: int = Field(..., description="持续时间（秒）")
+    classification: str = Field(..., description="区间分类")
+    avg_power: float = Field(..., description="平均功率（瓦）")
+    power_ratio: float = Field(..., description="功率与FTP比值")
+
+
+class SimplifiedZoneSegment(BaseModel):
+    """简化的区间可视化片段，仅用于画图"""
+    start_time: float = Field(..., description="开始时间（秒）")
+    end_time: float = Field(..., description="结束时间（秒）")
+    zone: str = Field(..., description="区间编号")
+    color: str = Field(..., description="颜色代码")
+    avg_power: float = Field(..., description="平均功率（瓦）")
+
+
 class IntervalsResponse(BaseModel):
     """活动区间识别结果"""
 
@@ -218,6 +237,14 @@ class IntervalsResponse(BaseModel):
         None,
         description="分区可视化片段列表，包含开始/结束时间、高度、强度等信息",
     )
+
+
+class SimplifiedIntervalsResponse(BaseModel):
+    """简化的区间识别结果，仅包含画图所需数据"""
+    
+    duration: int = Field(..., description="活动总时长（秒）")
+    ftp: float = Field(..., description="用于计算的 FTP")
+    intervals: List[SimplifiedIntervalItem] = Field(..., description="简化区间列表")
 
 
 class AllActivityDataResponse(BaseModel):
@@ -235,5 +262,4 @@ class AllActivityDataResponse(BaseModel):
     streams: Optional[List[Dict[str, Any]]] = Field(None, description="流数据，数组格式，每个元素包含type、data、series_type、original_size、resolution字段")
     segment_records: Optional[List[SegmentRecord]] = Field(None, description="分段记录刷新信息")
     best_power_record: Optional[BestPowerCurveRecord] = Field(None, description="运动员全局最佳功率曲线（逐秒）")
-    intervals: Optional[IntervalsResponse] = Field(None, description="区间识别结果")
     zone_preview_path: Optional[str] = Field(None, description="分区预览图路径")

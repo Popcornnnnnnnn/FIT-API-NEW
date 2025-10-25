@@ -1,0 +1,265 @@
+# FIT 文件分析 API 项目编码规范
+
+## 项目概述
+这是一个基于 FastAPI 的 FIT 文件分析服务，用于处理和分析运动数据（功率、心率、速度等），支持 Strava 集成。
+
+## 项目特定规则
+- 永远用中文回答，不要使用英文
+- 在我提出新需求时，永远先分析、细化、确认需求，再进行开发，如果有不确定的，通过多轮问答，直到需求十分明确
+- 如果有较长的需要告诉我的信息，比如说说明文档等，放在 /docs 目录下
+- 每次更改后做 checkpoint 的记录，可以用git，也可以用其他方式，方便回滚
+
+## 技术栈
+- **Web 框架**: FastAPI 0.104.1
+- **ORM**: SQLAlchemy 2.0.23
+- **数据库**: MySQL (pymysql)
+- **数据处理**: NumPy 1.24.3
+- **FIT 解析**: fitparse 1.2.0
+- **数据验证**: Pydantic 2.5.0
+
+## 架构原则
+
+### 1. 分层架构
+严格遵循以下分层结构，避免跨层调用：
+```
+API层 (api/) 
+  ↓
+Service层 (services/)
+  ↓
+Repository层 (repositories/) ↔ Infrastructure层 (infrastructure/)
+  ↓
+Model层 (db/models.py)
+```
+
+### 2. 模块职责
+- **api/**: FastAPI路由定义，参数验证，响应封装
+- **services/**: 业务编排，组合多个数据源和分析逻辑
+- **repositories/**: 数据访问抽象，封装数据库操作
+- **core/analytics/**: 纯函数分析算法（功率、心率、区间等）
+- **analyzers/**: 第三方数据分析器（如 Strava）
+- **clients/**: 外部 API 客户端
+- **infrastructure/**: 基础设施（缓存、数据管理）
+- **streams/**: 数据流处理
+- **metrics/**: 单项指标计算
+
+### 3. 依赖注入
+- 数据库 session 通过 FastAPI 依赖注入
+- Service 实例化为单例（如 `activity_service`）
+- 避免在函数内部创建数据库连接
+
+## 代码风格规范
+
+### 1. 命名约定
+- **文件名**: 小写下划线分隔 (`activity_service.py`)
+- **类名**: 大驼峰 (`ActivityService`, `TbActivity`)
+- **函数/变量**: 小写下划线分隔 (`get_activity_by_id`, `power_series`)
+- **常量**: 大写下划线分隔 (`LOG_LEVEL`, `CACHE_DIR`)
+- **私有方法**: 单下划线前缀 (`_mark`, `_compute_best_power_curve`)
+
+### 2. 类型提示
+- 所有函数参数和返回值必须有类型提示
+- 使用 `Optional[]` 表示可能为 None 的值
+- 使用 `List[]`, `Dict[]`, `Tuple[]` 等泛型
+- 对于复杂类型，使用 Pydantic 模型
+
+示例：
+```python
+def get_activity_athlete(db: Session, activity_id: int) -> Optional[Tuple[TbActivity, TbAthlete]]:
+    pass
+```
+
+### 3. 文档字符串
+- 使用中文编写文档
+- 模块级：简短说明模块职责和主要功能
+- 函数级：说明参数、返回值、异常（如有必要）
+- 复杂算法需要详细注释
+
+示例：
+```python
+"""Activity Service（活动服务编排层）
+
+职责：
+- 统一编排数据来源（Strava 或 本地数据流）与分析逻辑；
+- 组合多种单项结果，返回 AllActivityDataResponse；
+- 暴露 get_overall/get_power 等单项装配方法。
+"""
+
+def normalized_power(powers: List[int], window: int = 30) -> int:
+    """计算标准化功率，使用滚动平均和4次方均值。
+    
+    Args:
+        powers: 功率值序列（假定1Hz采样）
+        window: 滚动平均窗口长度（秒），默认30
+    """
+```
+
+### 4. 导入顺序
+1. 标准库
+2. 第三方库
+3. 本地模块（使用相对导入）
+
+示例：
+```python
+from typing import Optional, List
+from datetime import datetime
+
+from sqlalchemy.orm import Session
+import logging
+
+from ..db.models import TbActivity
+from ..clients.strava_client import StravaClient
+```
+
+## 编码规范
+
+### 1. 异常处理
+- 数据库操作必须 try-except，rollback on error
+- 记录日志时包含关键上下文（activity_id, athlete_id等）
+- 外层调用应容忍内部异常，返回 None 或默认值
+- 使用 `logger.exception()` 记录异常栈
+
+示例：
+```python
+try:
+    activity.tss = tss_val
+    db.commit()
+except Exception:
+    db.rollback()
+    logger.exception("[db-error][tss-update] activity_id=%s", activity_id)
+    return None
+```
+
+### 2. 日志规范
+- 使用结构化日志标签：`[模块][操作] 描述`
+- 关键业务节点记录 INFO 级别日志
+- 调试信息使用 DEBUG 级别
+- 错误必须记录完整上下文
+
+示例：
+```python
+logger.info("[segment-debug][before] athlete=%s interval=%s top3=(%s,%s,%s)", 
+            athlete.id, suf, top1, top2, top3)
+logger.error("[db-error][activity-select] activity_id=%s err=%s", activity_id, e)
+```
+
+### 3. 性能监控
+- 关键路径使用 `perf_timeline` 记录耗时
+- 标记重要节点：`self._mark(perf_timeline, "label")`
+- 最后统一输出性能报告：`log_perf_timeline()`
+
+### 4. 数据库操作
+- 使用 Repository 模式封装数据库查询
+- 避免 N+1 查询问题
+- 大批量查询使用 `func.sum()` 等聚合函数
+- 只读操作无需 commit
+
+示例：
+```python
+def get_activity_by_id(db: Session, activity_id: int) -> Optional[TbActivity]:
+    try:
+        return db.query(TbActivity).filter(TbActivity.id == activity_id).first()
+    except Exception as e:
+        logger.error("[db-error][activity-select] activity_id=%s err=%s", activity_id, e)
+        return None
+```
+
+### 5. 配置管理
+- 所有配置通过 `config.py` 集中管理
+- 优先从环境变量读取
+- 提供合理的默认值
+- 敏感信息（密码、token）不写死在代码中
+
+### 6. 缓存策略
+- 使用 `infrastructure/cache_manager.py` 管理缓存
+- 缓存键使用 activity_id + hash(params)
+- 支持通过环境变量或配置文件开关缓存
+
+## API 设计规范
+
+### 1. 路由组织
+- 按功能模块划分 router（activities, streams, test）
+- 使用 tags 分组 API 文档
+- Legacy API 单独放在 `api/legacy/` 目录
+
+### 2. 响应模型
+- 使用 Pydantic 模型定义响应结构
+- 统一使用 `schemas/` 目录定义 schema
+- 可选字段使用 `Optional[]`
+
+### 3. 错误处理
+- 统一返回 HTTP 标准状态码
+- 错误信息使用中文
+- 包含足够的调试信息
+
+## 测试规范
+
+### 1. 测试文件组织
+- 测试文件放在 `tests/` 目录
+- 命名格式：`test_<模块名>.py`
+- 测试数据放在 `tests/fits/` 等子目录
+
+### 2. 测试覆盖
+- 核心算法（core/analytics）必须有单元测试
+- Service 层需要集成测试
+- API 层需要端到端测试
+
+## 数据处理规范
+
+### 1. 时间序列处理
+- 假定采样率为 1Hz，除非明确指定
+- 使用 NumPy 进行批量计算
+- 注意处理空值（None, 0）
+
+### 2. 单位约定
+- 功率：瓦特 (W)
+- 心率：次/分 (bpm)
+- 速度：米/秒 (m/s)
+- 距离：米 (m)
+- 时间：秒 (s)
+- 温度：摄氏度 (°C)
+
+### 3. 阈值计算
+- FTP (Functional Threshold Power): 功率阈值
+- LTHR (Lactate Threshold Heart Rate): 乳酸阈值心率
+- 优先使用本地配置，fallback 到 Strava 数据
+
+## 代码审查检查清单
+
+- [ ] 是否遵循分层架构，没有跨层调用？
+- [ ] 是否有完整的类型提示？
+- [ ] 是否有适当的异常处理和日志记录？
+- [ ] 数据库操作是否正确 commit/rollback？
+- [ ] 是否避免了硬编码配置？
+- [ ] 是否有必要的单元测试？
+- [ ] API 是否使用 Pydantic 模型验证？
+- [ ] 性能敏感路径是否有监控？
+- [ ] 文档字符串是否清晰完整？
+- [ ] 命名是否符合项目约定？
+
+## 常用命令
+
+### 启动开发服务器
+```bash
+uvicorn app.main:app --reload --host localhost --port 8000
+```
+
+### 运行测试
+```bash
+pytest tests/
+```
+
+### 代码格式化（建议）
+```bash
+# 如需引入，推荐使用 black 和 isort
+black app/ tests/
+isort app/ tests/
+```
+
+---
+
+**注意事项**：
+1. 本项目使用中文注释和文档，保持一致性
+2. 性能敏感，注意优化数据库查询和计算逻辑
+3. Strava API 有速率限制，合理使用缓存
+4. FIT 文件解析可能遇到各种格式，需要健壮的异常处理
+

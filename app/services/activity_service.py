@@ -119,31 +119,22 @@ class ActivityService:
 
                 if preview_info:
                     result.zone_preview_path = preview_info.get("path")
-                    zone_segments_visuals = preview_info.get("segments") or []
-                    if zone_segments_visuals:
-                        zone_segments_models = [
-                            ZoneSegmentVisual.model_validate(seg) for seg in zone_segments_visuals
-                        ]
-                        if result.intervals is not None:
-                            result.intervals.zone_segments = zone_segments_models
-                            if not result.intervals.preview_image:
-                                result.intervals.preview_image = preview_info.get("path")
-                        else:
-                            duration_val = int(activity_data.get("moving_time") or 0)
-                            ftp_source = preview_info.get("reference")
-                            if ftp_source is None:
-                                ftp_source = getattr(athlete_entry, "ftp", None)
-                            try:
-                                ftp_val_float = float(ftp_source or 0)
-                            except Exception:
-                                ftp_val_float = 0.0
-                            result.intervals = IntervalsResponse(
-                                duration=duration_val,
-                                ftp=ftp_val_float,
-                                items=[],
-                                preview_image=preview_info.get("path"),
-                                zone_segments=zone_segments_models,
-                            )
+                    # 生成 intervals 数据并保存到文件
+                    try:
+                        intervals_data = self._generate_and_save_intervals_strava(
+                            db,
+                            activity_id,
+                            activity_entry,
+                            stream_data,
+                            activity_data,
+                            athlete_entry,
+                            athlete_data,
+                            preview_info,
+                        )
+                        if intervals_data:
+                            logger.info("[intervals][saved-strava] activity_id=%s", activity_id)
+                    except Exception:
+                        logger.exception("[intervals][save-error-strava] activity_id=%s", activity_id)
                 
                 if getattr(result, 'heartrate', None) is not None:
                     self._update_activity_efficiency_factor(db, activity_entry, result.heartrate.efficiency_index)
@@ -377,6 +368,31 @@ class ActivityService:
         finally:
             self._mark(perf_timeline_local, "best_power_record_local")
 
+        # 生成 zone_preview 和 intervals 数据
+        try:
+            zone_preview_path_result = self._generate_and_save_zone_preview_local(
+                db,
+                activity_id,
+                local_pair,
+                raw_stream_data,
+            )
+            if zone_preview_path_result:
+                response_data["zone_preview_path"] = zone_preview_path_result
+                logger.info("[zone-preview][saved-local] activity_id=%s path=%s", activity_id, zone_preview_path_result)
+            
+            # 生成并保存 intervals 数据
+            intervals_data = self._generate_and_save_intervals_local(
+                db,
+                activity_id,
+                local_pair,
+                raw_stream_data,
+            )
+            if intervals_data:
+                logger.info("[intervals][saved-local] activity_id=%s", activity_id)
+        except Exception:
+            logger.exception("[intervals][save-error-local] activity_id=%s", activity_id)
+        finally:
+            self._mark(perf_timeline_local, "intervals")
 
         self._mark(perf_timeline_local, "done")
         log_perf_timeline("service.local.all", activity_id, perf_timeline_local)
@@ -1449,6 +1465,205 @@ class ActivityService:
                 base_identifier,
             )
         return None
+
+    def _generate_and_save_zone_preview_local(
+        self,
+        db: Session,
+        activity_id: int,
+        local_pair: Optional[Tuple[Any, Any]],
+        stream_data: Dict[str, Any],
+    ) -> Optional[str]:
+        """生成 zone_preview 图片（本地路径）
+        
+        Args:
+            db: 数据库会话
+            activity_id: 活动ID
+            local_pair: (activity, athlete) 元组
+            stream_data: 本地流数据
+            
+        Returns:
+            生成的zone_preview图片路径，失败返回None
+        """
+        try:
+            if not local_pair:
+                return None
+            
+            activity, athlete = local_pair
+            if not athlete:
+                return None
+            
+            # 提取流数据
+            power_series = stream_data.get('power') or []
+            timestamps = stream_data.get('timestamp') or []
+            heart_rate_series = stream_data.get('heart_rate') or []
+            
+            if not timestamps and power_series:
+                timestamps = list(range(len(power_series)))
+            
+            # 将本地格式转换为 Strava 格式（_generate_zone_preview 期望的格式）
+            strava_format_stream_data = {
+                'watts': power_series,
+                'time': timestamps,
+                'heartrate': heart_rate_series,
+            }
+            
+            # 构造类似 Strava 的 activity_payload
+            moving_time = timestamps[-1] if timestamps else 0
+            activity_payload = {
+                "moving_time": moving_time,
+                "id": activity_id,
+            }
+            
+            # 生成 zone preview
+            preview_info = self._generate_zone_preview(
+                strava_format_stream_data,
+                activity_payload,
+                athlete,
+                None,  # athlete_payload (本地没有)
+                activity,
+            )
+            
+            if preview_info:
+                return preview_info.get("path")
+            return None
+        except Exception:
+            logger.exception("[zone-preview][generate-error-local] activity_id=%s", activity_id)
+            return None
+
+    def _generate_and_save_intervals_local(
+        self,
+        db: Session,
+        activity_id: int,
+        local_pair: Optional[Tuple[Any, Any]],
+        stream_data: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """生成 intervals 数据并保存到文件（本地路径）
+        
+        Args:
+            db: 数据库会话
+            activity_id: 活动ID
+            local_pair: (activity, athlete) 元组
+            stream_data: 本地流数据
+            
+        Returns:
+            生成的intervals数据字典，失败返回None
+        """
+        try:
+            from ..infrastructure.intervals_manager import save_intervals
+            
+            if not local_pair:
+                return None
+            
+            activity, athlete = local_pair
+            if not athlete:
+                return None
+            
+            # 使用 _get_intervals_from_local 生成完整的intervals数据
+            intervals_response = self._get_intervals_from_local(
+                db,
+                activity_id,
+                ftp_override=None,
+                lthr_override=None,
+                hr_max_override=None,
+                preview_dir="artifacts/Pics",
+            )
+            
+            if not intervals_response:
+                return None
+            
+            # 转换为字典并保存
+            intervals_dict = intervals_response.model_dump() if hasattr(intervals_response, 'model_dump') else intervals_response.dict()
+            save_intervals(activity_id, intervals_dict)
+            return intervals_dict
+        except Exception:
+            logger.exception("[intervals][generate-error-local] activity_id=%s", activity_id)
+            return None
+
+    def _generate_and_save_intervals_strava(
+        self,
+        db: Session,
+        activity_id: int,
+        activity_entry: Optional[Any],
+        stream_data: Dict[str, Any],
+        activity_data: Dict[str, Any],
+        athlete_entry: Optional[Any],
+        athlete_data: Dict[str, Any],
+        preview_info: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """生成 intervals 数据并保存到文件（Strava 路径）
+        
+        Args:
+            activity_id: 活动ID
+            activity_entry: 活动数据库记录
+            stream_data: Strava流数据
+            activity_data: Strava活动数据
+            athlete_entry: 运动员数据库记录
+            athlete_data: Strava运动员数据
+            preview_info: 预览信息
+            
+        Returns:
+            生成的intervals数据字典，失败返回None
+        """
+        try:
+            from ..infrastructure.intervals_manager import save_intervals
+            
+            zone_segments_visuals = preview_info.get("segments") or []
+            zone_segments_models = None
+            if zone_segments_visuals:
+                zone_segments_models = [
+                    ZoneSegmentVisual.model_validate(seg) for seg in zone_segments_visuals
+                ]
+            
+            # 尝试生成完整的intervals数据
+            power_series, timestamps, heart_rate_series = self._extract_series_from_streams(stream_data)
+            
+            ftp_value, lthr_value, hr_max_value = self._resolve_thresholds(
+                athlete_entry,
+                athlete_payload=athlete_data,
+                activity_payload=activity_data,
+            )
+            
+            if power_series and ftp_value and ftp_value > 0:
+                # 生成完整的intervals检测结果
+                intervals_response = self._build_interval_response(
+                    power_series,
+                    timestamps,
+                    heart_rate_series,
+                    ftp_value,
+                    lthr_value,
+                    hr_max_value,
+                    None,  # 不需要生成预览图，已经有了
+                )
+                # 使用zone_preview的图片路径
+                if preview_info.get("path"):
+                    intervals_response.preview_image = preview_info.get("path")
+                if zone_segments_models:
+                    intervals_response.zone_segments = zone_segments_models
+            else:
+                # 如果无法生成完整intervals，至少保存基本信息和zone_segments
+                duration_val = int(activity_data.get("moving_time") or 0)
+                ftp_source = preview_info.get("reference")
+                if ftp_source is None:
+                    ftp_source = getattr(athlete_entry, "ftp", None)
+                try:
+                    ftp_val_float = float(ftp_source or 0)
+                except Exception:
+                    ftp_val_float = 0.0
+                intervals_response = IntervalsResponse(
+                    duration=duration_val,
+                    ftp=ftp_val_float,
+                    items=[],
+                    preview_image=preview_info.get("path"),
+                    zone_segments=zone_segments_models,
+                )
+            
+            # 转换为字典并保存
+            intervals_dict = intervals_response.model_dump() if hasattr(intervals_response, 'model_dump') else intervals_response.dict()
+            save_intervals(activity_id, intervals_dict)
+            return intervals_dict
+        except Exception:
+            logger.exception("[intervals][generate-error-strava] activity_id=%s", activity_id)
+            return None
 
     @staticmethod
     def _resolve_thresholds(
