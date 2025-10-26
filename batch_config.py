@@ -2,16 +2,16 @@
 
 # 数据库连接配置
 DB_CONFIG = {
-    "host": "localhost",
+    "host": "121.41.238.53",
     "port": 3306,
     "user": "root",
-    "password": "password",  # 请修改为实际密码
-    "database": "fit_api_db"
+    "password": "86230ce6558fd9a1",  # 请修改为实际密码
+    "database": "ry-system"
 }
 
 # API服务器配置
 API_CONFIG = {
-    "base_url": "http://localhost:8000",
+    "base_url": "http://121.41.238.53:4567",
     "access_token": "5a173da68c14d5a5598477e617bd0349f6ae11ac"
 }
 

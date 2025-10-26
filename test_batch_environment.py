@@ -82,13 +82,34 @@ def test_single_activity():
             }
             
             print(f"   测试活动ID: {activity_id}")
+            start_time = time.time()
             response = requests.get(url, params=params, timeout=30)
+            end_time = time.time()
+            duration = end_time - start_time
             
             if response.status_code == 200:
-                print("✅ 单个活动API调用成功")
+                # 检查缓存信息
+                try:
+                    response_data = response.json()
+                    cache_hit = False
+                    source_info = "未知"
+                    
+                    if 'data' in response_data and 'source' in response_data.get('data', {}):
+                        source_info = response_data['data']['source']
+                        cache_hit = source_info == "cache"
+                    
+                    cache_header = response.headers.get('X-Cache', '').lower()
+                    if 'hit' in cache_header:
+                        cache_hit = True
+                        source_info = "HTTP缓存"
+                    
+                    cache_status = "(缓存命中)" if cache_hit else "(实时数据)"
+                    print(f"✅ 单个活动API调用成功 {cache_status} - 耗时: {duration:.2f}秒")
+                except:
+                    print(f"✅ 单个活动API调用成功 - 耗时: {duration:.2f}秒")
                 return True
             else:
-                print(f"❌ 单个活动API调用失败: HTTP {response.status_code}")
+                print(f"❌ 单个活动API调用失败: HTTP {response.status_code} - 耗时: {duration:.2f}秒")
                 print(f"   响应: {response.text[:200]}...")
                 return False
                 

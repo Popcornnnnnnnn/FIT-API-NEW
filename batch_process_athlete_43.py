@@ -69,6 +69,9 @@ class Athlete43BatchProcessor:
             'successful_calls': 0,
             'failed_calls': 0,
             'skipped_calls': 0,
+            'cache_hits': 0,
+            'real_data_calls': 0,
+            'total_duration': 0.0,
             'start_time': None,
             'end_time': None
         }
@@ -98,7 +101,7 @@ class Athlete43BatchProcessor:
             logger.error(f"查询运动员活动失败: {e}")
             return []
     
-    def call_activity_all_api(self, activity_id: int, activity_name: str = "") -> bool:
+    def call_activity_all_api(self, activity_id: int, activity_name: str = "") -> Dict[str, Any]:
         """调用单个活动的 /all 接口"""
         url = f"{self.api_base_url}/activities/{activity_id}/all"
         params = {
@@ -106,32 +109,86 @@ class Athlete43BatchProcessor:
             'resolution': 'high'
         }
         
+        start_time = time.time()
+        
         try:
             logger.info(f"正在处理活动 {activity_id}: {activity_name}")
             response = requests.get(url, params=params, timeout=self.timeout_seconds)
+            end_time = time.time()
+            duration = end_time - start_time
             
             if response.status_code == 200:
-                logger.info(f"✅ 活动 {activity_id} 处理成功")
-                self.stats['successful_calls'] += 1
-                return True
+                # 检查是否命中缓存
+                response_data = response.json()
+                cache_hit = False
+                source_info = "未知"
+                
+                # 检查响应中是否包含缓存信息
+                if 'data' in response_data and 'source' in response_data.get('data', {}):
+                    source_info = response_data['data']['source']
+                    cache_hit = source_info == "cache"
+                
+                # 检查响应头中的缓存信息
+                cache_header = response.headers.get('X-Cache', '').lower()
+                if 'hit' in cache_header:
+                    cache_hit = True
+                    source_info = "HTTP缓存"
+                
+                if cache_hit:
+                    logger.info(f"✅ 活动 {activity_id} 处理成功 (缓存命中) - 耗时: {duration:.2f}秒")
+                    self.stats['successful_calls'] += 1
+                    self.stats['cache_hits'] = self.stats.get('cache_hits', 0) + 1
+                else:
+                    logger.info(f"✅ 活动 {activity_id} 处理成功 (实时数据) - 耗时: {duration:.2f}秒")
+                    self.stats['successful_calls'] += 1
+                    self.stats['real_data_calls'] = self.stats.get('real_data_calls', 0) + 1
+                
+                return {
+                    'success': True,
+                    'duration': duration,
+                    'cache_hit': cache_hit,
+                    'source': source_info
+                }
             else:
-                logger.error(f"❌ 活动 {activity_id} 处理失败: HTTP {response.status_code}")
+                logger.error(f"❌ 活动 {activity_id} 处理失败: HTTP {response.status_code} - 耗时: {duration:.2f}秒")
                 logger.error(f"错误响应: {response.text}")
                 self.stats['failed_calls'] += 1
-                return False
+                return {
+                    'success': False,
+                    'duration': duration,
+                    'error': f"HTTP {response.status_code}"
+                }
                 
         except requests.exceptions.Timeout:
-            logger.error(f"⏰ 活动 {activity_id} 请求超时")
+            end_time = time.time()
+            duration = end_time - start_time
+            logger.error(f"⏰ 活动 {activity_id} 请求超时 - 耗时: {duration:.2f}秒")
             self.stats['failed_calls'] += 1
-            return False
+            return {
+                'success': False,
+                'duration': duration,
+                'error': 'timeout'
+            }
         except requests.exceptions.RequestException as e:
-            logger.error(f"🌐 活动 {activity_id} 网络错误: {e}")
+            end_time = time.time()
+            duration = end_time - start_time
+            logger.error(f"🌐 活动 {activity_id} 网络错误: {e} - 耗时: {duration:.2f}秒")
             self.stats['failed_calls'] += 1
-            return False
+            return {
+                'success': False,
+                'duration': duration,
+                'error': str(e)
+            }
         except Exception as e:
-            logger.error(f"💥 活动 {activity_id} 未知错误: {e}")
+            end_time = time.time()
+            duration = end_time - start_time
+            logger.error(f"💥 活动 {activity_id} 未知错误: {e} - 耗时: {duration:.2f}秒")
             self.stats['failed_calls'] += 1
-            return False
+            return {
+                'success': False,
+                'duration': duration,
+                'error': str(e)
+            }
     
     def process_all_activities(self, max_activities: int = None):
         """处理所有活动"""
@@ -160,36 +217,65 @@ class Athlete43BatchProcessor:
             logger.info(f"进度: {i}/{len(activities)} - 处理活动 {activity_id}")
             
             # 调用API
-            success = self.call_activity_all_api(activity_id, activity_name)
+            result = self.call_activity_all_api(activity_id, activity_name)
+            
+            # 累计总耗时
+            if result['success']:
+                self.stats['total_duration'] += result['duration']
             
             # 延迟（避免API限流）
             if i < len(activities):  # 最后一个不需要延迟
-                logger.info(f"等待 {self.delay_seconds} 秒...")
-                time.sleep(self.delay_seconds)
+                self._countdown_wait(self.delay_seconds)
         
         self.stats['end_time'] = time.time()
         self.print_summary()
     
     def print_summary(self):
         """打印处理总结"""
-        duration = self.stats['end_time'] - self.stats['start_time']
+        total_time = self.stats['end_time'] - self.stats['start_time']
+        api_time = self.stats['total_duration']
+        wait_time = total_time - api_time
         
         logger.info("=" * 60)
         logger.info("处理完成！统计信息:")
         logger.info(f"运动员ID: {self.athlete_id}")
         logger.info(f"总活动数: {self.stats['total_activities']}")
         logger.info(f"成功处理: {self.stats['successful_calls']}")
+        logger.info(f"  - 缓存命中: {self.stats['cache_hits']}")
+        logger.info(f"  - 实时数据: {self.stats['real_data_calls']}")
         logger.info(f"处理失败: {self.stats['failed_calls']}")
         logger.info(f"跳过处理: {self.stats['skipped_calls']}")
-        logger.info(f"总耗时: {duration:.2f} 秒")
-        logger.info(f"平均每个活动: {duration/self.stats['total_activities']:.2f} 秒")
+        logger.info(f"总耗时: {total_time:.2f} 秒")
+        logger.info(f"  - API调用时间: {api_time:.2f} 秒")
+        logger.info(f"  - 等待时间: {wait_time:.2f} 秒")
+        if self.stats['successful_calls'] > 0:
+            logger.info(f"平均每个活动API耗时: {api_time/self.stats['successful_calls']:.2f} 秒")
+        logger.info(f"平均每个活动总耗时: {total_time/self.stats['total_activities']:.2f} 秒")
         logger.info("=" * 60)
+    
+    def _countdown_wait(self, seconds: float):
+        """显示倒计时等待"""
+        import sys
+        
+        logger.info(f"等待 {seconds} 秒...")
+        
+        # 如果等待时间很短，直接等待
+        if seconds < 1:
+            time.sleep(seconds)
+            return
+        
+        # 显示倒计时
+        for remaining in range(int(seconds), 0, -1):
+            print(f"\r⏳ 等待中... {remaining} 秒", end="", flush=True)
+            time.sleep(1)
+        
+        print("\r" + " " * 20 + "\r", end="", flush=True)  # 清除倒计时显示
     
     def test_single_activity(self, activity_id: int):
         """测试单个活动（用于调试）"""
         logger.info(f"测试单个活动 {activity_id}")
-        success = self.call_activity_all_api(activity_id, f"测试活动{activity_id}")
-        return success
+        result = self.call_activity_all_api(activity_id, f"测试活动{activity_id}")
+        return result['success']
 
 def main():
     """主函数"""
