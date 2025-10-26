@@ -257,8 +257,6 @@ class Athlete43BatchProcessor:
         """显示倒计时等待"""
         import sys
         
-        logger.info(f"等待 {seconds} 秒...")
-        
         # 如果等待时间很短，直接等待
         if seconds < 1:
             time.sleep(seconds)
