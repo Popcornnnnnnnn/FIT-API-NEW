@@ -1,0 +1,41 @@
+{
+  "duration": 2362,
+  "ftp": 235.0,
+  "items": [
+    {
+      "start": 0,
+      "end": 2363,
+      "duration": 2363,
+      "classification": "recovery",
+      "average_power": 90.27845958527296,
+      "peak_power": 112.0,
+      "normalized_power": 91.29221286534197,
+      "intensity_factor": 0.38847750155464666,
+      "power_ratio": 0.38416365780967215,
+      "time_above_95": 0.0,
+      "time_above_106": 0.0,
+      "time_above_120": 0.0,
+      "time_above_150": 0.0,
+      "heart_rate_avg": 142.74354633939907,
+      "heart_rate_max": 155,
+      "heart_rate_slope": 0.01946677951756242,
+      "metadata": {
+        "hr_percent_max": 0.7320181863558927
+      }
+    }
+  ],
+  "preview_image": "data/zone_previews/strava_15947916631_zones.png",
+  "zone_segments": [
+    {
+      "metric": "power",
+      "zone": "Z1",
+      "label": "Active Recovery",
+      "start_time": 5.0,
+      "end_time": 2363.0,
+      "duration_seconds": 2358.0,
+      "height": 0.2599920924364647,
+      "intensity_ratio": 0.3849782542002779,
+      "average_value": 90.46988973706532
+    }
+  ]
+}

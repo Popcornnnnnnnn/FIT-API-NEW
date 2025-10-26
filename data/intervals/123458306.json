@@ -1,0 +1,52 @@
+{
+  "duration": 148,
+  "ftp": 235.0,
+  "items": [
+    {
+      "start": 0,
+      "end": 149,
+      "duration": 149,
+      "classification": "endurance",
+      "average_power": 145.16107382550337,
+      "peak_power": 172.0,
+      "normalized_power": 150.43857122006227,
+      "intensity_factor": 0.6401641328513288,
+      "power_ratio": 0.6177066971298015,
+      "time_above_95": 0.0,
+      "time_above_106": 0.0,
+      "time_above_120": 0.0,
+      "time_above_150": 0.0,
+      "heart_rate_avg": 111.14765100671141,
+      "heart_rate_max": 120,
+      "heart_rate_slope": 0.11409395973154363,
+      "metadata": {
+        "hr_percent_max": 0.5699879538805713
+      }
+    }
+  ],
+  "preview_image": "data/zone_previews/strava_16020079240_zones.png",
+  "zone_segments": [
+    {
+      "metric": "power",
+      "zone": "Z2",
+      "label": "Endurance",
+      "start_time": 9.0,
+      "end_time": 47.0,
+      "duration_seconds": 38.0,
+      "height": 0.36940649496080624,
+      "intensity_ratio": 0.6117581187010078,
+      "average_value": 143.76315789473685
+    },
+    {
+      "metric": "power",
+      "zone": "Z2",
+      "label": "Endurance",
+      "start_time": 47.0,
+      "end_time": 149.0,
+      "duration_seconds": 102.0,
+      "height": 0.41954109303295783,
+      "intensity_ratio": 0.6744263662911973,
+      "average_value": 158.49019607843138
+    }
+  ]
+}

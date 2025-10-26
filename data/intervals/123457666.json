@@ -1,0 +1,73 @@
+{
+  "duration": 2475,
+  "ftp": 235.0,
+  "items": [
+    {
+      "start": 0,
+      "end": 117,
+      "duration": 117,
+      "classification": "recovery",
+      "average_power": 62.24786324786325,
+      "peak_power": 189.0,
+      "normalized_power": 71.77184942942338,
+      "intensity_factor": 0.3054121252315889,
+      "power_ratio": 0.2648845244589926,
+      "time_above_95": 0.0,
+      "time_above_106": 0.0,
+      "time_above_120": 0.0,
+      "time_above_150": 0.0,
+      "heart_rate_avg": 101.52136752136752,
+      "heart_rate_max": 120,
+      "heart_rate_slope": 0.19658119658119658,
+      "metadata": {
+        "hr_percent_max": 0.5206223975454745
+      }
+    },
+    {
+      "start": 117,
+      "end": 2476,
+      "duration": 2359,
+      "classification": "endurance",
+      "average_power": 144.2013565069945,
+      "peak_power": 155.0,
+      "normalized_power": 144.79537693668084,
+      "intensity_factor": 0.6161505401560887,
+      "power_ratio": 0.6136227936467851,
+      "time_above_95": 0.0,
+      "time_above_106": 0.0,
+      "time_above_120": 0.0,
+      "time_above_150": 0.0,
+      "heart_rate_avg": 147.54133107248833,
+      "heart_rate_max": 163,
+      "heart_rate_slope": 0.016532428995337006,
+      "metadata": {
+        "hr_percent_max": 0.7566222106281453
+      }
+    }
+  ],
+  "preview_image": "data/zone_previews/strava_15532727833_zones.png",
+  "zone_segments": [
+    {
+      "metric": "power",
+      "zone": "Z1",
+      "label": "Active Recovery",
+      "start_time": 0.0,
+      "end_time": 122.0,
+      "duration_seconds": 122.0,
+      "height": 0.22058027079303677,
+      "intensity_ratio": 0.2765957446808511,
+      "average_value": 65.0
+    },
+    {
+      "metric": "power",
+      "zone": "Z2",
+      "label": "Endurance",
+      "start_time": 122.0,
+      "end_time": 2466.0,
+      "duration_seconds": 2344.0,
+      "height": 0.3730999927383632,
+      "intensity_ratio": 0.616374990922954,
+      "average_value": 144.8481228668942
+    }
+  ]
+}

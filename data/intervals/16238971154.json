@@ -1,0 +1,118 @@
+{
+  "duration": 4131,
+  "ftp": 100.0,
+  "items": [
+    {
+      "start": 0,
+      "end": 4132,
+      "duration": 4132,
+      "classification": "sprint",
+      "average_power": 190.30953533397872,
+      "peak_power": 219.0,
+      "normalized_power": 191.1132110066464,
+      "intensity_factor": 1.911132110066464,
+      "power_ratio": 1.9030953533397872,
+      "time_above_95": 0.9961277831558567,
+      "time_above_106": 0.9958857696030978,
+      "time_above_120": 0.9956437560503388,
+      "time_above_150": 0.9823330106485963,
+      "heart_rate_avg": 159.5012100677638,
+      "heart_rate_max": 175,
+      "heart_rate_slope": 0.010648596321393998,
+      "metadata": {
+        "hr_percent_max": 0.8621687030689935
+      }
+    }
+  ],
+  "preview_image": "data/zone_previews/strava_16238971154_zones.png",
+  "zone_segments": [
+    {
+      "metric": "power",
+      "zone": "Z6",
+      "label": "Anaerobic Capacity",
+      "start_time": 5.0,
+      "end_time": 32.0,
+      "duration_seconds": 27.0,
+      "height": 0.9463333333333334,
+      "intensity_ratio": 1.4211111111111112,
+      "average_value": 142.11111111111111
+    },
+    {
+      "metric": "power",
+      "zone": "Z7",
+      "label": "Neuromuscular",
+      "start_time": 32.0,
+      "end_time": 58.0,
+      "duration_seconds": 26.0,
+      "height": 1.05,
+      "intensity_ratio": 1.5234615384615384,
+      "average_value": 152.34615384615384
+    },
+    {
+      "metric": "power",
+      "zone": "Z6",
+      "label": "Anaerobic Capacity",
+      "start_time": 58.0,
+      "end_time": 70.0,
+      "duration_seconds": 12.0,
+      "height": 0.9535,
+      "intensity_ratio": 1.445,
+      "average_value": 144.5
+    },
+    {
+      "metric": "power",
+      "zone": "Z7",
+      "label": "Neuromuscular",
+      "start_time": 70.0,
+      "end_time": 78.0,
+      "duration_seconds": 8.0,
+      "height": 1.05,
+      "intensity_ratio": 1.535,
+      "average_value": 153.5
+    },
+    {
+      "metric": "power",
+      "zone": "Z6",
+      "label": "Anaerobic Capacity",
+      "start_time": 78.0,
+      "end_time": 84.0,
+      "duration_seconds": 6.0,
+      "height": 0.954,
+      "intensity_ratio": 1.4466666666666665,
+      "average_value": 144.66666666666666
+    },
+    {
+      "metric": "power",
+      "zone": "Z7",
+      "label": "Neuromuscular",
+      "start_time": 84.0,
+      "end_time": 126.0,
+      "duration_seconds": 42.0,
+      "height": 1.05,
+      "intensity_ratio": 1.5614285714285714,
+      "average_value": 156.14285714285714
+    },
+    {
+      "metric": "power",
+      "zone": "Z7",
+      "label": "Neuromuscular",
+      "start_time": 126.0,
+      "end_time": 350.0,
+      "duration_seconds": 215.0,
+      "height": 1.05,
+      "intensity_ratio": 1.8166511627906976,
+      "average_value": 181.66511627906976
+    },
+    {
+      "metric": "power",
+      "zone": "Z7",
+      "label": "Neuromuscular",
+      "start_time": 350.0,
+      "end_time": 4131.0,
+      "duration_seconds": 3781.0,
+      "height": 1.05,
+      "intensity_ratio": 1.9283655117693732,
+      "average_value": 192.83655117693732
+    }
+  ]
+}

@@ -1,0 +1,410 @@
+{
+  "duration": 1834,
+  "ftp": 235.0,
+  "items": [
+    {
+      "start": 0,
+      "end": 631,
+      "duration": 631,
+      "classification": "endurance",
+      "average_power": 161.4675118858954,
+      "peak_power": 202.0,
+      "normalized_power": 163.5353408244927,
+      "intensity_factor": 0.6958950673382668,
+      "power_ratio": 0.6870957952591293,
+      "time_above_95": 0.0,
+      "time_above_106": 0.0,
+      "time_above_120": 0.0,
+      "time_above_150": 0.0,
+      "heart_rate_avg": 144.41362916006338,
+      "heart_rate_max": 155,
+      "heart_rate_slope": 0.058637083993660855,
+      "metadata": {
+        "hr_percent_max": 0.7405827136413506
+      }
+    },
+    {
+      "start": 631,
+      "end": 883,
+      "duration": 252,
+      "classification": "tempo",
+      "average_power": 179.42857142857142,
+      "peak_power": 189.0,
+      "normalized_power": 179.45161721115795,
+      "intensity_factor": 0.7636239030262041,
+      "power_ratio": 0.7635258358662613,
+      "time_above_95": 0.0,
+      "time_above_106": 0.0,
+      "time_above_120": 0.0,
+      "time_above_150": 0.0,
+      "heart_rate_avg": 152.31746031746033,
+      "heart_rate_max": 155,
+      "heart_rate_slope": 0.015873015873015872,
+      "metadata": {
+        "hr_percent_max": 0.7811151811151812
+      }
+    },
+    {
+      "start": 883,
+      "end": 1137,
+      "duration": 254,
+      "classification": "endurance",
+      "average_power": 171.66535433070865,
+      "peak_power": 176.0,
+      "normalized_power": 171.7790488725274,
+      "intensity_factor": 0.7309746760533081,
+      "power_ratio": 0.7304908694923773,
+      "time_above_95": 0.0,
+      "time_above_106": 0.0,
+      "time_above_120": 0.0,
+      "time_above_150": 0.0,
+      "heart_rate_avg": 151.88976377952756,
+      "heart_rate_max": 156,
+      "heart_rate_slope": -0.007874015748031496,
+      "metadata": {
+        "hr_percent_max": 0.7789218655360387
+      }
+    },
+    {
+      "start": 1137,
+      "end": 1593,
+      "duration": 456,
+      "classification": "tempo",
+      "average_power": 200.30701754385964,
+      "peak_power": 233.0,
+      "normalized_power": 201.88891760996313,
+      "intensity_factor": 0.8591017770636729,
+      "power_ratio": 0.8523702874206793,
+      "time_above_95": 0.06798245614035088,
+      "time_above_106": 0.0,
+      "time_above_120": 0.0,
+      "time_above_150": 0.0,
+      "heart_rate_avg": 161.72368421052633,
+      "heart_rate_max": 174,
+      "heart_rate_slope": 0.03070175438596491,
+      "metadata": {
+        "hr_percent_max": 0.8293522267206478
+      }
+    },
+    {
+      "start": 1593,
+      "end": 1730,
+      "duration": 137,
+      "classification": "threshold",
+      "average_power": 226.45255474452554,
+      "peak_power": 238.0,
+      "normalized_power": 226.57198304362583,
+      "intensity_factor": 0.9641360980579823,
+      "power_ratio": 0.9636278925298959,
+      "time_above_95": 0.635036496350365,
+      "time_above_106": 0.0,
+      "time_above_120": 0.0,
+      "time_above_150": 0.0,
+      "heart_rate_avg": 170.04379562043795,
+      "heart_rate_max": 175,
+      "heart_rate_slope": 0.058394160583941604,
+      "metadata": {
+        "hr_percent_max": 0.8720194647201946
+      }
+    },
+    {
+      "start": 1730,
+      "end": 1835,
+      "duration": 105,
+      "classification": "tempo",
+      "average_power": 184.5047619047619,
+      "peak_power": 221.0,
+      "normalized_power": 191.9454725601129,
+      "intensity_factor": 0.8167892449366506,
+      "power_ratio": 0.7851266464032421,
+      "time_above_95": 0.0,
+      "time_above_106": 0.0,
+      "time_above_120": 0.0,
+      "time_above_150": 0.0,
+      "heart_rate_avg": 165.7904761904762,
+      "heart_rate_max": 174,
+      "heart_rate_slope": -0.21904761904761905,
+      "metadata": {
+        "hr_percent_max": 0.8502075702075702
+      }
+    }
+  ],
+  "preview_image": "data/zone_previews/strava_13842530563_zones.png",
+  "zone_segments": [
+    {
+      "metric": "power",
+      "zone": "Z3",
+      "label": "Tempo",
+      "start_time": 13.0,
+      "end_time": 43.0,
+      "duration_seconds": 30.0,
+      "height": 0.499659574468085,
+      "intensity_ratio": 0.771063829787234,
+      "average_value": 181.2
+    },
+    {
+      "metric": "power",
+      "zone": "Z2",
+      "label": "Endurance",
+      "start_time": 43.0,
+      "end_time": 568.0,
+      "duration_seconds": 525.0,
+      "height": 0.4328510638297872,
+      "intensity_ratio": 0.691063829787234,
+      "average_value": 162.4
+    },
+    {
+      "metric": "power",
+      "zone": "Z3",
+      "label": "Tempo",
+      "start_time": 568.0,
+      "end_time": 609.0,
+      "duration_seconds": 41.0,
+      "height": 0.49111572392319675,
+      "intensity_ratio": 0.7619097042034251,
+      "average_value": 179.0487804878049
+    },
+    {
+      "metric": "power",
+      "zone": "Z2",
+      "label": "Endurance",
+      "start_time": 609.0,
+      "end_time": 634.0,
+      "duration_seconds": 25.0,
+      "height": 0.4758808510638297,
+      "intensity_ratio": 0.7448510638297872,
+      "average_value": 175.04
+    },
+    {
+      "metric": "power",
+      "zone": "Z3",
+      "label": "Tempo",
+      "start_time": 634.0,
+      "end_time": 741.0,
+      "duration_seconds": 107.0,
+      "height": 0.5028368794326241,
+      "intensity_ratio": 0.774468085106383,
+      "average_value": 182.0
+    },
+    {
+      "metric": "power",
+      "zone": "Z2",
+      "label": "Endurance",
+      "start_time": 741.0,
+      "end_time": 748.0,
+      "duration_seconds": 7.0,
+      "height": 0.46310030395136775,
+      "intensity_ratio": 0.7288753799392097,
+      "average_value": 171.28571428571428
+    },
+    {
+      "metric": "power",
+      "zone": "Z3",
+      "label": "Tempo",
+      "start_time": 748.0,
+      "end_time": 769.0,
+      "duration_seconds": 21.0,
+      "height": 0.4846808510638297,
+      "intensity_ratio": 0.755015197568389,
+      "average_value": 177.42857142857142
+    },
+    {
+      "metric": "power",
+      "zone": "Z2",
+      "label": "Endurance",
+      "start_time": 769.0,
+      "end_time": 774.0,
+      "duration_seconds": 5.0,
+      "height": 0.4791489361702127,
+      "intensity_ratio": 0.7489361702127659,
+      "average_value": 176.0
+    },
+    {
+      "metric": "power",
+      "zone": "Z3",
+      "label": "Tempo",
+      "start_time": 774.0,
+      "end_time": 805.0,
+      "duration_seconds": 31.0,
+      "height": 0.483363074811256,
+      "intensity_ratio": 0.7536032944406315,
+      "average_value": 177.09677419354838
+    },
+    {
+      "metric": "power",
+      "zone": "Z2",
+      "label": "Endurance",
+      "start_time": 805.0,
+      "end_time": 820.0,
+      "duration_seconds": 15.0,
+      "height": 0.478468085106383,
+      "intensity_ratio": 0.7480851063829788,
+      "average_value": 175.8
+    },
+    {
+      "metric": "power",
+      "zone": "Z3",
+      "label": "Tempo",
+      "start_time": 820.0,
+      "end_time": 873.0,
+      "duration_seconds": 53.0,
+      "height": 0.49361969757794727,
+      "intensity_ratio": 0.7645925331192293,
+      "average_value": 179.67924528301887
+    },
+    {
+      "metric": "power",
+      "zone": "Z2",
+      "label": "Endurance",
+      "start_time": 873.0,
+      "end_time": 1143.0,
+      "duration_seconds": 270.0,
+      "height": 0.4652671394799054,
+      "intensity_ratio": 0.7315839243498817,
+      "average_value": 171.92222222222222
+    },
+    {
+      "metric": "power",
+      "zone": "Z3",
+      "label": "Tempo",
+      "start_time": 1143.0,
+      "end_time": 1206.0,
+      "duration_seconds": 63.0,
+      "height": 0.5082584712371947,
+      "intensity_ratio": 0.7802769334684229,
+      "average_value": 183.36507936507937
+    },
+    {
+      "metric": "power",
+      "zone": "Z3",
+      "label": "Tempo",
+      "start_time": 1206.0,
+      "end_time": 1239.0,
+      "duration_seconds": 33.0,
+      "height": 0.4859875349237051,
+      "intensity_ratio": 0.7564152159896841,
+      "average_value": 177.75757575757575
+    },
+    {
+      "metric": "power",
+      "zone": "Z2",
+      "label": "Endurance",
+      "start_time": 1239.0,
+      "end_time": 1263.0,
+      "duration_seconds": 24.0,
+      "height": 0.469645390070922,
+      "intensity_ratio": 0.7370567375886525,
+      "average_value": 173.20833333333334
+    },
+    {
+      "metric": "power",
+      "zone": "Z3",
+      "label": "Tempo",
+      "start_time": 1263.0,
+      "end_time": 1274.0,
+      "duration_seconds": 11.0,
+      "height": 0.5660219213410702,
+      "intensity_ratio": 0.8421663442940038,
+      "average_value": 197.9090909090909
+    },
+    {
+      "metric": "power",
+      "zone": "Z4",
+      "label": "Threshold",
+      "start_time": 1274.0,
+      "end_time": 1311.0,
+      "duration_seconds": 37.0,
+      "height": 0.6625071880391029,
+      "intensity_ratio": 0.939850488786659,
+      "average_value": 220.86486486486487
+    },
+    {
+      "metric": "power",
+      "zone": "Z3",
+      "label": "Tempo",
+      "start_time": 1311.0,
+      "end_time": 1365.0,
+      "duration_seconds": 54.0,
+      "height": 0.5635881271342265,
+      "intensity_ratio": 0.839558707643814,
+      "average_value": 197.2962962962963
+    },
+    {
+      "metric": "power",
+      "zone": "Z4",
+      "label": "Threshold",
+      "start_time": 1365.0,
+      "end_time": 1406.0,
+      "duration_seconds": 41.0,
+      "height": 0.6718664590901229,
+      "intensity_ratio": 0.9486248053969902,
+      "average_value": 222.9268292682927
+    },
+    {
+      "metric": "power",
+      "zone": "Z3",
+      "label": "Tempo",
+      "start_time": 1406.0,
+      "end_time": 1439.0,
+      "duration_seconds": 33.0,
+      "height": 0.60381259402536,
+      "intensity_ratio": 0.8826563507414572,
+      "average_value": 207.42424242424244
+    },
+    {
+      "metric": "power",
+      "zone": "Z4",
+      "label": "Threshold",
+      "start_time": 1439.0,
+      "end_time": 1457.0,
+      "duration_seconds": 18.0,
+      "height": 0.6268085106382978,
+      "intensity_ratio": 0.9063829787234042,
+      "average_value": 213.0
+    },
+    {
+      "metric": "power",
+      "zone": "Z3",
+      "label": "Tempo",
+      "start_time": 1457.0,
+      "end_time": 1586.0,
+      "duration_seconds": 129.0,
+      "height": 0.5910440376051459,
+      "intensity_ratio": 0.8689757545769421,
+      "average_value": 204.2093023255814
+    },
+    {
+      "metric": "power",
+      "zone": "Z4",
+      "label": "Threshold",
+      "start_time": 1586.0,
+      "end_time": 1741.0,
+      "duration_seconds": 155.0,
+      "height": 0.6837071608327613,
+      "intensity_ratio": 0.9597254632807137,
+      "average_value": 225.53548387096774
+    },
+    {
+      "metric": "power",
+      "zone": "Z3",
+      "label": "Tempo",
+      "start_time": 1741.0,
+      "end_time": 1821.0,
+      "duration_seconds": 80.0,
+      "height": 0.5628085106382978,
+      "intensity_ratio": 0.8387234042553191,
+      "average_value": 197.1
+    },
+    {
+      "metric": "power",
+      "zone": "Z1",
+      "label": "Active Recovery",
+      "start_time": 1821.0,
+      "end_time": 1835.0,
+      "duration_seconds": 14.0,
+      "height": 0.2542912406742194,
+      "intensity_ratio": 0.36930091185410335,
+      "average_value": 86.78571428571429
+    }
+  ]
+}

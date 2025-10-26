@@ -1,0 +1,52 @@
+{
+  "duration": 88,
+  "ftp": 235.0,
+  "items": [
+    {
+      "start": 0,
+      "end": 89,
+      "duration": 89,
+      "classification": "threshold",
+      "average_power": 209.87640449438203,
+      "peak_power": 258.0,
+      "normalized_power": 223.52329559832307,
+      "intensity_factor": 0.9511629599928642,
+      "power_ratio": 0.8930910829548171,
+      "time_above_95": 0.8651685393258427,
+      "time_above_106": 0.19101123595505617,
+      "time_above_120": 0.0,
+      "time_above_150": 0.0,
+      "heart_rate_avg": 123.88764044943821,
+      "heart_rate_max": 151,
+      "heart_rate_slope": 0.7191011235955056,
+      "metadata": {
+        "hr_percent_max": 0.6353212330740421
+      }
+    }
+  ],
+  "preview_image": "data/zone_previews/strava_16159553625_zones.png",
+  "zone_segments": [
+    {
+      "metric": "power",
+      "zone": "Z5",
+      "label": "VO2max",
+      "start_time": 11.0,
+      "end_time": 39.0,
+      "duration_seconds": 28.0,
+      "height": 0.7881053698074975,
+      "intensity_ratio": 1.0621580547112461,
+      "average_value": 249.60714285714286
+    },
+    {
+      "metric": "power",
+      "zone": "Z4",
+      "label": "Threshold",
+      "start_time": 39.0,
+      "end_time": 89.0,
+      "duration_seconds": 50.0,
+      "height": 0.7212198581560284,
+      "intensity_ratio": 0.9948936170212767,
+      "average_value": 233.8
+    }
+  ]
+}
