@@ -6,10 +6,9 @@
 - 根据活动时长选择合适分辨率，避免 10k 点数截断。
 """
 
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List
 import logging
 import requests
-from time import perf_counter
 
 from ..config import STRAVA_TIMEOUT
 
@@ -84,45 +83,19 @@ class StravaClient:
         resolution: Optional[str] = None,
     ) -> Dict[str, Any]:
         """一次性获取活动/流/运动员信息，并返回最终分辨率。"""
-        perf_marks: List[Tuple[str, float]] = [("start", perf_counter())]
-        try:
-            activity = self.get_activity(activity_id)
-            perf_marks.append(("activity", perf_counter()))
+        activity = self.get_activity(activity_id)
 
-            moving_time = activity.get("moving_time", 0)
-            final_res = resolution or self.choose_resolution(moving_time)
+        moving_time = activity.get("moving_time", 0)
+        final_res = resolution or self.choose_resolution(moving_time)
 
-            streams = self.get_streams(activity_id, keys=keys, resolution=final_res, key_by_type=True)
-            perf_marks.append(("streams", perf_counter()))
+        streams = self.get_streams(activity_id, keys=keys, resolution=final_res, key_by_type=True)
 
-            athlete = self.get_athlete()
-            perf_marks.append(("athlete", perf_counter()))
+        athlete = self.get_athlete()
 
-            result = {
-                "activity": activity,
-                "streams": streams,
-                "athlete": athlete,
-                "resolution": final_res,
-            }
-            return result
-        finally:
-            perf_marks.append(("end", perf_counter()))
-            # self._log_perf(activity_id, perf_marks)
-            print()
-
-    @staticmethod
-    def _log_perf(activity_id: int, marks: List[Tuple[str, float]]) -> None:
-        if not marks or len(marks) < 2:
-            return
-        segments = []
-        prev = marks[0][1]
-        for label, ts in marks[1:]:
-            segments.append(f"{label}={(ts - prev) * 1000:.1f}ms")
-            prev = ts
-        total = (marks[-1][1] - marks[0][1]) * 1000
-        logger.info(
-            "[perf][strava.fetch_full] activity_id=%s total=%.1fms %s",
-            activity_id,
-            total,
-            " | ".join(segments),
-        )
+        result = {
+            "activity": activity,
+            "streams": streams,
+            "athlete": athlete,
+            "resolution": final_res,
+        }
+        return result

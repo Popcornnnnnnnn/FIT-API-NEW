@@ -11,9 +11,8 @@ import base64
 import json
 import requests
 import logging
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
-from time import perf_counter
 from . import models
 from .fit_parser import FitParser
 from .models import SeriesType
@@ -57,24 +56,6 @@ class StreamCRUD:
             return None
         except Exception:
             return None
-
-    @staticmethod
-    def _log_perf(tag: str, activity_id: int, marks: List[Tuple[str, float]]) -> None:
-        if not marks or len(marks) < 2:
-            return
-        segments = []
-        prev = marks[0][1]
-        for label, ts in marks[1:]:
-            segments.append(f"{label}={(ts - prev) * 1000:.1f}ms")
-            prev = ts
-        total = (marks[-1][1] - marks[0][1]) * 1000
-        logger.info(
-            "[perf][%s] activity_id=%s total=%.1fms %s\n",
-            tag,
-            activity_id,
-            total,
-            " | ".join(segments),
-        )
 
     def load_stream_data(
         self,
@@ -283,17 +264,14 @@ class StreamCRUD:
             return self._parsed_cache[activity.id]
 
         try:
-            perf_marks = [("start", perf_counter())]
             if use_cache and activity.id in self._raw_fit_cache:
                 file_data = self._raw_fit_cache[activity.id]
-                perf_marks.append(("raw_cache_hit", perf_counter()))
             else:
                 response = requests.get(activity.upload_fit_url, timeout=30)
                 response.raise_for_status()
                 file_data = response.content
                 if use_cache:
                     self._raw_fit_cache[activity.id] = file_data
-                perf_marks.append(("raw_fetch", perf_counter()))
 
             athlete = db.query(TbAthlete).filter(TbAthlete.id == activity.athlete_id).first()
             athlete_info = {
@@ -301,7 +279,6 @@ class StreamCRUD:
                 'wj': athlete.w_balance
             }
             parsed = self.fit_parser.parse_fit_file(file_data, athlete_info)
-            perf_marks.append(("parse", perf_counter()))
             if getattr(parsed, "_parse_failed", False):
                 logger.error(
                     "[stream-crud] parsing failed for activity_id=%s; clearing cached raw data",
@@ -311,18 +288,9 @@ class StreamCRUD:
                     self._raw_fit_cache.pop(activity.id, None)
                     self._parsed_cache.pop(activity.id, None)
                 return None
-            backend = getattr(parsed, "_fit_backend", "unknown")
             if use_cache:
                 self._parsed_cache[activity.id] = parsed
                 self._session_cache[activity.id] = self._parse_session_from_bytes(file_data)
-            perf_marks.append(("session", perf_counter()))
-            logger.info(
-                "[perf][stream_crud.parse] activity_id=%s backend=%s total=%.1fms %s\n",
-                activity.id,
-                backend,
-                (perf_marks[-1][1] - perf_marks[0][1]) * 1000,
-                " | ".join(f"{label}={(perf_marks[i][1]-perf_marks[i-1][1])*1000:.1f}ms" for i, (label, _) in enumerate(perf_marks[1:], start=1)),
-            )
             return parsed
         except Exception as e:
             return None

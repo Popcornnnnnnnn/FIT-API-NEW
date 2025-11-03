@@ -4,10 +4,9 @@ Activities API routes (moved from app/activities/router.py)
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import Optional, List, Tuple
+from typing import Optional
 import logging
 import os
-from time import perf_counter
 
 from ..utils import get_db
 from ..schemas.activities import AllActivityDataResponse, IntervalsResponse, SimplifiedIntervalsResponse
@@ -22,31 +21,6 @@ def _is_cache_enabled():
 
 router = APIRouter(prefix="/activities", tags=["活动"])
 
-# 用来测试接口性能，log输出
-def log_perf_timeline(
-    tag: str,
-    activity_id: int,
-    marks: List[Tuple[str, float]],
-    extra: Optional[str] = None,
-) -> None:
-    if not marks or len(marks) < 2:
-        return
-    segments = []
-    prev = marks[0][1]
-    for label, ts in marks[1:]:
-        segments.append(f"{label}={(ts - prev) * 1000:.1f}ms")
-        prev = ts
-    total = (marks[-1][1] - marks[0][1]) * 1000
-    suffix = f" {extra}" if extra else ""
-    logger.info(
-        "[perf][%s] activity_id=%s total=%.1fms %s%s",
-        tag,
-        activity_id,
-        total,
-        " | ".join(segments),
-        suffix,
-    )
-
 @router.get("/{activity_id}/all", response_model=AllActivityDataResponse)
 async def get_activity_all_data(
     activity_id: int,
@@ -55,10 +29,6 @@ async def get_activity_all_data(
     resolution: Optional[str] = Query("high", description="数据分辨率：low, medium, high"),
     db: Session = Depends(get_db),
 ):
-    perf_enabled = bool(access_token)
-    perf_marks: List[Tuple[str, float]] = []
-    if perf_enabled:
-        perf_marks.append(("start", perf_counter()))
     try:
         from ..infrastructure.cache_manager import activity_cache_manager
         cache_key = activity_cache_manager.generate_cache_key(
@@ -75,11 +45,7 @@ async def get_activity_all_data(
             logger.info("[cache-disabled] skip cache lookup")
 
         from ..services.activity_service import activity_service
-        # if perf_enabled:
-        #     perf_marks.append(("service_call", perf_counter()))
         result = activity_service.get_all_data(db, activity_id, access_token, keys, resolution)
-        # if perf_enabled:
-        #     perf_marks.append(("service_done", perf_counter()))
 
         if _is_cache_enabled():
             try:
@@ -94,10 +60,6 @@ async def get_activity_all_data(
                 logger.info(f"[cache-set] activity id={activity_id}")
             except Exception as ce:
                 logger.warning(f"[cache-failed] id={activity_id}: {ce}")
-        if perf_enabled:
-            # perf_marks.append(("response", perf_counter()))
-            log_perf_timeline("activities.all.strava", activity_id, perf_marks, extra="success")
-            print()
         return result
     except HTTPException:
         raise

@@ -11,10 +11,9 @@ Strava 流数据抽取模块
     [{ 'type': 字段名, 'data': 列表, 'series_type': 'time'|'distance', 'original_size': N, 'resolution': 'high' }]
 """
 
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 import math
 import logging
-from time import perf_counter
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -208,7 +207,6 @@ def enrich_with_derived_streams(
 def extract_stream_data(stream_data: Dict[str, Any], keys: List[str], resolution: str = 'high') -> Optional[List[Dict[str, Any]]]:
     if not stream_data or not keys:
         return None
-    perf_marks: List[Tuple[str, float]] = [("start", perf_counter())]
     result: List[Dict[str, Any]] = []
     try:
         for field in keys:
@@ -223,7 +221,6 @@ def extract_stream_data(stream_data: Dict[str, Any], keys: List[str], resolution
                     'original_size': len(speed),
                     'resolution': 'high'
                 })
-                perf_marks.append((f"field_{field}", perf_counter()))
                 continue
             if field in stream_data:
                 item = stream_data[field]
@@ -235,7 +232,6 @@ def extract_stream_data(stream_data: Dict[str, Any], keys: List[str], resolution
                         'original_size': item.get('original_size', len(item['data'])),
                         'resolution': 'high'
                     })
-                perf_marks.append((f"field_{field}", perf_counter()))
                 continue
             if field in ['latitude', 'longitude'] and 'latlng' in stream_data:
                 latlng = stream_data['latlng']
@@ -251,7 +247,6 @@ def extract_stream_data(stream_data: Dict[str, Any], keys: List[str], resolution
                     'original_size': latlng.get('original_size', len(extracted)),
                     'resolution': 'high'
                 })
-                perf_marks.append((f"field_{field}", perf_counter()))
                 continue
             if field == 'best_power' and 'watts' in stream_data:
                 watts = stream_data['watts']
@@ -264,22 +259,7 @@ def extract_stream_data(stream_data: Dict[str, Any], keys: List[str], resolution
                     'original_size': len(curve),
                     'resolution': 'high'
                 })
-                perf_marks.append(("field_best_power", perf_counter()))
                 continue
-            perf_marks.append((f"field_{field}_skip", perf_counter()))
         return result
-    finally:
-        perf_marks.append(("end", perf_counter()))
-        # _log_perf("extract.streams", perf_marks)
-
-
-def _log_perf(tag: str, marks: List[Tuple[str, float]]) -> None:
-    if not marks or len(marks) < 2:
-        return
-    segments = []
-    prev = marks[0][1]
-    for label, ts in marks[1:]:
-        segments.append(f"{label}={(ts - prev) * 1000:.1f}ms")
-        prev = ts
-    total = (marks[-1][1] - marks[0][1]) * 1000
-    logger.info("[perf][%s] total=%.1fms %s\n", tag, total, " | ".join(segments))
+    except Exception:
+        return None

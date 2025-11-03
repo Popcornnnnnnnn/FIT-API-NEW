@@ -1,6 +1,5 @@
 from typing import Dict, Any, Optional, Tuple, List, cast
 from sqlalchemy.orm import Session
-from time import perf_counter
 import logging
 import numpy as np
 from ...db.models import TbActivity, TbAthlete
@@ -68,24 +67,19 @@ def analyze_best_powers(
     athlete_entry: Optional[Any],
     activity_entry: Optional[Any] = None,
 ) -> Tuple[Optional[Dict[str, int]], Optional[List[SegmentRecord]]]:
-    perf_marks: List[Tuple[str, float]] = [("start", perf_counter())]
     if 'watts' not in stream_data:
-        perf_marks.append(("no_watts", perf_counter()))
-        # _log_perf(external_id or 0, perf_marks)
+
         return None, None
     try:
         vals = [int(p or 0) for p in stream_data.get('watts', {}).get('data', [])]
-        perf_marks.append(("power_extract", perf_counter()))
         intervals = {
             '5s': 5, '15s': 15, '30s': 30, '1m': 60, '2m': 120, '3m': 180, '5m': 300, '10m': 600, '15m': 900, '20m': 1200, '30m': 1800, '45m': 2700, '60m': 3600
         }
         best_powers: Dict[str, int] = {}
         for k, sec in intervals.items():
             best_powers[k] = _best_avg_over_window(vals, sec)
-        perf_marks.append(("interval_windows", perf_counter()))
         # 计算完整最佳曲线，用于文件持久化
         best_curve = _best_power_curve(vals) # ! SLOW
-        perf_marks.append(("best_curve", perf_counter()))
 
         # Optionally update athlete records and produce segment records
         segment_records: List[SegmentRecord] = []
@@ -137,7 +131,6 @@ def analyze_best_powers(
                 sr_dicts = repo_update_best_powers(db, athlete_id, best_powers, activity_id)
                 for sd in sr_dicts:
                     segment_records.append(SegmentRecord(**sd))
-                perf_marks.append(("db_power_records", perf_counter()))
             except Exception:
                 pass
 
@@ -158,35 +151,16 @@ def analyze_best_powers(
                         segment_records.append(SegmentRecord(**sr))
                 except Exception:
                     pass
-            perf_marks.append(("db_longest_elev", perf_counter()))
 
             if best_curve:
                 try:
                     repo_update_best_power_file(athlete_id, best_curve)
                 except Exception:
                     pass
-            perf_marks.append(("file_persist", perf_counter()))
 
         return best_powers, segment_records or None
     except Exception:
         return None, None
-    finally:
-        perf_marks.append(("end", perf_counter()))
-        # _log_perf(external_id or 0, perf_marks)
 
 
-def _log_perf(activity_id: int, marks: List[Tuple[str, float]]) -> None:
-    if not marks or len(marks) < 2:
-        return
-    segments = []
-    prev = marks[0][1]
-    for label, ts in marks[1:]:
-        segments.append(f"{label}={(ts - prev) * 1000:.1f}ms")
-        prev = ts
-    total = (marks[-1][1] - marks[0][1]) * 1000
-    logger.info(
-        "[perf][best_powers.analyze] activity_id=%s total=%.1fms %s\n",
-        activity_id,
-        total,
-        " | ".join(segments),
-    )
+

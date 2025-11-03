@@ -12,9 +12,7 @@ from sqlalchemy.orm import Session
 import logging
 from pathlib import Path
 from bisect import bisect_left
-from time import perf_counter
 from app.db.models import TbActivity, TbAthlete
-from app.api.activities import log_perf_timeline
 
 from ..clients.strava_client import StravaClient
 from ..schemas.activities import (
@@ -45,7 +43,6 @@ from ..core.analytics.interval_detection import (
 
 logger = logging.getLogger(__name__)
 
-perf_timeline: List[Tuple[str, float]] = []
 class ActivityService:
     def get_all_data(
         self,
@@ -62,7 +59,6 @@ class ActivityService:
                 'heartrate', 'cadence', 'watts', 'temp', 'moving', 'grade_smooth'
             ]
             
-            self._mark(perf_timeline, "start")
             try:
                 # 优先用主键查活动；查不到再回退到 external_id
                 local_obj = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
@@ -70,10 +66,8 @@ class ActivityService:
                     local_obj = db.query(TbActivity).filter(TbActivity.external_id == activity_id).first()
 
                 activity_entry, athlete_entry = self._get_local_activity_pair(db, getattr(local_obj, 'id', None) or activity_id)
-                self._mark(perf_timeline, "local_lookup")
 
                 full = client.fetch_full(activity_entry.external_id, keys=keys_list_all, resolution=None)
-                self._mark(perf_timeline, "fetch_full")
 
                 activity_data = full['activity']
                 stream_data = full['streams']
@@ -100,7 +94,6 @@ class ActivityService:
                     athlete_entry,
                     activity_entry,
                 )
-                self._mark(perf_timeline, "analyze")
 
                 try:
                     preview_info = self._generate_zone_preview(
@@ -140,7 +133,6 @@ class ActivityService:
                     self._update_activity_efficiency_factor(db, activity_entry, result.heartrate.efficiency_index)
 
                 # 计算 training_load，更新该活动的 TSS，并据此刷新 athlete 的 TSB（status）
-                self._mark(perf_timeline, "local_refresh")
                 try:
                     moving_time = int(activity_data.get('moving_time') or 0)
                     avg_power = activity_data.get('average_watts') or 0
@@ -149,8 +141,8 @@ class ActivityService:
                     raw = activity_data.get('start_date')
                     iso = raw.replace('Z', '+00:00')
                     start_dt = datetime.fromisoformat(iso).replace(tzinfo=None)
-                    tss = self._upsert_activity_tss(db, activity_entry, athlete_entry, avg_power, moving_time, start_dt, perf_timeline)
-                    tsb = self._update_athlete_status(db, athlete_entry, start_dt, perf_timeline)
+                    tss = self._upsert_activity_tss(db, activity_entry, athlete_entry, avg_power, moving_time, start_dt)
+                    tsb = self._update_athlete_status(db, athlete_entry, start_dt)
                     result.overall.status = tsb
                     result.overall.training_load = tss
 
@@ -169,8 +161,6 @@ class ActivityService:
                         result.best_power_record = BestPowerCurveRecord.model_validate(best_power_record)
                     except Exception:
                         result.best_power_record = None
-                    finally:
-                        self._mark(perf_timeline, "best_power_record")
                 except Exception:
                     logger.exception(
                         "[training-load][error] activity_id=%s activity_entry=%s athlete_entry=%s",
@@ -178,29 +168,12 @@ class ActivityService:
                         getattr(activity_entry, 'id', None),
                         getattr(athlete_entry, 'id', None),
                     )
-                finally:
-                    self._mark(perf_timeline, "training_load")
-                self._mark(perf_timeline, "post_process")
-                self._mark(perf_timeline, "done")
                 return result
             except Exception:
-                self._mark(perf_timeline, "error")
                 raise
-            finally:
-                log_perf_timeline(
-                    "service.strava.all",
-                    activity_id,
-                    perf_timeline,
-                    extra=f"strava_id={activity_id}",
-                )
-                print()
 
         # Local DB path: compose using service methods and metrics
-        perf_timeline_local: List[Tuple[str, float]] = []
-        self._mark(perf_timeline_local, "start")
-
         local_pair = self._get_local_activity_pair(db, activity_id)
-        self._mark(perf_timeline_local, "pair") # ! 400ms
         local_activity = local_pair[0] if local_pair else None
         # 本地fit文件处理，没有输入ftp的时候，进行ftp估算
         if local_pair[1].ftp is None or local_pair[1].ftp <= 0:
@@ -210,11 +183,9 @@ class ActivityService:
             local_pair[1].ftp = round(estimate_ftp_from_best_curve(local_pair[1].id).ftp)
 
         raw_stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        self._mark(perf_timeline_local, "raw_streams") # ! SLOW
         session_cache = None
         if local_activity and getattr(local_activity, 'upload_fit_url', None):
             session_cache = activity_data_manager.get_session_data(db, activity_id, local_activity.upload_fit_url)
-        self._mark(perf_timeline_local, "session_data") # ! SLOW
 
         response_data = {}
         try:
@@ -222,64 +193,48 @@ class ActivityService:
         except Exception as e:
             logger.exception("[section-error][overall] activity_id=%s err=%s", activity_id, e)
             response_data["overall"] = None
-        finally:
-            self._mark(perf_timeline_local, "overall") # ! 400ms
 
         try:
             response_data["power"] = self.get_power(db, activity_id, local_pair, raw_stream_data, session_cache)
         except Exception as e:
             logger.exception("[section-error][power] activity_id=%s err=%s", activity_id, e)
             response_data["power"] = None
-        finally:
-            self._mark(perf_timeline_local, "power")
 
         try:
             response_data["heartrate"] = self.get_heartrate(db, activity_id, local_pair, raw_stream_data, session_cache)
         except Exception as e:
             logger.exception("[section-error][heartrate] activity_id=%s err=%s", activity_id, e)
             response_data["heartrate"] = None
-        finally:
-            self._mark(perf_timeline_local, "heartrate")
 
         try:
             response_data["cadence"] = self.get_cadence(db, activity_id, local_pair, raw_stream_data, session_cache)
         except Exception as e:
             logger.exception("[section-error][cadence] activity_id=%s err=%s", activity_id, e)
             response_data["cadence"] = None
-        finally:
-            self._mark(perf_timeline_local, "cadence")
 
         try:
             response_data["speed"] = self.get_speed(db, activity_id, local_pair, raw_stream_data, session_cache)
         except Exception as e:
             logger.exception("[section-error][speed] activity_id=%s err=%s", activity_id, e)
             response_data["speed"] = None
-        finally:
-            self._mark(perf_timeline_local, "speed")
 
         try:
             response_data["training_effect"] = self.get_training_effect(db, activity_id, local_pair, raw_stream_data)
         except Exception as e:
             logger.exception("[section-error][training_effect] activity_id=%s err=%s", activity_id, e)
             response_data["training_effect"] = None
-        finally:
-            self._mark(perf_timeline_local, "training_effect")
 
         try:
             response_data["altitude"] = self.get_altitude(db, activity_id, local_pair, raw_stream_data, session_cache)
         except Exception as e:
             logger.exception("[section-error][altitude] activity_id=%s err=%s", activity_id, e)
             response_data["altitude"] = None
-        finally:
-            self._mark(perf_timeline_local, "altitude")
 
         try:
             response_data["temp"] = self.get_temperature(db, activity_id, raw_stream_data)
         except Exception as e:
             logger.exception("[section-error][temp] activity_id=%s err=%s", activity_id, e)
             response_data["temp"] = None
-        finally:
-            self._mark(perf_timeline_local, "temp")
 
         # zones
         zones_data: List[ZoneData] = []
@@ -290,8 +245,6 @@ class ActivityService:
         except Exception as e:
             logger.exception("[section-error][zones-power] activity_id=%s err=%s", activity_id, e)
             pass
-        finally:
-            self._mark(perf_timeline_local, "zones_power")
         try:
             hz = self._compute_heartrate_zones(db, activity_id)
             if hz:
@@ -299,8 +252,6 @@ class ActivityService:
         except Exception as e:
             logger.exception("[section-error][zones-hr] activity_id=%s err=%s", activity_id, e)
             pass
-        finally:
-            self._mark(perf_timeline_local, "zones_hr")
         response_data["zones"] = zones_data if zones_data else None
 
         # streams
@@ -328,8 +279,6 @@ class ActivityService:
         except Exception as e:
             logger.exception("[section-error][streams] activity_id=%s err=%s", activity_id, e)
             response_data["streams"] = None
-        finally:
-            self._mark(perf_timeline_local, "streams") # ! SLOW
 
         # best powers + segment_records（本地路径，封装到独立方法）
         try:
@@ -341,8 +290,6 @@ class ActivityService:
             logger.exception("[section-error][segments] activity_id=%s err=%s", activity_id, e)
             response_data["best_powers"] = None
             response_data["segment_records"] = None
-        finally:
-            self._mark(perf_timeline_local, "segments")
 
         # best_power_record（独立于分辨率，从文件仓库读取）
         try:
@@ -365,8 +312,6 @@ class ActivityService:
         except Exception as e:
             logger.exception("[section-error][best_power_record] activity_id=%s err=%s", activity_id, e)
             response_data["best_power_record"] = None
-        finally:
-            self._mark(perf_timeline_local, "best_power_record_local")
 
         # 生成 zone_preview 和 intervals 数据
         try:
@@ -391,11 +336,6 @@ class ActivityService:
                 logger.info("[intervals][saved-local] activity_id=%s", activity_id)
         except Exception:
             logger.exception("[intervals][save-error-local] activity_id=%s", activity_id)
-        finally:
-            self._mark(perf_timeline_local, "intervals")
-
-        self._mark(perf_timeline_local, "done")
-        log_perf_timeline("service.local.all", activity_id, perf_timeline_local)
 
         return AllActivityDataResponse(**response_data)
 
@@ -423,15 +363,6 @@ class ActivityService:
             except (TypeError, ValueError):
                 logger.debug("[strava-id-map] invalid external_id for activity %s", activity_id)
         return activity_id
-
-
-
-    @staticmethod
-    def _mark(perf_timeline: Optional[List[Tuple[str, float]]], label: str) -> None:
-        if perf_timeline is not None:
-            perf_timeline.append((label, perf_counter()))
-
-
 
     def _update_activity_efficiency_factor(self, db: Session, activity, value: Optional[float]) -> None:
         if not hasattr(activity, 'efficiency_factor'):
@@ -648,11 +579,9 @@ class ActivityService:
         avg_power: Optional[int],
         moving_time: Optional[int],
         start_date: Optional[datetime] = None,
-        perf_timeline: Optional[List[Tuple[str, float]]] = None,
     ) -> Optional[int]:
         if not activity_entry or not athlete_entry:
             return None
-        start_clock = perf_counter() if perf_timeline is not None else None
         try:
             from ..core.analytics.training import calculate_training_load
             tss_val = calculate_training_load(avg_power, athlete_entry.ftp, moving_time)
@@ -664,21 +593,17 @@ class ActivityService:
         except Exception:
             db.rollback()
             return None
-        finally:
-            if start_clock is not None:
-                self._mark(perf_timeline, "upsert_tss")
 
     def _update_athlete_status(
             self, 
             db: Session, 
             athlete_entry: Optional[Any] = None,
             ref_date: Optional[datetime] = None,
-            perf_timeline: Optional[List[Tuple[str, float]]] = None,
         ) -> Optional[int]:
         """计算并更新 Athlete 的 ctl/atl/tsb，返回 tsb（atl - ctl）。
 
-        窗口基准时间：默认使用当前时间；若提供 ref_date，则以该时间为基准计算“过去7/42天”。
-        适用于以“活动发生日期”为窗口参考的场景。
+        窗口基准时间：默认使用当前时间；若提供 ref_date，则以该时间为基准计算"过去7/42天"。
+        适用于以"活动发生日期"为窗口参考的场景。
         """
         from sqlalchemy import func
         from datetime import datetime, timedelta
@@ -689,7 +614,6 @@ class ActivityService:
         seven_days_ago = now - timedelta(days=7)
         forty_two_days_ago = now - timedelta(days=42)
         athlete_id = athlete_entry.id
-        start_clock = perf_counter() if perf_timeline is not None else None
 
         try:
 
@@ -734,9 +658,6 @@ class ActivityService:
             db.rollback()
             logger.exception("[status-calc] 计算/写入 atl/ctl/tsb 失败 athlete_id=%s", getattr(athlete_entry, 'id', None))
             return None
-        finally:
-            if start_clock is not None:
-                self._mark(perf_timeline, "update_status")
 
     def _extract_best_powers_from_stream(self, stream_data: Dict[str, Any]) -> Optional[Dict[str, int]]:
         try:
