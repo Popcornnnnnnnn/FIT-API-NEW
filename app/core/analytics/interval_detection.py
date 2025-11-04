@@ -937,12 +937,432 @@ def summarize_window(
     return _summarize_interval((start_idx, end_idx), pw, hr, ftp, lthr, hr_max)
 
 
+# ============================================================================
+# 基于心率的区间检测函数
+# ============================================================================
+
+
+def _resolve_lthr_value(
+    lthr: Optional[float],
+    hr_max: Optional[float],
+) -> Optional[float]:
+    """
+    解析阈值心率值
+    
+    优先级：
+    1. 直接提供的 lthr
+    2. 如果 lthr 不存在，使用 hr_max * 0.9 作为估算值
+    
+    Args:
+        lthr: 阈值心率
+        hr_max: 最大心率
+        
+    Returns:
+        阈值心率值，如果都不可用则返回 None
+    """
+    if lthr and lthr > 0:
+        return float(lthr)
+    if hr_max and hr_max > 0:
+        # 使用最大心率的90%作为阈值心率估算
+        estimated_lthr = hr_max * 0.9
+        return float(estimated_lthr)
+    return None
+
+
+def _prepare_heartrate_inputs(
+    timestamps: Sequence[int],
+    heart_rate: Sequence[Optional[float]],
+    cfg: IntervalDetectionConfig,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    准备心率数据用于检测
+    
+    类似_prepare_inputs，但只处理心率数据
+    
+    Args:
+        timestamps: 时间戳序列
+        heart_rate: 心率序列
+        cfg: 配置对象
+        
+    Returns:
+        (时间戳数组, 心率数组) - 已重采样到1Hz
+    """
+    if timestamps is None or heart_rate is None:
+        return np.array([]), np.array([])
+    if len(timestamps) == 0 or len(heart_rate) == 0:
+        return np.array([]), np.array([])
+    
+    ts = np.asarray(timestamps, dtype=int)
+    if ts.ndim != 1:
+        ts = ts.flatten()
+    order = np.argsort(ts)
+    ts = ts[order]
+    
+    hr_raw = np.asarray(heart_rate, dtype=float)
+    if hr_raw.ndim != 1:
+        hr_raw = hr_raw.flatten()
+    hr_raw = hr_raw[order[: hr_raw.shape[0]]]
+    
+    # 重采样到1Hz
+    if ts.size == hr_raw.size and np.all(np.diff(ts) <= 1):
+        timeline = ts
+        hr_series = hr_raw
+    else:
+        timeline, hr_series = _resample_to_1hz(ts, hr_raw)
+    
+    # 将无效值（0或负数）设为NaN
+    hr_series = np.where(hr_series > 0, hr_series, 0)
+    
+    # 填充短时缺失值
+    hr_series = _fill_short_zero_gaps(hr_series, cfg.zero_fill_window)
+    
+    return timeline, hr_series
+
+
+def _classification_from_heartrate_ratio(ratio: float) -> str:
+    """
+    根据心率比值（HR/LTHR）分类区间
+    
+    对应功率区间的七个区间，基于 Intervals.icu/Friel 七区模型：
+    - recovery: < 0.81
+    - endurance: 0.81-0.89
+    - tempo: 0.90-0.93
+    - threshold: 0.94-0.99
+    - vo2max: 1.00-1.02
+    - anaerobic: 1.03-1.06
+    - sprint: > 1.06
+    
+    Args:
+        ratio: 心率/阈值心率的比值
+        
+    Returns:
+        区间分类标签
+    """
+    if ratio >= 1.06:
+        return "sprint"
+    if ratio >= 1.03:
+        return "anaerobic"
+    if ratio >= 1.00:
+        return "vo2max"
+    if ratio >= 0.94:
+        return "threshold"
+    if ratio >= 0.90:
+        return "tempo"
+    if ratio >= 0.81:
+        return "endurance"
+    return "recovery"
+
+
+def _summarize_interval_by_heartrate(
+    segment: Tuple[int, int],
+    heart_rate: np.ndarray,
+    threshold_hr: float,
+    hr_max: Optional[float],
+) -> IntervalSummary:
+    """
+    基于心率数据生成区间摘要
+    
+    类似_summarize_interval，但基于心率数据计算
+    
+    Args:
+        segment: 区间范围 (start, end)
+        heart_rate: 心率数组
+        threshold_hr: 阈值心率
+        hr_max: 最大心率（可选）
+        
+    Returns:
+        区间摘要对象
+    """
+    start, end = segment
+    slice_hr = heart_rate[start:end]
+    duration = end - start
+    
+    if duration <= 0 or slice_hr.size == 0:
+        return IntervalSummary(
+            start=start,
+            end=end,
+            classification="recovery",
+            average_power=0.0,
+            peak_power=0.0,
+            normalized_power=0.0,
+            intensity_factor=0.0,
+            power_ratio=0.0,
+            time_above_95=0.0,
+            time_above_106=0.0,
+            time_above_120=0.0,
+            time_above_150=0.0,
+            heart_rate_avg=None,
+            heart_rate_max=None,
+            heart_rate_slope=None,
+        )
+    
+    # 计算心率统计
+    valid_hr = slice_hr[slice_hr > 0]
+    if valid_hr.size == 0:
+        hr_avg = 0.0
+        hr_max_val = 0
+        hr_slope = 0.0
+        avg_ratio = 0.0
+    else:
+        hr_avg = float(np.mean(valid_hr))
+        hr_max_val = int(np.max(valid_hr))
+        hr_slope = float((valid_hr[-1] - valid_hr[0]) / duration) if duration > 0 and valid_hr.size > 1 else 0.0
+        avg_ratio = hr_avg / threshold_hr if threshold_hr > 0 else 0.0
+    
+    # 计算超过阈值的时间占比
+    hr_ratios = slice_hr / threshold_hr if threshold_hr > 0 else np.zeros_like(slice_hr)
+    time_above_95 = float(np.sum(hr_ratios >= 0.95) / duration) if duration > 0 else 0.0
+    time_above_106 = float(np.sum(hr_ratios >= 1.06) / duration) if duration > 0 else 0.0
+    
+    # 元数据
+    metadata: Dict[str, Any] = {}
+    if hr_max and hr_avg > 0 and hr_max > 0:
+        metadata['hr_percent_max'] = hr_avg / hr_max
+    if threshold_hr > 0:
+        metadata['hr_percent_threshold'] = avg_ratio
+    metadata['data_source'] = 'heartrate'
+    
+    # 注意：功率相关字段设为0或使用心率比值映射（保持接口兼容）
+    return IntervalSummary(
+        start=start,
+        end=end,
+        classification="unclassified",
+        average_power=0.0,
+        peak_power=0.0,
+        normalized_power=0.0,
+        intensity_factor=avg_ratio,
+        power_ratio=avg_ratio,  # 使用心率比值作为"功率比值"（保持兼容）
+        time_above_95=time_above_95,
+        time_above_106=time_above_106,
+        time_above_120=0.0,
+        time_above_150=0.0,
+        heart_rate_avg=hr_avg,
+        heart_rate_max=hr_max_val,
+        heart_rate_slope=hr_slope,
+        metadata=metadata,
+    )
+
+
+def _classify_interval_by_heartrate(
+    summary: IntervalSummary,
+    threshold_hr: float,
+) -> IntervalSummary:
+    """
+    基于心率数据分类区间
+    
+    类似_classify_interval，但基于心率比值
+    
+    Args:
+        summary: 区间摘要对象
+        threshold_hr: 阈值心率
+        
+    Returns:
+        已分类的区间摘要对象
+    """
+    if summary.classification != "unclassified":
+        return summary
+    
+    dur = summary.duration
+    ratio = summary.power_ratio  # 实际是心率比值
+    hr_max_val = summary.heart_rate_max or 0
+    peak_ratio = hr_max_val / threshold_hr if threshold_hr > 0 else 0.0
+    time_gt_95 = summary.time_above_95
+    time_gt_106 = summary.time_above_106
+    
+    classification = "recovery"
+    
+    # 基于心率比值的分类逻辑
+    # 注意：心率的峰值识别不如功率准确，冲刺判断需要更保守
+    if ratio >= 1.06 or time_gt_106 >= 0.70:
+        classification = "anaerobic"
+    elif ratio >= 1.00 or time_gt_95 >= 0.60:
+        classification = "vo2max"
+    elif ratio >= 0.94 or time_gt_95 >= 0.70:
+        classification = "threshold"
+    elif ratio >= 0.90:
+        classification = "tempo"
+    elif ratio >= 0.81:
+        classification = "endurance"
+    else:
+        classification = "recovery"
+    
+    summary.classification = classification
+    return summary
+
+
+def detect_intervals_by_heartrate(
+    timestamps: Sequence[int],
+    heart_rate: Sequence[Optional[float]],
+    lthr: Optional[float] = None,
+    hr_max: Optional[float] = None,
+    config: Optional[IntervalDetectionConfig] = None,
+) -> IntervalDetectionResult:
+    """
+    基于心率数据的区间检测
+    
+    使用阈值心率（LTHR）作为基准，将心率数据映射到七个训练区间。
+    如果LTHR不存在，使用最大心率的90%作为估算值。
+    
+    区间分类基于心率/LTHR比值，与功率区间对应：
+    - Zone1 Recovery: < 81% LTHR
+    - Zone2 Endurance: 81-89% LTHR
+    - Zone3 Tempo: 90-93% LTHR
+    - Zone4 Threshold: 94-99% LTHR
+    - Zone5 VO2max: 100-102% LTHR
+    - Zone6 Anaerobic: 103-106% LTHR
+    - Zone7 Sprint: > 106% LTHR
+    
+    Args:
+        timestamps: 时间戳序列（秒）
+        heart_rate: 心率序列（bpm）
+        lthr: 阈值心率（优先使用）
+        hr_max: 最大心率（如果lthr不存在，使用hr_max * 0.9作为估算值）
+        config: 配置对象（可选，使用默认配置）
+        
+    Returns:
+        IntervalDetectionResult: 检测结果，包含intervals和repeats
+        
+    Note:
+        - 如果心率数据不足或阈值无法确定，返回空结果
+        - 区间分类基于心率/LTHR比值，与功率区间对应
+        - ftp字段存储阈值心率值（保持接口兼容）
+    """
+    # 1. 解析阈值心率
+    threshold_hr = _resolve_lthr_value(lthr, hr_max)
+    if not threshold_hr or threshold_hr <= 0:
+        return IntervalDetectionResult(
+            duration=0,
+            ftp=0.0,
+            intervals=[],
+            repeats=[]
+        )
+    
+    # 2. 准备输入数据
+    cfg = config or IntervalDetectionConfig()
+    ts, hr_series = _prepare_heartrate_inputs(timestamps, heart_rate, cfg)
+    if not hr_series.size:
+        return IntervalDetectionResult(
+            duration=0,
+            ftp=float(threshold_hr),
+            intervals=[],
+            repeats=[]
+        )
+    
+    duration = int(ts[-1]) if ts.size else int(hr_series.size)
+    
+    # 3. 计算心率比值（相对于阈值心率）
+    hr_ratios = hr_series / threshold_hr if threshold_hr else np.zeros_like(hr_series)
+    
+    # 4. 使用类似功率检测的算法，但基于心率比值
+    # 计算快慢通道
+    fast_hr, slow_hr = _compute_channels(hr_series, cfg)
+    baseline_hr = _rolling_median(slow_hr, cfg.baseline_window)
+    theta_hr = _compute_theta(fast_hr, baseline_hr, threshold_hr)
+    
+    # 5. 检测区间段（基于心率变化）
+    raw_segments = _segment_intervals(
+        fast_hr, slow_hr, baseline_hr, theta_hr, threshold_hr, cfg
+    )
+    
+    # 6. 检测高心率段（类似冲刺）
+    sprint_segments = _detect_sprint_overrides(hr_series, threshold_hr, cfg)
+    
+    # 7. 合并和调整区间
+    candidates = _merge_and_adjust_segments(
+        raw_segments + sprint_segments, hr_series, slow_hr, threshold_hr, cfg
+    )
+    
+    # 8. 基于比值检测额外区间
+    ratio_segments = _detect_ratio_segments(slow_hr, candidates, threshold_hr)
+    
+    # 9. 生成区间摘要
+    interval_summaries = [
+        _summarize_interval_by_heartrate(seg, hr_series, threshold_hr, hr_max)
+        for seg in candidates
+        if seg[1] - seg[0] >= 3
+    ]
+    
+    # 10. 添加比值区间
+    for start, end, label in ratio_segments:
+        summary = _summarize_interval_by_heartrate(
+            (start, end), hr_series, threshold_hr, hr_max
+        )
+        summary.classification = label
+        meta = dict(summary.metadata)
+        meta['source'] = 'ratio'
+        summary.metadata = meta
+        interval_summaries.append(summary)
+    
+    # 11. 分类区间
+    classified = [
+        _classify_interval_by_heartrate(summary, threshold_hr)
+        for summary in interval_summaries
+    ]
+    
+    # 12. 构建覆盖率（基于心率比值）
+    coverage = np.full(hr_series.size, "", dtype=object)
+    priority = {
+        "recovery": 0,
+        "endurance": 1,
+        "tempo": 2,
+        "threshold": 3,
+        "vo2max": 4,
+        "anaerobic": 5,
+        "sprint": 6,
+    }
+    
+    def _assign_segment(start: int, end: int, label: str) -> None:
+        if label not in priority:
+            return
+        s = max(0, int(start))
+        e = min(int(end), hr_series.size)
+        if s >= e:
+            return
+        for idx in range(s, e):
+            current = coverage[idx]
+            if not current or priority[label] >= priority.get(current, -1):
+                coverage[idx] = label
+    
+    for summary in classified:
+        _assign_segment(summary.start, summary.end, summary.classification)
+    
+    # 13. 填充未覆盖区域（基于心率比值）
+    for idx, label in enumerate(coverage):
+        if label:
+            continue
+        coverage[idx] = _classification_from_heartrate_ratio(float(hr_ratios[idx]))
+    
+    # 14. 构建最终区间
+    segments = _build_segments_from_coverage(coverage)
+    segments = _simplify_segments(segments, hr_ratios, default_min_length=30)
+    
+    # 15. 生成最终区间摘要
+    final_intervals: List[IntervalSummary] = []
+    for start, end, label in segments:
+        summary = _summarize_interval_by_heartrate(
+            (start, end), hr_series, threshold_hr, hr_max
+        )
+        summary.classification = label
+        final_intervals.append(summary)
+    
+    # 16. 检测重复模式（Z2-Z1重复）
+    repeats = _detect_z2_z1_repeats(hr_series, threshold_hr, ts)
+    
+    return IntervalDetectionResult(
+        duration=duration,
+        ftp=float(threshold_hr),  # 使用阈值心率作为"参考值"
+        intervals=final_intervals,
+        repeats=repeats,
+    )
+
+
 __all__ = [
     "IntervalDetectionConfig",
     "IntervalDetectionResult",
     "IntervalSummary",
     "RepeatBlock",
     "detect_intervals",
+    "detect_intervals_by_heartrate",
     "render_interval_preview",
     "summarize_window",
 ]

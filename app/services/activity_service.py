@@ -19,9 +19,10 @@ from ..schemas.activities import (
     AllActivityDataResponse,
     ZoneData,
     IntervalsResponse,
+    SimplifiedIntervalItem,
     IntervalItem,
-    BestPowerCurveRecord,
     ZoneSegmentVisual,
+    BestPowerCurveRecord,
 )
 from ..streams.crud import stream_crud
 from ..streams.models import Resolution
@@ -39,6 +40,7 @@ from ..core.analytics.interval_detection import (
     summarize_window,
     IntervalSummary,
 )
+import numpy as np
 
 
 logger = logging.getLogger(__name__)
@@ -58,7 +60,6 @@ class ActivityService:
                 'time', 'distance', 'latlng', 'altitude', 'velocity_smooth',
                 'heartrate', 'cadence', 'watts', 'temp', 'moving', 'grade_smooth'
             ]
-            
             try:
                 # 优先用主键查活动；查不到再回退到 external_id
                 local_obj = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
@@ -95,39 +96,19 @@ class ActivityService:
                     activity_entry,
                 )
 
+                # 生成 intervals 数据并保存到文件（包含预览图生成）
                 try:
-                    preview_info = self._generate_zone_preview(
+                    intervals_data = self._generate_and_save_intervals_strava(
+                        db,
+                        activity_id,
+                        activity_entry,
                         stream_data,
                         activity_data,
                         athlete_entry,
                         athlete_data,
-                        activity_entry,
                     )
                 except Exception:
-                    logger.exception(
-                        "[zone-preview][generate-error] activity_id=%s",
-                        activity_id,
-                    )
-                    preview_info = None
-
-                if preview_info:
-                    result.zone_preview_path = preview_info.get("path")
-                    # 生成 intervals 数据并保存到文件
-                    try:
-                        intervals_data = self._generate_and_save_intervals_strava(
-                            db,
-                            activity_id,
-                            activity_entry,
-                            stream_data,
-                            activity_data,
-                            athlete_entry,
-                            athlete_data,
-                            preview_info,
-                        )
-                        if intervals_data:
-                            logger.info("[intervals][saved-strava] activity_id=%s", activity_id)
-                    except Exception:
-                        logger.exception("[intervals][save-error-strava] activity_id=%s", activity_id)
+                    logger.exception("[intervals][save-error-strava] activity_id=%s", activity_id)
                 
                 if getattr(result, 'heartrate', None) is not None:
                     self._update_activity_efficiency_factor(db, activity_entry, result.heartrate.efficiency_index)
@@ -313,27 +294,14 @@ class ActivityService:
             logger.exception("[section-error][best_power_record] activity_id=%s err=%s", activity_id, e)
             response_data["best_power_record"] = None
 
-        # 生成 zone_preview 和 intervals 数据
+        # 生成并保存 intervals 数据（包含预览图生成）
         try:
-            zone_preview_path_result = self._generate_and_save_zone_preview_local(
-                db,
-                activity_id,
-                local_pair,
-                raw_stream_data,
-            )
-            if zone_preview_path_result:
-                response_data["zone_preview_path"] = zone_preview_path_result
-                logger.info("[zone-preview][saved-local] activity_id=%s path=%s", activity_id, zone_preview_path_result)
-            
-            # 生成并保存 intervals 数据
             intervals_data = self._generate_and_save_intervals_local(
                 db,
                 activity_id,
                 local_pair,
                 raw_stream_data,
             )
-            if intervals_data:
-                logger.info("[intervals][saved-local] activity_id=%s", activity_id)
         except Exception:
             logger.exception("[intervals][save-error-local] activity_id=%s", activity_id)
 
@@ -771,35 +739,6 @@ class ActivityService:
             session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         return compute_power_info(stream_data, int(athlete.ftp), session_data)
 
-    def get_intervals(
-        self,
-        db: Session,
-        activity_id: int,
-        access_token: Optional[str] = None,
-        ftp_override: Optional[float] = None,
-        lthr_override: Optional[float] = None,
-        hr_max_override: Optional[float] = None,
-        preview_dir: Optional[str] = None,
-    ) -> Optional[IntervalsResponse]:
-        if access_token:
-            return self._get_intervals_from_strava(
-                db,
-                activity_id,
-                access_token,
-                ftp_override=ftp_override,
-                lthr_override=lthr_override,
-                hr_max_override=hr_max_override,
-                preview_dir=preview_dir,
-            )
-        return self._get_intervals_from_local(
-            db,
-            activity_id,
-            ftp_override=ftp_override,
-            lthr_override=lthr_override,
-            hr_max_override=hr_max_override,
-            preview_dir=preview_dir,
-        )
-
     def get_heartrate(
         self,
         db: Session,
@@ -942,124 +881,6 @@ class ActivityService:
             'carbohydrate_consumption': carbohydrate,
         }
 
-    def _get_intervals_from_local(
-        self,
-        db: Session,
-        activity_id: int,
-        ftp_override: Optional[float] = None,
-        lthr_override: Optional[float] = None,
-        hr_max_override: Optional[float] = None,
-        preview_dir: Optional[str] = None,
-    ) -> Optional[IntervalsResponse]:
-        from ..repositories.activity_repo import get_activity_athlete
-
-        pair = get_activity_athlete(db, activity_id)
-        if not pair:
-            return None
-        activity, athlete = pair
-        stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        if not stream_data:
-            return None
-
-        power_series = stream_data.get('power') or []
-        if not power_series:
-            return None
-        timestamps = stream_data.get('timestamp') or list(range(len(power_series)))
-        heart_rate_series = stream_data.get('heart_rate') or None
-
-        ftp_value, lthr_value, hr_max_value = self._resolve_thresholds(
-            athlete,
-            ftp_override=ftp_override,
-            lthr_override=lthr_override,
-            hr_max_override=hr_max_override,
-        )
-        if not ftp_value or ftp_value <= 0:
-            return None
-
-        preview_file = self._build_preview_path(
-            preview_dir,
-            default_name=f"interval_preview_{activity_id}.png",
-        )
-
-        return self._build_interval_response(
-            power_series,
-            timestamps,
-            heart_rate_series,
-            ftp_value,
-            lthr_value,
-            hr_max_value,
-            preview_file,
-        )
-
-    def _get_intervals_from_strava(
-        self,
-        db: Session,
-        activity_id: int,
-        access_token: str,
-        ftp_override: Optional[float] = None,
-        lthr_override: Optional[float] = None,
-        hr_max_override: Optional[float] = None,
-        preview_dir: Optional[str] = None,
-    ) -> Optional[IntervalsResponse]:
-        strava_id = activity_id
-        athlete_obj = None
-        try:
-            local = db.query(TbActivity).filter(TbActivity.id == activity_id).first()
-            if local and getattr(local, 'external_id', None):
-                try:
-                    strava_id = int(str(local.external_id))
-                except Exception:
-                    pass
-                if getattr(local, 'athlete_id', None):
-                    from ..repositories.activity_repo import get_activity_athlete
-                    pair = get_activity_athlete(db, activity_id)
-                    if pair:
-                        _, athlete_obj = pair
-        except Exception:
-            athlete_obj = None
-
-        client = StravaClient(access_token)
-        try:
-            keys = ['time', 'elapsed_time', 'watts', 'heartrate']
-            full = client.fetch_full(strava_id, keys=keys, resolution=None)
-        except Exception:
-            return None
-
-        stream_data = full.get('streams') or {}
-        activity_data = full.get('activity') or {}
-        athlete_data = full.get('athlete') or {}
-
-        power_series, timestamps, heart_rate_series = self._extract_series_from_streams(stream_data)
-        if not power_series:
-            return None
-
-        ftp_value, lthr_value, hr_max_value = self._resolve_thresholds(
-            athlete_obj,
-            ftp_override=ftp_override,
-            lthr_override=lthr_override,
-            hr_max_override=hr_max_override,
-            athlete_payload=athlete_data,
-            activity_payload=activity_data,
-        )
-        if not ftp_value or ftp_value <= 0:
-            return None
-
-        preview_file = self._build_preview_path(
-            preview_dir,
-            default_name=f"interval_preview_strava_{strava_id}.png",
-        )
-
-        return self._build_interval_response(
-            power_series,
-            timestamps,
-            heart_rate_series,
-            ftp_value,
-            lthr_value,
-            hr_max_value,
-            preview_file,
-        )
-
-
     @staticmethod
     def _locate_index(timeline: List[int], target: int, default: int = 0) -> int:
         if not timeline:
@@ -1122,7 +943,7 @@ class ActivityService:
             metadata=cleaned_metadata,
         )
 
-    def _build_interval_response(
+    def _build_interval_response_simplified(
         self,
         power_series: Sequence[int],
         timestamps: Sequence[int],
@@ -1132,6 +953,7 @@ class ActivityService:
         hr_max_value: Optional[float],
         preview_file: Optional[Path],
     ) -> IntervalsResponse:
+        """构建简化的 intervals 响应（功率检测）"""
         sample_count = len(power_series) if power_series else len(heart_rate_series or [])
         synthetic_activity_payload = {"moving_time": timestamps[-1] if timestamps else 0}
         sample_interval = self._estimate_sample_interval(timestamps, synthetic_activity_payload, sample_count)
@@ -1146,56 +968,53 @@ class ActivityService:
         )
 
         timeline = list(timestamps) if isinstance(timestamps, (list, tuple)) else list(timestamps)
-        items: List[IntervalItem] = []
+        simplified_intervals: List[SimplifiedIntervalItem] = []
+        
         for summary in detection.intervals:
-            items.append(self._interval_summary_to_item(summary, timeline))
+            start_idx = self._locate_index(timeline, summary.start)
+            end_idx = self._locate_index(timeline, summary.end, default=len(power_series))
+            avg_power = float(np.mean(power_series[start_idx:end_idx])) if power_series and start_idx < len(power_series) else 0.0
+            power_ratio = avg_power / ftp_value if ftp_value > 0 else 0.0
+            
+            simplified_intervals.append(SimplifiedIntervalItem(
+                start=int(summary.start),
+                end=int(summary.end),
+                duration=int(summary.end - summary.start),
+                classification=summary.classification,
+                avg_power=round(avg_power, 2),
+                power_ratio=round(power_ratio, 2),
+            ))
 
         if detection.repeats:
             for block in detection.repeats:
                 start_idx = self._locate_index(timeline, block.start)
                 end_idx = self._locate_index(timeline, block.end, default=len(power_series))
-                repeat_summary = summarize_window(
-                    power_series,
-                    heart_rate_series,
-                    ftp_value,
-                    start_idx,
-                    end_idx,
-                    lthr=lthr_value,
-                    hr_max=hr_max_value,
-                )
-                repeat_summary.classification = block.classification
-                metadata = dict(repeat_summary.metadata)
-                metadata['cycles'] = block.cycles
-                repeat_summary.metadata = metadata
-                items.append(self._interval_summary_to_item(repeat_summary, timeline, block.start, block.end))
+                avg_power = float(np.mean(power_series[start_idx:end_idx])) if power_series and start_idx < len(power_series) else 0.0
+                power_ratio = avg_power / ftp_value if ftp_value > 0 else 0.0
+                
+                simplified_intervals.append(SimplifiedIntervalItem(
+                    start=int(block.start),
+                    end=int(block.end),
+                    duration=int(block.end - block.start),
+                    classification=block.classification,
+                    avg_power=round(avg_power, 2),
+                    power_ratio=round(power_ratio, 2),
+                ))
 
-        items.sort(key=lambda item: item.start)
+        simplified_intervals.sort(key=lambda item: item.start)
 
         preview_path = None
-        if preview_file is not None and items:
+        if preview_file is not None and simplified_intervals:
             preview_file.parent.mkdir(parents=True, exist_ok=True)
             render_interval_preview(detection, timeline, power_series, str(preview_file))
             if preview_file.exists():
                 preview_path = str(preview_file)
 
-        zone_segments_raw = self._compute_zone_segments(
-            power_series,
-            heart_rate_series,
-            ftp_value,
-            lthr_value,
-            hr_max_value,
-            sample_interval,
-        )
-        zone_segments = None
-        if zone_segments_raw:
-            zone_segments = [ZoneSegmentVisual.model_validate(seg) for seg in zone_segments_raw]
-
         return IntervalsResponse(
             duration=int(detection.duration),
-            ftp=float(detection.ftp),
-            items=items,
+            ftp=round(float(detection.ftp)),
+            intervals=simplified_intervals,
             preview_image=preview_path,
-            zone_segments=zone_segments,
         )
 
     @staticmethod
@@ -1289,168 +1108,6 @@ class ActivityService:
             logger.exception("[zone-segments][compute-error]")
         return None
 
-    def _generate_zone_preview(
-        self,
-        stream_data: Dict[str, Any],
-        activity_payload: Dict[str, Any],
-        athlete_entry: Optional[Any],
-        athlete_payload: Optional[Dict[str, Any]],
-        activity_entry: Optional[Any],
-    ) -> Optional[Dict[str, Any]]:
-        power_series, timestamps, heart_rate_series = self._extract_series_from_streams(stream_data)
-
-        ftp_value, lthr_value, hr_max_value = self._resolve_thresholds(
-            athlete_entry,
-            athlete_payload=athlete_payload,
-            activity_payload=activity_payload,
-        )
-
-        sample_count = len(power_series) if power_series else len(heart_rate_series or [])
-        sample_interval = self._estimate_sample_interval(timestamps, activity_payload, sample_count)
-        min_segment_seconds = max(5.0, sample_interval * 5)
-
-        base_identifier = (
-            getattr(activity_entry, "external_id", None)
-            or getattr(activity_entry, "id", None)
-            or activity_payload.get("id")
-            or "strava"
-        )
-        base_str = str(base_identifier)
-        safe_base = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in base_str)
-        output_path = Path("data/zone_previews") / f"strava_{safe_base}_zones.png"
-
-        try:
-            payload = None
-            visuals: Optional[List[Dict[str, Any]]] = None
-            metric_used: Optional[str] = None
-            reference_value: Optional[float] = None
-
-            if power_series and ftp_value and ftp_value > 0:
-                payload = generate_zone_segments_payload(
-                    power_series,
-                    "power",
-                    ftp=int(round(ftp_value)),
-                    sample_interval=sample_interval,
-                    min_segment_seconds=min_segment_seconds,
-                )
-                visuals = build_zone_segment_visuals(payload, "power")
-                metric_used = "power"
-                reference_value = float(ftp_value)
-                preview_path = render_zone_segments_chart(
-                    power_series,
-                    "power",
-                    output_path,
-                    ftp=int(round(ftp_value)),
-                    sample_interval=sample_interval,
-                    min_segment_seconds=min_segment_seconds,
-                    precomputed_payload=payload,
-                )
-            elif heart_rate_series and lthr_value and lthr_value > 0:
-                max_hr_arg = int(round(hr_max_value)) if hr_max_value else None
-                if max_hr_arg is not None and max_hr_arg <= int(round(lthr_value)):
-                    max_hr_arg = None
-                payload = generate_zone_segments_payload(
-                    heart_rate_series,
-                    "heart_rate",
-                    lthr=int(round(lthr_value)),
-                    max_hr=max_hr_arg,
-                    sample_interval=sample_interval,
-                    min_segment_seconds=min_segment_seconds,
-                )
-                visuals = build_zone_segment_visuals(payload, "heart_rate")
-                metric_used = "heart_rate"
-                reference_value = float(lthr_value)
-                preview_path = render_zone_segments_chart(
-                    heart_rate_series,
-                    "heart_rate",
-                    output_path,
-                    lthr=int(round(lthr_value)),
-                    max_hr=max_hr_arg,
-                    sample_interval=sample_interval,
-                    min_segment_seconds=min_segment_seconds,
-                    precomputed_payload=payload,
-                )
-            else:
-                return None
-
-            return {
-                "path": preview_path,
-                "segments": visuals or [],
-                "metric": metric_used,
-                "reference": reference_value,
-                "sample_interval": sample_interval,
-            }
-        except Exception:
-            logger.exception(
-                "[zone-preview][render-error] base_identifier=%s",
-                base_identifier,
-            )
-        return None
-
-    def _generate_and_save_zone_preview_local(
-        self,
-        db: Session,
-        activity_id: int,
-        local_pair: Optional[Tuple[Any, Any]],
-        stream_data: Dict[str, Any],
-    ) -> Optional[str]:
-        """生成 zone_preview 图片（本地路径）
-        
-        Args:
-            db: 数据库会话
-            activity_id: 活动ID
-            local_pair: (activity, athlete) 元组
-            stream_data: 本地流数据
-            
-        Returns:
-            生成的zone_preview图片路径，失败返回None
-        """
-        try:
-            if not local_pair:
-                return None
-            
-            activity, athlete = local_pair
-            if not athlete:
-                return None
-            
-            # 提取流数据
-            power_series = stream_data.get('power') or []
-            timestamps = stream_data.get('timestamp') or []
-            heart_rate_series = stream_data.get('heart_rate') or []
-            
-            if not timestamps and power_series:
-                timestamps = list(range(len(power_series)))
-            
-            # 将本地格式转换为 Strava 格式（_generate_zone_preview 期望的格式）
-            strava_format_stream_data = {
-                'watts': power_series,
-                'time': timestamps,
-                'heartrate': heart_rate_series,
-            }
-            
-            # 构造类似 Strava 的 activity_payload
-            moving_time = timestamps[-1] if timestamps else 0
-            activity_payload = {
-                "moving_time": moving_time,
-                "id": activity_id,
-            }
-            
-            # 生成 zone preview
-            preview_info = self._generate_zone_preview(
-                strava_format_stream_data,
-                activity_payload,
-                athlete,
-                None,  # athlete_payload (本地没有)
-                activity,
-            )
-            
-            if preview_info:
-                return preview_info.get("path")
-            return None
-        except Exception:
-            logger.exception("[zone-preview][generate-error-local] activity_id=%s", activity_id)
-            return None
-
     def _generate_and_save_intervals_local(
         self,
         db: Session,
@@ -1479,15 +1136,69 @@ class ActivityService:
             if not athlete:
                 return None
             
-            # 使用 _get_intervals_from_local 生成完整的intervals数据
-            intervals_response = self._get_intervals_from_local(
-                db,
-                activity_id,
+            # 提取流数据
+            power_series = stream_data.get('power') or []
+            timestamps = stream_data.get('timestamp') or []
+            heart_rate_series = stream_data.get('heart_rate') or []
+            
+            # 如果没有时间戳，生成合成时间戳
+            if not timestamps and (power_series or heart_rate_series):
+                timestamps = list(range(len(power_series) or len(heart_rate_series)))
+            
+            # 解析阈值
+            ftp_value, lthr_value, hr_max_value = self._resolve_thresholds(
+                athlete,
                 ftp_override=None,
                 lthr_override=None,
                 hr_max_override=None,
-                preview_dir="artifacts/Pics",
             )
+            
+            # 判断活动类型（本地路径没有activity_data）
+            is_cycling = self._is_cycling_activity(
+                activity_data=None,
+                activity_entry=activity,
+                stream_data=stream_data,
+            )
+            
+            # 选择数据源
+            source_type, reference_value = self._select_intervals_data_source(
+                is_cycling,
+                power_series,
+                heart_rate_series,
+                ftp_value,
+                lthr_value,
+                hr_max_value,
+            )
+            
+            if not source_type:
+                logger.warning("[intervals] 无法计算intervals: activity_id=%s (无可用数据源)", activity_id)
+                return None
+            
+            # 构建preview路径
+            preview_file = self._build_preview_path(
+                "artifacts/Pics",
+                default_name=f"interval_preview_{activity_id}.png",
+            )
+            
+            # 根据数据源调用不同的构建方法
+            if source_type == "power":
+                intervals_response = self._build_interval_response_simplified(
+                    power_series,
+                    timestamps,
+                    heart_rate_series,
+                    ftp_value,
+                    lthr_value,
+                    hr_max_value,
+                    preview_file,
+                )
+            else:  # heartrate_lthr 或 heartrate_max
+                intervals_response = self._build_interval_response_by_heartrate_simplified(
+                    timestamps,
+                    heart_rate_series,
+                    lthr_value if source_type == "heartrate_lthr" else None,
+                    hr_max_value,
+                    preview_file,
+                )
             
             if not intervals_response:
                 return None
@@ -1509,82 +1220,262 @@ class ActivityService:
         activity_data: Dict[str, Any],
         athlete_entry: Optional[Any],
         athlete_data: Dict[str, Any],
-        preview_info: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        """生成 intervals 数据并保存到文件（Strava 路径）
-        
-        Args:
-            activity_id: 活动ID
-            activity_entry: 活动数据库记录
-            stream_data: Strava流数据
-            activity_data: Strava活动数据
-            athlete_entry: 运动员数据库记录
-            athlete_data: Strava运动员数据
-            preview_info: 预览信息
-            
-        Returns:
-            生成的intervals数据字典，失败返回None
-        """
         try:
             from ..infrastructure.intervals_manager import save_intervals
             
-            zone_segments_visuals = preview_info.get("segments") or []
-            zone_segments_models = None
-            if zone_segments_visuals:
-                zone_segments_models = [
-                    ZoneSegmentVisual.model_validate(seg) for seg in zone_segments_visuals
-                ]
-            
-            # 尝试生成完整的intervals数据
+            # 提取数据
             power_series, timestamps, heart_rate_series = self._extract_series_from_streams(stream_data)
             
+            # 解析阈值
             ftp_value, lthr_value, hr_max_value = self._resolve_thresholds(
                 athlete_entry,
                 athlete_payload=athlete_data,
                 activity_payload=activity_data,
             )
             
-            if power_series and ftp_value and ftp_value > 0:
-                # 生成完整的intervals检测结果
-                intervals_response = self._build_interval_response(
+            # 判断活动类型
+            is_cycling = self._is_cycling_activity(
+                activity_data=activity_data,
+                activity_entry=activity_entry,
+                stream_data=stream_data,
+            )
+
+            
+            # 选择数据源
+            source_type, reference_value = self._select_intervals_data_source(
+                is_cycling,
+                power_series,
+                heart_rate_series,
+                ftp_value,
+                lthr_value,
+                hr_max_value,
+            )
+            
+            if not source_type:
+                logger.warning("[intervals] 无法生成intervals: activity_id=%s (无可用数据源)", activity_id)
+                return None
+            
+            # 构建预览图路径
+            base_identifier = (
+                getattr(activity_entry, "external_id", None)
+                or getattr(activity_entry, "id", None)
+                or activity_data.get("id")
+                or str(activity_id)
+            )
+            safe_base = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(base_identifier))
+            preview_file = Path("artifacts/Pics") / f"interval_preview_{safe_base}.png"
+            
+            # 根据数据源执行检测
+            if source_type == "power":
+                intervals_response = self._build_interval_response_simplified(
                     power_series,
                     timestamps,
                     heart_rate_series,
                     ftp_value,
                     lthr_value,
                     hr_max_value,
-                    None,  # 不需要生成预览图，已经有了
+                    preview_file,
                 )
-                # 使用zone_preview的图片路径
-                if preview_info.get("path"):
-                    intervals_response.preview_image = preview_info.get("path")
-                if zone_segments_models:
-                    intervals_response.zone_segments = zone_segments_models
-            else:
-                # 如果无法生成完整intervals，至少保存基本信息和zone_segments
-                duration_val = int(activity_data.get("moving_time") or 0)
-                ftp_source = preview_info.get("reference")
-                if ftp_source is None:
-                    ftp_source = getattr(athlete_entry, "ftp", None)
-                try:
-                    ftp_val_float = float(ftp_source or 0)
-                except Exception:
-                    ftp_val_float = 0.0
-                intervals_response = IntervalsResponse(
-                    duration=duration_val,
-                    ftp=ftp_val_float,
-                    items=[],
-                    preview_image=preview_info.get("path"),
-                    zone_segments=zone_segments_models,
+            else:  # heartrate_lthr 或 heartrate_max
+                intervals_response = self._build_interval_response_by_heartrate_simplified(
+                    timestamps,
+                    heart_rate_series,
+                    lthr_value if source_type == "heartrate_lthr" else None,
+                    hr_max_value,
+                    preview_file,
                 )
             
-            # 转换为字典并保存
+            if not intervals_response:
+                return None
+            
+            # 转换为字典并保存（简化格式）
             intervals_dict = intervals_response.model_dump() if hasattr(intervals_response, 'model_dump') else intervals_response.dict()
             save_intervals(activity_id, intervals_dict)
             return intervals_dict
         except Exception:
             logger.exception("[intervals][generate-error-strava] activity_id=%s", activity_id)
             return None
+
+    def _is_cycling_activity(
+        self,
+        activity_data: Optional[Dict[str, Any]] = None,
+        activity_entry: Optional[Any] = None,
+        stream_data: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+
+        # Strava路径：从activity_data判断
+        if activity_data:
+            sport_type = activity_data.get('sport_type', '').lower()
+            if 'ride' in sport_type or 'cycling' in sport_type or sport_type == 'ride':
+                logger.info("[intervals][data-source] activity是骑行活动: sport_type=%s", sport_type)
+                return True
+            if 'run' in sport_type or 'walk' in sport_type or 'hike' in sport_type or 'swim' in sport_type:
+                logger.info("[intervals][data-source] activity不是骑行活动: sport_type=%s", sport_type)
+                return False
+        
+        # ! 本地路径：根据数据推断 此处方法不正确
+        if stream_data:
+            has_cadence = bool(stream_data.get('cadence') or stream_data.get('cadence_smooth'))
+            has_power = bool(stream_data.get('power') or stream_data.get('watts'))
+            # 骑行通常有踏频和功率，跑步通常没有踏频或功率数据较少
+            if has_cadence and has_power:
+                return True
+        
+        # 默认返回False（保守策略，假设是非骑行活动）
+        return False
+
+    def _select_intervals_data_source(
+        self,
+        is_cycling: bool,
+        power_series: List[int],
+        heart_rate_series: Optional[List[int]],
+        ftp_value: Optional[float],
+        lthr_value: Optional[float],
+        hr_max_value: Optional[float],
+    ) -> Tuple[Optional[str], Optional[float]]:
+        """
+        根据活动类型和数据可用性，选择intervals计算的数据源
+        
+        Args:
+            is_cycling: 是否为骑行活动
+            power_series: 功率数据序列
+            heart_rate_series: 心率数据序列
+            ftp_value: FTP值
+            lthr_value: 阈值心率
+            hr_max_value: 最大心率
+            
+        Returns:
+            (数据源类型, 参考值): 
+            - ("power", ftp) - 使用功率数据
+            - ("heartrate_lthr", lthr) - 使用阈值心率
+            - ("heartrate_max", hr_max) - 使用最大心率（估算LTHR）
+            - (None, None) - 无法计算
+        """
+        # 检查心率数据是否可用
+        has_heartrate = (
+            heart_rate_series 
+            and len([x for x in heart_rate_series if x and x > 0]) > 0
+        )
+        
+        # 检查功率数据是否可用
+        has_power = (
+            power_series 
+            and len([x for x in power_series if x and x > 0]) > 0
+        )
+        
+        if is_cycling:
+            # 骑行活动：功率 > 阈值心率 > 最大心率
+            if has_power and ftp_value and ftp_value > 0:
+                logger.info("[intervals][data-source] activity使用功率检测: ftp=%s", ftp_value)
+                return ("power", ftp_value)
+            if has_heartrate and lthr_value and lthr_value > 0:
+                logger.info("[intervals][data-source] activity使用阈值心率检测: lthr=%s", lthr_value)
+                return ("heartrate_lthr", lthr_value)
+            if has_heartrate and hr_max_value and hr_max_value > 0:
+                logger.info("[intervals][data-source] activity使用最大心率检测（估算LTHR）: hr_max=%s", hr_max_value)
+                return ("heartrate_max", hr_max_value)
+        else:
+            # 其他活动：阈值心率 > 最大心率
+            if has_heartrate and lthr_value and lthr_value > 0:
+                logger.info("[intervals][data-source] activity使用阈值心率检测: lthr=%s", lthr_value)
+                return ("heartrate_lthr", lthr_value)
+            if has_heartrate and hr_max_value and hr_max_value > 0:
+                logger.info("[intervals][data-source] activity使用最大心率检测（估算LTHR）: hr_max=%s", hr_max_value)
+                return ("heartrate_max", hr_max_value)
+        
+        logger.warning("[intervals][data-source] 无可用数据源: is_cycling=%s, has_power=%s, has_hr=%s", 
+                      is_cycling, has_power, has_heartrate)
+        return (None, None)
+
+    def _build_interval_response_by_heartrate_simplified(
+        self,
+        timestamps: Sequence[int],
+        heart_rate_series: Sequence[int],
+        lthr_value: Optional[float],
+        hr_max_value: Optional[float],
+        preview_file: Optional[Path],
+    ) -> IntervalsResponse:
+        """构建简化的 intervals 响应（心率检测）"""
+        from ..core.analytics.interval_detection import (
+            detect_intervals_by_heartrate,
+            _resolve_lthr_value,
+        )
+        
+        # 解析阈值心率
+        lthr = _resolve_lthr_value(lthr_value, hr_max_value)
+        if not lthr or lthr <= 0:
+            logger.warning("[intervals][heartrate] 无法获取有效阈值心率")
+            return None
+        
+        sample_count = len(heart_rate_series) if heart_rate_series else 0
+        synthetic_activity_payload = {"moving_time": timestamps[-1] if timestamps else 0}
+        sample_interval = self._estimate_sample_interval(
+            timestamps,
+            synthetic_activity_payload,
+            sample_count
+        )
+        
+        # 执行心率检测
+        detection = detect_intervals_by_heartrate(
+            timestamps,
+            heart_rate_series,
+            lthr=lthr_value,
+            hr_max=hr_max_value,
+        )
+        
+        timeline = list(timestamps) if isinstance(timestamps, (list, tuple)) else list(timestamps)
+        simplified_intervals: List[SimplifiedIntervalItem] = []
+        
+        for summary in detection.intervals:
+            start_idx = self._locate_index(timeline, summary.start)
+            end_idx = self._locate_index(timeline, summary.end, default=len(heart_rate_series))
+            avg_hr = float(np.mean(heart_rate_series[start_idx:end_idx])) if heart_rate_series and start_idx < len(heart_rate_series) else 0.0
+            # 对于心率检测，power_ratio 实际上是心率比率
+            hr_ratio = avg_hr / lthr if lthr > 0 else 0.0
+            
+            simplified_intervals.append(SimplifiedIntervalItem(
+                start=int(summary.start),
+                end=int(summary.end),
+                duration=int(summary.end - summary.start),
+                classification=summary.classification,
+                avg_power=round(avg_hr, 2),  # 这里存储的是平均心率
+                power_ratio=round(hr_ratio, 2),  # 这里存储的是心率比率
+            ))
+        
+        # 处理repeats
+        if detection.repeats:
+            for block in detection.repeats:
+                start_idx = self._locate_index(timeline, block.start)
+                end_idx = self._locate_index(timeline, block.end, default=len(heart_rate_series))
+                avg_hr = float(np.mean(heart_rate_series[start_idx:end_idx])) if heart_rate_series and start_idx < len(heart_rate_series) else 0.0
+                hr_ratio = avg_hr / lthr if lthr > 0 else 0.0
+                
+                simplified_intervals.append(SimplifiedIntervalItem(
+                    start=int(block.start),
+                    end=int(block.end),
+                    duration=int(block.end - block.start),
+                    classification=block.classification,
+                    avg_power=round(avg_hr, 2),
+                    power_ratio=round(hr_ratio, 2),
+                ))
+        
+        simplified_intervals.sort(key=lambda item: item.start)
+        
+        # 生成预览图（TODO: 实现心率版本的预览图生成）
+        preview_path = None
+        # if preview_file is not None and simplified_intervals:
+        #     preview_file.parent.mkdir(parents=True, exist_ok=True)
+        #     render_interval_preview_by_heartrate(...)  # 需要实现
+        #     if preview_file.exists():
+        #         preview_path = str(preview_file)
+        
+        return IntervalsResponse(
+            duration=int(detection.duration),
+            ftp=round(float(lthr)),  # 使用阈值心率值（LTHR或估算值），四舍五入到整数
+            intervals=simplified_intervals,
+            preview_image=preview_path,
+        )
 
     @staticmethod
     def _resolve_thresholds(
@@ -1604,11 +1495,13 @@ class ActivityService:
         elif athlete and getattr(athlete, 'ftp', None):
             try:
                 ftp_value = float(getattr(athlete, 'ftp'))
+                # logger.info(f"ftp_value: {ftp_value}")
             except Exception:
                 ftp_value = None
         elif athlete_payload and athlete_payload.get('ftp'):
             try:
                 ftp_value = float(athlete_payload.get('ftp'))
+                # logger.info(f"ftp_value-2: {ftp_value}")
             except Exception:
                 ftp_value = None
 

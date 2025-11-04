@@ -9,7 +9,7 @@ import logging
 import os
 
 from ..utils import get_db
-from ..schemas.activities import AllActivityDataResponse, IntervalsResponse, SimplifiedIntervalsResponse
+from ..schemas.activities import AllActivityDataResponse, IntervalsResponse
 from ..config import is_cache_enabled
 
 logger = logging.getLogger(__name__)
@@ -106,20 +106,20 @@ async def get_activity_intervals(
         raise HTTPException(status_code=500, detail=f"读取区间数据时发生错误: {str(e)}")
 
 
-@router.get("/{activity_id}/intervals/simple", response_model=SimplifiedIntervalsResponse)
+@router.get("/{activity_id}/intervals/simple", response_model=IntervalsResponse)
 async def get_activity_intervals_simple(
     activity_id: int,
     db: Session = Depends(get_db),
 ):
     """获取活动的简化区间识别数据（仅用于画图）
     
-    返回简化的区间数据，只包含画图所需的基本信息，数值保留两位小数。
+    现在 /intervals 和 /intervals/simple 返回相同格式（简化版）
     
     Args:
         activity_id: 活动ID
         
     Returns:
-        SimplifiedIntervalsResponse: 简化的区间识别结果
+        IntervalsResponse: 简化的区间识别结果
         
     Raises:
         HTTPException: 404 - 未找到intervals数据文件
@@ -136,23 +136,7 @@ async def get_activity_intervals_simple(
                 detail=f"未找到活动 {activity_id} 的区间数据，请先调用 /activities/{activity_id}/all 接口生成数据"
             )
         
-        # 转换为简化格式
-        simplified_intervals = []
-        for item in intervals_data.get('items', []):
-            simplified_intervals.append({
-                'start': item['start'],
-                'end': item['end'],
-                'duration': item['duration'],
-                'classification': item['classification'],
-                'avg_power': round(item['average_power'], 2),
-                'power_ratio': round(item['power_ratio'], 2)
-            })
-        
-        return SimplifiedIntervalsResponse(
-            duration=intervals_data['duration'],
-            ftp=round(intervals_data['ftp'], 2),
-            intervals=simplified_intervals
-        )
+        return IntervalsResponse(**intervals_data)
     except HTTPException:
         raise
     except Exception as e:

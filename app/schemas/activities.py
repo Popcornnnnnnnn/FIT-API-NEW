@@ -227,24 +227,11 @@ class SimplifiedZoneSegment(BaseModel):
 
 
 class IntervalsResponse(BaseModel):
-    """活动区间识别结果"""
-
+    """活动区间识别结果（简化版，仅包含画图所需数据）"""
     duration: int = Field(..., description="活动总时长（秒）")
-    ftp: float = Field(..., description="用于计算的 FTP")
-    items: List[IntervalItem] = Field(..., description="区间详情列表")
-    preview_image: Optional[str] = Field(None, description="预览图路径（相对于项目根目录）")
-    zone_segments: Optional[List[ZoneSegmentVisual]] = Field(
-        None,
-        description="分区可视化片段列表，包含开始/结束时间、高度、强度等信息",
-    )
-
-
-class SimplifiedIntervalsResponse(BaseModel):
-    """简化的区间识别结果，仅包含画图所需数据"""
-    
-    duration: int = Field(..., description="活动总时长（秒）")
-    ftp: float = Field(..., description="用于计算的 FTP")
+    ftp: float = Field(..., description="用于计算的 FTP（或阈值心率）")
     intervals: List[SimplifiedIntervalItem] = Field(..., description="简化区间列表")
+    preview_image: Optional[str] = Field(None, description="预览图路径（相对于项目根目录）")
 
 
 class AllActivityDataResponse(BaseModel):
@@ -262,4 +249,3 @@ class AllActivityDataResponse(BaseModel):
     streams: Optional[List[Dict[str, Any]]] = Field(None, description="流数据，数组格式，每个元素包含type、data、series_type、original_size、resolution字段")
     segment_records: Optional[List[SegmentRecord]] = Field(None, description="分段记录刷新信息")
     best_power_record: Optional[BestPowerCurveRecord] = Field(None, description="运动员全局最佳功率曲线（逐秒）")
-    zone_preview_path: Optional[str] = Field(None, description="分区预览图路径")
