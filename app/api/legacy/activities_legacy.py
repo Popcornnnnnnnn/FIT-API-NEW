@@ -117,7 +117,7 @@ async def get_activity_zones(
             if valid_hr_count == 0:
                 raise HTTPException(status_code=400, detail="活动心率数据为空或无效")
             
-            # 若启用阈值心率，则按 LTHR 分区；否则按最大心率分区
+            # 若启用阈值心率且阈值存在且>0，则按 LTHR 分区（返回7个区间）；否则按最大心率分区（返回5个区间）
             try:
                 use_threshold = int(getattr(athlete, 'is_threshold_active', 0) or 0) == 1
             except Exception:
@@ -126,6 +126,8 @@ async def get_activity_zones(
             if use_threshold and getattr(athlete, 'threshold_heartrate', None):
                 try:
                     lthr = int(athlete.threshold_heartrate)
+                    if lthr <= 0:
+                        lthr = None
                 except Exception:
                     lthr = None
             max_hr = None
@@ -136,8 +138,10 @@ async def get_activity_zones(
                     max_hr = None
             
             if use_threshold and lthr and lthr > 0:
+                # 使用阈值心率分区，返回7个区间
                 distribution_buckets = ZoneAnalyzer.analyze_heartrate_zones_lthr(hr_data, lthr, max_hr)
             elif max_hr and max_hr > 0:
+                # 使用最大心率分区，返回5个区间
                 distribution_buckets = ZoneAnalyzer.analyze_heartrate_zones(hr_data, max_hr)
             else:
                 raise HTTPException(

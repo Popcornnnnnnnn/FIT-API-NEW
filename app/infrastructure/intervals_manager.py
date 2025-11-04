@@ -39,7 +39,7 @@ def save_intervals(activity_id: int, intervals_data: Dict[str, Any]) -> bool:
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(intervals_data, f, ensure_ascii=False, indent=2)
         
-        logger.info("[intervals-manager][save] activity_id=%s path=%s", activity_id, file_path)
+        # logger.info("[intervals-manager][save] activity_id=%s path=%s", activity_id, file_path)
         return True
     except Exception as e:
         logger.exception("[intervals-manager][save-error] activity_id=%s err=%s", activity_id, e)

@@ -239,7 +239,7 @@ def analyze_zones(activity_data: Dict[str, Any], stream_data: Dict[str, Any], ex
             if buckets:
                 zones_data.append({'distribution_buckets': buckets, 'type': 'power'})
         if 'heartrate' in stream_data:
-            # 选择心率分区基准：若启用阈值且存在阈值，则采用 LTHR 分区，否则用最大心率分区
+            # 选择心率分区基准：若启用阈值且存在阈值且>0，则采用 LTHR 分区（7个区间），否则用最大心率分区（5个区间）
             try:
                 use_threshold = int(getattr(athlete, 'is_threshold_active', 0) or 0) == 1
             except Exception:
@@ -249,6 +249,8 @@ def analyze_zones(activity_data: Dict[str, Any], stream_data: Dict[str, Any], ex
             if use_threshold and getattr(athlete, 'threshold_heartrate', None):
                 try:
                     lthr = int(athlete.threshold_heartrate)
+                    if lthr <= 0:
+                        lthr = None
                 except Exception:
                     lthr = None
             if getattr(athlete, 'max_heartrate', None):
@@ -257,9 +259,11 @@ def analyze_zones(activity_data: Dict[str, Any], stream_data: Dict[str, Any], ex
                 except Exception:
                     max_hr = None
             hd = [h if h is not None else 0 for h in stream_data.get('heartrate', {}).get('data', [])]
-            if use_threshold and lthr:
+            if use_threshold and lthr and lthr > 0:
+                # 使用阈值心率分区，返回7个区间
                 buckets = _zones.analyze_heartrate_zones_lthr(hd, lthr, max_hr)
             else:
+                # 使用最大心率分区，返回5个区间
                 buckets = _zones.analyze_heartrate_zones(hd, max_hr or 0)
             if buckets:
                 zones_data.append({'distribution_buckets': buckets, 'type': 'heartrate'})

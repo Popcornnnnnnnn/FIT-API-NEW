@@ -367,7 +367,8 @@ class ActivityService:
         activity, athlete = pair
         stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
         hr = stream_data.get('heart_rate', [])
-        # 根据配置选择心率分区基准：阈值心率优先（is_threshold_active=1 且阈值存在），否则用最大心率
+        # 根据配置选择心率分区基准：阈值心率优先（is_threshold_active=1 且阈值存在且>0），否则用最大心率
+        # 有阈值心率时返回7个区间，无阈值心率时返回5个区间
         try:
             use_threshold = int(getattr(athlete, 'is_threshold_active', 0) or 0) == 1
         except Exception:
@@ -376,6 +377,8 @@ class ActivityService:
         if use_threshold and getattr(athlete, 'threshold_heartrate', None):
             try:
                 lthr = int(athlete.threshold_heartrate)
+                if lthr <= 0:
+                    lthr = None
             except Exception:
                 lthr = None
         max_hr = None
@@ -384,9 +387,11 @@ class ActivityService:
                 max_hr = int(athlete.max_heartrate)
             except Exception:
                 max_hr = None
-        if use_threshold and lthr:
+        if use_threshold and lthr and lthr > 0:
+            # 使用阈值心率分区，返回7个区间
             buckets = ZoneAnalyzer.analyze_heartrate_zones_lthr(hr, lthr, max_hr)
         else:
+            # 使用最大心率分区，返回5个区间
             buckets = ZoneAnalyzer.analyze_heartrate_zones(hr, max_hr or 0)
         return {"distribution_buckets": buckets, "type": "heartrate"}
 
@@ -1416,10 +1421,10 @@ class ActivityService:
         if activity_data:
             sport_type = activity_data.get('sport_type', '').lower()
             if 'ride' in sport_type or 'cycling' in sport_type or sport_type == 'ride':
-                logger.info("[intervals][data-source] activity是骑行活动: sport_type=%s", sport_type)
+                # logger.info("[intervals][data-source] activity是骑行活动: sport_type=%s", sport_type)
                 return True
             if 'run' in sport_type or 'walk' in sport_type or 'hike' in sport_type or 'swim' in sport_type:
-                logger.info("[intervals][data-source] activity不是骑行活动: sport_type=%s", sport_type)
+                # logger.info("[intervals][data-source] activity不是骑行活动: sport_type=%s", sport_type)
                 return False
         
 
