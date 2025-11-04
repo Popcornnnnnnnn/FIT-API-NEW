@@ -170,49 +170,49 @@ class ActivityService:
 
         response_data = {}
         try:
-            response_data["overall"] = self.get_overall(db, activity_id, local_pair, raw_stream_data, session_cache)
+            response_data["overall"] = self.get_overall(db, activity_id, local_pair, raw_stream_data, session_cache, use_cache=False)
         except Exception as e:
             logger.exception("[section-error][overall] activity_id=%s err=%s", activity_id, e)
             response_data["overall"] = None
 
         try:
-            response_data["power"] = self.get_power(db, activity_id, local_pair, raw_stream_data, session_cache)
+            response_data["power"] = self.get_power(db, activity_id, local_pair, raw_stream_data, session_cache, use_cache=False)
         except Exception as e:
             logger.exception("[section-error][power] activity_id=%s err=%s", activity_id, e)
             response_data["power"] = None
 
         try:
-            response_data["heartrate"] = self.get_heartrate(db, activity_id, local_pair, raw_stream_data, session_cache)
+            response_data["heartrate"] = self.get_heartrate(db, activity_id, local_pair, raw_stream_data, session_cache, use_cache=False)
         except Exception as e:
             logger.exception("[section-error][heartrate] activity_id=%s err=%s", activity_id, e)
             response_data["heartrate"] = None
 
         try:
-            response_data["cadence"] = self.get_cadence(db, activity_id, local_pair, raw_stream_data, session_cache)
+            response_data["cadence"] = self.get_cadence(db, activity_id, local_pair, raw_stream_data, session_cache, use_cache=False)
         except Exception as e:
             logger.exception("[section-error][cadence] activity_id=%s err=%s", activity_id, e)
             response_data["cadence"] = None
 
         try:
-            response_data["speed"] = self.get_speed(db, activity_id, local_pair, raw_stream_data, session_cache)
+            response_data["speed"] = self.get_speed(db, activity_id, local_pair, raw_stream_data, session_cache, use_cache=False)
         except Exception as e:
             logger.exception("[section-error][speed] activity_id=%s err=%s", activity_id, e)
             response_data["speed"] = None
 
         try:
-            response_data["training_effect"] = self.get_training_effect(db, activity_id, local_pair, raw_stream_data)
+            response_data["training_effect"] = self.get_training_effect(db, activity_id, local_pair, raw_stream_data, use_cache=False)
         except Exception as e:
             logger.exception("[section-error][training_effect] activity_id=%s err=%s", activity_id, e)
             response_data["training_effect"] = None
 
         try:
-            response_data["altitude"] = self.get_altitude(db, activity_id, local_pair, raw_stream_data, session_cache)
+            response_data["altitude"] = self.get_altitude(db, activity_id, local_pair, raw_stream_data, session_cache, use_cache=False)
         except Exception as e:
             logger.exception("[section-error][altitude] activity_id=%s err=%s", activity_id, e)
             response_data["altitude"] = None
 
         try:
-            response_data["temp"] = self.get_temperature(db, activity_id, raw_stream_data)
+            response_data["temp"] = self.get_temperature(db, activity_id, raw_stream_data, use_cache=False)
         except Exception as e:
             logger.exception("[section-error][temp] activity_id=%s err=%s", activity_id, e)
             response_data["temp"] = None
@@ -687,10 +687,24 @@ class ActivityService:
         pair: Optional[Tuple[Any, Any]] = None,
         stream_data: Optional[Dict[str, Any]] = None,
         session_data: Optional[Dict[str, Any]] = None,
+        use_cache: bool = True,
     ) -> Optional[Dict[str, Any]]:
+        from ..infrastructure.cache_manager import activity_cache_manager
+        
+        if use_cache:
+            cached = activity_cache_manager.get_cached_metric(db, activity_id, "overall")
+            if cached is not None:
+                return cached
+            if not activity_cache_manager.has_cache(db, activity_id):
+                return None
+        
         from ..metrics.activities.overall import compute_overall_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
+        if pair is None:
+            pair = get_activity_athlete(db, activity_id)
+            if not pair:
+                return None
         activity, athlete = pair
         if stream_data is None:
             stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
@@ -728,10 +742,24 @@ class ActivityService:
         pair: Optional[Tuple[Any, Any]] = None,
         stream_data: Optional[Dict[str, Any]] = None,
         session_data: Optional[Dict[str, Any]] = None,
+        use_cache: bool = True,
     ) -> Optional[Dict[str, Any]]:
+        from ..infrastructure.cache_manager import activity_cache_manager
+        
+        if use_cache:
+            cached = activity_cache_manager.get_cached_metric(db, activity_id, "power")
+            if cached is not None:
+                return cached
+            if not activity_cache_manager.has_cache(db, activity_id):
+                return None
+        
         from ..metrics.activities.power import compute_power_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
+        if pair is None:
+            pair = get_activity_athlete(db, activity_id)
+            if not pair:
+                return None
         activity, athlete = pair
         if stream_data is None:
             stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
@@ -746,10 +774,24 @@ class ActivityService:
         pair: Optional[Tuple[Any, Any]] = None,
         stream_data: Optional[Dict[str, Any]] = None,
         session_data: Optional[Dict[str, Any]] = None,
+        use_cache: bool = True,
     ) -> Optional[Dict[str, Any]]:
+        from ..infrastructure.cache_manager import activity_cache_manager
+        
+        if use_cache:
+            cached = activity_cache_manager.get_cached_metric(db, activity_id, "heartrate")
+            if cached is not None:
+                return cached
+            if not activity_cache_manager.has_cache(db, activity_id):
+                return None
+        
         from ..metrics.activities.heartrate import compute_heartrate_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
+        if pair is None:
+            pair = get_activity_athlete(db, activity_id)
+            if not pair:
+                return None
         activity, athlete = pair
         if stream_data is None:
             stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
@@ -769,10 +811,24 @@ class ActivityService:
         pair: Optional[Tuple[Any, Any]] = None,
         stream_data: Optional[Dict[str, Any]] = None,
         session_data: Optional[Dict[str, Any]] = None,
+        use_cache: bool = True,
     ) -> Optional[Dict[str, Any]]:
+        from ..infrastructure.cache_manager import activity_cache_manager
+        
+        if use_cache:
+            cached = activity_cache_manager.get_cached_metric(db, activity_id, "speed")
+            if cached is not None:
+                return cached
+            if not activity_cache_manager.has_cache(db, activity_id):
+                return None
+        
         from ..metrics.activities.speed import compute_speed_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
+        if pair is None:
+            pair = get_activity_athlete(db, activity_id)
+            if not pair:
+                return None
         activity, _athlete = pair
         if stream_data is None:
             stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
@@ -787,10 +843,24 @@ class ActivityService:
         pair: Optional[Tuple[Any, Any]] = None,
         stream_data: Optional[Dict[str, Any]] = None,
         session_data: Optional[Dict[str, Any]] = None,
+        use_cache: bool = True,
     ) -> Optional[Dict[str, Any]]:
+        from ..infrastructure.cache_manager import activity_cache_manager
+        
+        if use_cache:
+            cached = activity_cache_manager.get_cached_metric(db, activity_id, "cadence")
+            if cached is not None:
+                return cached
+            if not activity_cache_manager.has_cache(db, activity_id):
+                return None
+        
         from ..metrics.activities.cadence import compute_cadence_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
+        if pair is None:
+            pair = get_activity_athlete(db, activity_id)
+            if not pair:
+                return None
         activity, _athlete = pair
         if stream_data is None:
             stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
@@ -805,10 +875,24 @@ class ActivityService:
         pair: Optional[Tuple[Any, Any]] = None,
         stream_data: Optional[Dict[str, Any]] = None,
         session_data: Optional[Dict[str, Any]] = None,
+        use_cache: bool = True,
     ) -> Optional[Dict[str, Any]]:
+        from ..infrastructure.cache_manager import activity_cache_manager
+        
+        if use_cache:
+            cached = activity_cache_manager.get_cached_metric(db, activity_id, "altitude")
+            if cached is not None:
+                return cached
+            if not activity_cache_manager.has_cache(db, activity_id):
+                return None
+        
         from ..metrics.activities.altitude import compute_altitude_info
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
+        if pair is None:
+            pair = get_activity_athlete(db, activity_id)
+            if not pair:
+                return None
         activity, _athlete = pair
         if stream_data is None:
             stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
@@ -821,7 +905,17 @@ class ActivityService:
         db: Session,
         activity_id: int,
         stream_data: Optional[Dict[str, Any]] = None,
+        use_cache: bool = True,
     ) -> Optional[Dict[str, Any]]:
+        from ..infrastructure.cache_manager import activity_cache_manager
+        
+        if use_cache:
+            cached = activity_cache_manager.get_cached_metric(db, activity_id, "temp")
+            if cached is not None:
+                return cached
+            if not activity_cache_manager.has_cache(db, activity_id):
+                return None
+        
         from ..metrics.activities.temperature import compute_temperature_info
         from ..infrastructure.data_manager import activity_data_manager
         if stream_data is None:
@@ -834,13 +928,27 @@ class ActivityService:
         activity_id: int,
         pair: Optional[Tuple[Any, Any]] = None,
         stream_data: Optional[Dict[str, Any]] = None,
+        use_cache: bool = True,
     ) -> Optional[Dict[str, Any]]:
+        from ..infrastructure.cache_manager import activity_cache_manager
+        
+        if use_cache:
+            cached = activity_cache_manager.get_cached_metric(db, activity_id, "training_effect")
+            if cached is not None:
+                return cached
+            if not activity_cache_manager.has_cache(db, activity_id):
+                return None
+        
         from ..repositories.activity_repo import get_activity_athlete
         from ..infrastructure.data_manager import activity_data_manager
         from ..core.analytics.training import (
             aerobic_effect, anaerobic_effect, power_zone_percentages,
             power_zone_times, calculate_training_load, estimate_calories_with_power, estimate_calories_with_heartrate
         )
+        if pair is None:
+            pair = get_activity_athlete(db, activity_id)
+            if not pair:
+                return None
         activity, athlete = pair
         if stream_data is None:
             stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
@@ -1314,13 +1422,7 @@ class ActivityService:
                 logger.info("[intervals][data-source] activity不是骑行活动: sport_type=%s", sport_type)
                 return False
         
-        # ! 本地路径：根据数据推断 此处方法不正确
-        if stream_data:
-            has_cadence = bool(stream_data.get('cadence') or stream_data.get('cadence_smooth'))
-            has_power = bool(stream_data.get('power') or stream_data.get('watts'))
-            # 骑行通常有踏频和功率，跑步通常没有踏频或功率数据较少
-            if has_cadence and has_power:
-                return True
+
         
         # 默认返回False（保守策略，假设是非骑行活动）
         return False

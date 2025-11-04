@@ -114,6 +114,67 @@ class ActivityCacheManager:
             db.rollback()
             return False
 
+    def get_cached_metric(self, db: Session, activity_id: int, metric_name: str) -> Optional[Dict[str, Any]]:
+        """
+        从 /all 的整体缓存中提取单项数据
+        
+        Args:
+            db: 数据库会话
+            activity_id: 活动ID
+            metric_name: 指标名称（overall, power, heartrate, cadence, speed, altitude, temp, training_effect）
+            
+        Returns:
+            单项数据字典，如果缓存不存在或指标不存在则返回 None
+        """
+        try:
+            cache_record = db.query(TbActivityCache).filter(
+                and_(
+                    TbActivityCache.activity_id == activity_id,
+                    TbActivityCache.is_active == 1
+                )
+            ).order_by(TbActivityCache.updated_at.desc()).first()
+            
+            if not cache_record:
+                return None
+            
+            if not os.path.exists(cache_record.file_path):
+                logger.warning(f"[metric-cache][file-missing] activity_id={activity_id}, file={cache_record.file_path}")
+                return None
+            
+            with open(cache_record.file_path, 'r', encoding='utf-8') as f:
+                all_cache_data = json.load(f)
+            
+            metric_data = all_cache_data.get(metric_name)
+            if metric_data is None:
+                return None
+            
+            logger.debug(f"[metric-cache][hit] activity_id={activity_id}, metric={metric_name}")
+            return metric_data
+            
+        except Exception as e:
+            logger.error(f"[metric-cache][error] activity_id={activity_id}, metric={metric_name}, error: {e}")
+            return None
+
+    def has_cache(self, db: Session, activity_id: int) -> bool:
+        """
+        检查活动是否有缓存数据
+        
+        Returns:
+            True 如果存在有效缓存，False otherwise
+        """
+        try:
+            cache_record = db.query(TbActivityCache).filter(
+                and_(
+                    TbActivityCache.activity_id == activity_id,
+                    TbActivityCache.is_active == 1
+                )
+            ).first()
+            if not cache_record:
+                return False
+            return os.path.exists(cache_record.file_path)
+        except Exception:
+            return False
+
 
 activity_cache_manager = ActivityCacheManager()
 
