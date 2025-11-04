@@ -1,6 +1,6 @@
 """应用数据库 ORM 模型定义：活动/运动员/功率纪录/缓存等。"""
 
-from sqlalchemy import BIGINT, VARCHAR, Column, Integer, String, Float, Text, DateTime
+from sqlalchemy import BIGINT, VARCHAR, Column, Integer, String, Float, Text, DateTime, Date
 from ..db_base import Base
 
 
@@ -145,3 +145,14 @@ class TbActivityCache(Base):
     expires_at     = Column(DateTime, comment="缓存过期时间")
     is_active      = Column(Integer, default=1, comment="是否激活（1=激活，0=禁用）")
     cache_metadata = Column(Text, comment="缓存元数据（JSON格式）")
+
+
+class TbAthleteDailyState(Base):
+    __tablename__ = "tb_athlete_daily_state"
+
+    athlete_id = Column(BIGINT, primary_key=True, index=True, comment="运动员ID")
+    date = Column(Date, primary_key=True, index=True, comment="日期")
+    status = Column(Integer, comment="状态值（fitness - fatigue）")
+    fatigue = Column(Integer, comment="疲劳度（最近7天平均TSS）")
+    fitness = Column(Integer, comment="健康度（最近42天平均TSS）")
+    updated_at = Column(DateTime, comment="更新时间")
