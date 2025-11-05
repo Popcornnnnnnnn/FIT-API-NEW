@@ -1,0 +1,23 @@
+{
+  "duration": 3690,
+  "ftp": 191.0,
+  "intervals": [
+    {
+      "start": 0,
+      "end": 366,
+      "duration": 366,
+      "classification": "tempo",
+      "avg_power": 164.2,
+      "power_ratio": 0.86
+    },
+    {
+      "start": 366,
+      "end": 3691,
+      "duration": 3325,
+      "classification": "threshold",
+      "avg_power": 184.46,
+      "power_ratio": 0.97
+    }
+  ],
+  "preview_image": null
+}

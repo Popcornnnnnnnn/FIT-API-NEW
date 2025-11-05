@@ -67,9 +67,8 @@ class ActivityService:
                     local_obj = db.query(TbActivity).filter(TbActivity.external_id == activity_id).first()
 
                 activity_entry, athlete_entry = self._get_local_activity_pair(db, getattr(local_obj, 'id', None) or activity_id)
-
+                
                 full = client.fetch_full(activity_entry.external_id, keys=keys_list_all, resolution=None)
-
                 activity_data = full['activity']
                 stream_data = full['streams']
                 athlete_data = full['athlete']
@@ -113,19 +112,21 @@ class ActivityService:
                 if getattr(result, 'heartrate', None) is not None:
                     self._update_activity_efficiency_factor(db, activity_entry, result.heartrate.efficiency_index)
 
-                # 计算 training_load，更新该活动的 TSS，并据此刷新 athlete 的 TSB（status）
+                # 将 training_load 写入数据库，并据此刷新 athlete 的 TSB（status）
                 try:
-                    moving_time = int(activity_data.get('moving_time') or 0)
-                    avg_power = activity_data.get('average_watts') or 0
+                    # 从 analyze_overall 的结果中获取已计算好的 training_load
+                    training_load = result.overall.training_load if result.overall else None
 
-                    # 在返回中添加tss和tsb，并将相关指标（tss、tsb、ctl、atl、tss_updated）写库
+                    # 将 training_load 写入数据库（tss、tss_updated）
                     raw = activity_data.get('start_date')
                     iso = raw.replace('Z', '+00:00')
                     start_dt = datetime.fromisoformat(iso).replace(tzinfo=None)
-                    tss = self._upsert_activity_tss(db, activity_entry, athlete_entry, avg_power, moving_time, start_dt)
+                    self._upsert_activity_tss(db, activity_entry, training_load, start_dt)
+                    
+                    # 更新 athlete 的 TSB（status）
                     tsb = self._update_athlete_status(db, athlete_entry, start_dt)
-                    result.overall.status = tsb
-                    result.overall.training_load = tss
+                    if result.overall:
+                        result.overall.status = tsb
 
                     # 附加 best_power_record（独立于分辨率）
                     try:
@@ -548,24 +549,30 @@ class ActivityService:
         self,
         db: Session,
         activity_entry: Optional[Any],
-        athlete_entry: Optional[Any],
-        avg_power: Optional[int],
-        moving_time: Optional[int],
+        training_load: Optional[int],
         start_date: Optional[datetime] = None,
-    ) -> Optional[int]:
-        if not activity_entry or not athlete_entry:
-            return None
+    ) -> None:
+        """将 training_load 值写入数据库
+        
+        参数：
+            db: 数据库会话
+            activity_entry: 活动实体
+            training_load: 训练负荷值（已由 analyze_overall 计算好）
+            start_date: 活动开始时间（可选，用于更新 start_date）
+        """
+        if not activity_entry:
+            return
         try:
-            from ..core.analytics.training import calculate_training_load
-            tss_val = calculate_training_load(avg_power, athlete_entry.ftp, moving_time)
-            if tss_val > 0:
-                activity_entry.tss = tss_val
+            if training_load is not None and training_load > 0:
+                activity_entry.tss = training_load
                 activity_entry.tss_updated = 1
+                if start_date:
+                    activity_entry.start_date = start_date
                 db.commit()
-            return tss_val
         except Exception:
             db.rollback()
-            return None
+            logger.exception("[tss][write-error] activity_id=%s training_load=%s", 
+                           getattr(activity_entry, 'id', None), training_load)
 
     def _update_athlete_status(
             self, 
@@ -1266,12 +1273,15 @@ class ActivityService:
                 hr_max_override=None,
             )
             
-            # 判断活动类型（本地路径没有activity_data）
-            is_cycling = self._is_cycling_activity(
+            # 判断活动类型（本地路径没有activity_data，FIT路径暂不考虑）
+            activity_type = self._get_activity_type(
                 activity_data=None,
                 activity_entry=activity,
                 stream_data=stream_data,
             )
+
+            # 本地路径默认尝试使用功率数据（如果可用）
+            is_cycling = activity_type == "unknown" or activity_type in ['ride', 'virtualride', 'ebikeride']
             
             # 选择数据源
             source_type, reference_value = self._select_intervals_data_source(
@@ -1348,11 +1358,12 @@ class ActivityService:
             )
             
             # 判断活动类型
-            is_cycling = self._is_cycling_activity(
+            activity_type = self._get_activity_type(
                 activity_data=activity_data,
                 activity_entry=activity_entry,
                 stream_data=stream_data,
             )
+            is_cycling = activity_type in ['ride', 'virtualride', 'ebikeride']
 
             
             # 选择数据源
@@ -1410,27 +1421,33 @@ class ActivityService:
             logger.exception("[intervals][generate-error-strava] activity_id=%s", activity_id)
             return None
 
-    def _is_cycling_activity(
+    def _get_activity_type(
         self,
         activity_data: Optional[Dict[str, Any]] = None,
         activity_entry: Optional[Any] = None,
         stream_data: Optional[Dict[str, Any]] = None,
-    ) -> bool:
-
-        # Strava路径：从activity_data判断
+    ) -> str:
+        """
+        获取活动类型
+        
+        参数：
+            activity_data: Strava活动数据
+            activity_entry: 本地活动实体（暂不使用）
+            stream_data: 流数据（暂不使用）
+        
+        返回：
+            运动类型字符串（全小写），如 "ride", "run", "walk" 等
+            如果无法确定，返回 "unknown"
+        """
+        # Strava路径：从activity_data中的sport_type判断
         if activity_data:
-            sport_type = activity_data.get('sport_type', '').lower()
-            if 'ride' in sport_type or 'cycling' in sport_type or sport_type == 'ride':
-                # logger.info("[intervals][data-source] activity是骑行活动: sport_type=%s", sport_type)
-                return True
-            if 'run' in sport_type or 'walk' in sport_type or 'hike' in sport_type or 'swim' in sport_type:
-                # logger.info("[intervals][data-source] activity不是骑行活动: sport_type=%s", sport_type)
-                return False
+            sport_type = activity_data.get('sport_type', '')
+            if sport_type:
+                return sport_type.lower()
         
-
-        
-        # 默认返回False（保守策略，假设是非骑行活动）
-        return False
+        # FIT路径：暂不考虑（按用户要求）
+        # 如果无法确定，返回unknown
+        return "unknown"
 
     def _select_intervals_data_source(
         self,

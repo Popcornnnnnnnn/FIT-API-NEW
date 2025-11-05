@@ -11,6 +11,11 @@ from ...core.analytics.training import (
     power_zone_percentages as _zone_percentages,
     power_zone_times as _zone_times,
     primary_training_benefit as _primary_benefit,
+    calculate_training_load as _tl,
+    calculate_running_training_load as _rtl,
+)
+from ...core.analytics.pace import (
+    parse_pace_string
 )
 from ...db.models import TbActivity, TbAthlete
 from ...core.analytics import zones as _zones
@@ -27,19 +32,76 @@ def _get_activity_athlete_by_external_id(db: Session, external_id: int) -> Optio
 
 
 def analyze_overall(activity_data: Dict[str, Any], stream_data: Dict[str, Any], external_id: int, db: Session) -> Optional[Dict[str, Any]]:
+    """分析整体信息，支持骑行和跑步活动的训练负荷计算"""
     try:
-        return {
+        # 判断活动类型：从activity_data的sport_type获取
+        sport_type = activity_data.get('sport_type', '').lower() if activity_data else ''
+        is_running = sport_type in ['run', 'trail_run', 'virtual_run']
+        
+        result = {
             'distance'      : round(activity_data.get('distance') / 1000, 2),
             'moving_time'   : _fmt(int(activity_data.get('moving_time'))),
             'average_speed' : round(activity_data.get('average_speed') * 3.6, 1),
             'elevation_gain': int(activity_data.get('total_elevation_gain')),
             'avg_power'     : int(activity_data.get('average_watts')) if activity_data.get('average_watts') else None,
             'calories'      : int(activity_data.get('calories')),
-            'training_load' : None,                                                                                            # filled by caller if needed
-            'status'        : None,                                                                                            # filled by caller if needed
+            'training_load' : None,  # 将在下面计算
+            'status'        : None,
             'avg_heartrate' : int(activity_data.get('average_heartrate')) if activity_data.get('average_heartrate') else None,
             'max_altitude'  : int(activity_data.get('elev_high')),
         }
+        
+        # 计算训练负荷
+        aa = _get_activity_athlete_by_external_id(db, external_id)
+        if aa:
+            _, athlete = aa
+            moving_time = int(activity_data.get('moving_time') or 0)
+            
+            if is_running:
+                # 跑步活动：使用 rTSS
+                ft_pace = None
+                if hasattr(athlete, 'FTPace') and athlete.FTPace:
+                    try:
+                        pace_val = athlete.FTPace
+                        if isinstance(pace_val, str):
+                            ft_pace = parse_pace_string(pace_val)
+                        else:
+                            # 如果不是字符串，直接转换为整数（假设已经是秒/公里）
+                            ft_pace = int(pace_val)
+                    except (ValueError, AttributeError, TypeError):
+                        pass
+                
+                if ft_pace and ft_pace > 0 and moving_time:
+                    # 直接使用原始平均速度计算配速
+                    avg_speed_ms = None
+                    # 优先使用activity_data中的average_speed（单位是 m/s）
+                    if activity_data and 'average_speed' in activity_data:
+                        avg_speed_ms = float(activity_data.get('average_speed', 0))
+                    else:
+                        # 从流数据计算平均速度
+                        velocity_stream = stream_data.get('velocity_smooth', stream_data.get('velocity', {}))
+                        speeds = velocity_stream.get('data', []) if isinstance(velocity_stream, dict) else velocity_stream
+                        if speeds:
+                            valid_speeds = [float(s) for s in speeds if s is not None and s > 0]
+                            if valid_speeds:
+                                avg_speed_ms = sum(valid_speeds) / len(valid_speeds)
+                    
+                    if avg_speed_ms and avg_speed_ms > 0:
+                        # 计算原始配速（秒/公里）
+                        raw_pace = 1000.0 / avg_speed_ms  # 配速 = 1000米 / 速度(m/s)
+                        # 使用原始配速计算训练负荷
+                        result['training_load'] = _rtl(raw_pace, ft_pace, moving_time)
+            else:
+                # 骑行活动：使用 TSS
+                if result.get('avg_power') and moving_time:
+                    try:
+                        ftp = int(athlete.ftp) if getattr(athlete, 'ftp', None) else 0
+                        if ftp and ftp > 0:
+                            result['training_load'] = _tl(result['avg_power'], ftp, moving_time)
+                    except Exception:
+                        pass
+        
+        return result
     except Exception:
         return None
 
@@ -163,32 +225,97 @@ def analyze_speed(activity_data: Dict[str, Any], stream_data: Dict[str, Any]) ->
 
 
 def analyze_training_effect(activity_data: Dict[str, Any], stream_data: Dict[str, Any], external_id: int, db: Session) -> Optional[Dict[str, Any]]:
-    if 'watts' not in stream_data:
-        return None
+    """分析训练效果，支持骑行（功率）和跑步（配速）活动"""
     try:
-        power = [p if p is not None else 0 for p in stream_data.get('watts', {}).get('data', [])]
+        # 判断活动类型：从activity_data的sport_type获取
+        sport_type = activity_data.get('sport_type', '').lower() if activity_data else ''
+        is_running = sport_type in ['run', 'trail_run', 'virtual_run']
+        
         aa = _get_activity_athlete_by_external_id(db, external_id)
         if not aa:
             return None
         _, athlete = aa
-        ftp = int(athlete.ftp)
-        ae = _aerobic(power, ftp)
-        ne = _anaerobic(power, ftp)
-        zd = _zone_percentages(power, ftp)
-        zt = _zone_times(power, ftp)
-        pb, _ = _primary_benefit(zd, zt, round(len(power)/60, 0), ae, ne, ftp, int(activity_data.get('max_watts') or 0))
-        avg_power = int(activity_data.get('average_watts') or (sum(power)/len(power) if power else 0))
-        # 直接计算训练负荷
-        from ...core.analytics.training import calculate_training_load as _tl
-        moving_time = int(activity_data.get('moving_time') or len(power))
-        training_load = _tl(avg_power, ftp, moving_time) if (avg_power and ftp and moving_time) else None
-        return {
-            'primary_training_benefit': pb,
-            'aerobic_effect': ae,
-            'anaerobic_effect': ne,
-            'training_load': training_load,
-            'carbohydrate_consumption': int(activity_data.get('calories', 0) / 4.138),
-        }
+        
+        moving_time = int(activity_data.get('moving_time') or 0)
+        
+        if is_running:
+            # 跑步活动：基于配速计算训练负荷
+            ft_pace = None
+            if hasattr(athlete, 'FTPace') and athlete.FTPace:
+                try:
+                    pace_val = athlete.FTPace
+                    if isinstance(pace_val, str):
+                        ft_pace = parse_pace_string(pace_val)
+                    else:
+                        # 如果不是字符串，直接转换为整数（假设已经是秒/公里）
+                        ft_pace = int(pace_val)
+                except (ValueError, AttributeError, TypeError):
+                    pass
+            
+            if ft_pace and ft_pace > 0 and moving_time:
+                # 直接使用原始平均速度计算配速
+                avg_speed_ms = None
+                # 优先使用activity_data中的average_speed（单位是 m/s）
+                if activity_data and 'average_speed' in activity_data:
+                    avg_speed_ms = float(activity_data.get('average_speed', 0))
+                else:
+                    # 从流数据计算平均速度
+                    velocity_stream = stream_data.get('velocity_smooth', stream_data.get('velocity', {}))
+                    speeds = velocity_stream.get('data', []) if isinstance(velocity_stream, dict) else velocity_stream
+                    if speeds:
+                        valid_speeds = [float(s) for s in speeds if s is not None and s > 0]
+                        if valid_speeds:
+                            avg_speed_ms = sum(valid_speeds) / len(valid_speeds)
+                
+                if avg_speed_ms and avg_speed_ms > 0:
+                    # 计算原始配速（秒/公里）
+                    raw_pace = 1000.0 / avg_speed_ms  # 配速 = 1000米 / 速度(m/s)
+                    # 使用原始配速计算训练负荷
+                    training_load = _rtl(raw_pace, ft_pace, moving_time)
+                else:
+                    training_load = None
+            else:
+                training_load = None
+            
+            return {
+                'primary_training_benefit': None,
+                'aerobic_effect': None,
+                'anaerobic_effect': None,
+                'training_load': training_load,
+                'carbohydrate_consumption': int(activity_data.get('calories', 0) / 4.138),
+            }
+        else:
+            # 骑行活动：基于功率计算
+            if not has_watts:
+                return None
+            
+            power = [p if p is not None else 0 for p in stream_data.get('watts', {}).get('data', [])]
+            if not power:
+                return None
+            
+            ftp = int(athlete.ftp) if getattr(athlete, 'ftp', None) else 0
+            if not ftp or ftp <= 0:
+                return None
+            
+            ae = _aerobic(power, ftp)
+            ne = _anaerobic(power, ftp)
+            zd = _zone_percentages(power, ftp)
+            zt = _zone_times(power, ftp)
+            pb, _ = _primary_benefit(zd, zt, round(len(power)/60, 0), ae, ne, ftp, int(activity_data.get('max_watts') or 0))
+            avg_power = int(activity_data.get('average_watts') or (sum(power)/len(power) if power else 0))
+            
+            if not moving_time:
+                moving_time = len(power)
+            
+            training_load = _tl(avg_power, ftp, moving_time) if (avg_power and ftp and moving_time) else None
+            
+            return {
+                'primary_training_benefit': pb,
+                'aerobic_effect': ae,
+                'anaerobic_effect': ne,
+                'training_load': training_load,
+                'carbohydrate_consumption': int(activity_data.get('calories', 0) / 4.138),
+            }
     except Exception:
         return None
 

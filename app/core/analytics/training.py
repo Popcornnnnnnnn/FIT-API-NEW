@@ -223,3 +223,34 @@ def primary_training_benefit(
     if not matched:
         return "Mixed", []
     return matched[0], matched[1:]
+
+
+def calculate_running_training_load(
+    ngp: float,  # 标准化坡度配速（秒/公里）
+    ft_pace: int,  # 阈值配速（秒/公里）
+    duration_seconds: int  # 训练时长（秒）
+) -> int:
+    """
+    计算跑步训练负荷（rTSS）
+    
+    公式：rTSS = (秒数 × IF²) × 100
+    其中：IF = 阈值配速 / NGP
+    
+    参数：
+        ngp: 标准化坡度配速（秒/公里）
+        ft_pace: 阈值配速（秒/公里）
+        duration_seconds: 训练时长（秒）
+    
+    返回：
+        rTSS整数值，若输入不合法返回0
+    """
+    if not ft_pace or ft_pace <= 0 or not ngp or ngp <= 0 or duration_seconds <= 0:
+        return 0
+    
+    # 强度因子：配速越小越快，所以比值越大强度越高
+    intensity_factor = float(ft_pace) / ngp
+    duration_hours = duration_seconds / 3600.0
+    # 使用IF²的公式（类似TSS）
+    rtss = (intensity_factor ** 2) * duration_hours * 100
+    
+    return int(rtss)
