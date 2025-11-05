@@ -82,7 +82,9 @@ class ActivityService:
                     local_obj = db.query(TbActivity).filter(TbActivity.external_id == activity_id).first()
 
                 activity_entry, athlete_entry = self._get_local_activity_pair(db, getattr(local_obj, 'id', None) or activity_id)
-                
+                if not activity_entry or not athlete_entry:
+                    return None
+    
                 full = client.fetch_full(activity_entry.external_id, keys=keys_list_all, resolution=None)
                 activity_data = full['activity']
                 stream_data = full['streams']
@@ -628,52 +630,51 @@ class ActivityService:
         """
         from sqlalchemy import func
         from datetime import datetime, timedelta
-
-        if athlete_entry is None:
-            return None
         now = ref_date or datetime.now()
         seven_days_ago = now - timedelta(days=7)
         forty_two_days_ago = now - timedelta(days=42)
         athlete_id = athlete_entry.id
 
         try:
-
+            # === 增加调试日志，打印每一步关键值 ===
+            # 查询条件：start_date >= seven_days_ago AND start_date <= now（设置上限）
             sum_tss_7 = db.query(func.sum(TbActivity.tss)).filter(
                 TbActivity.athlete_id == athlete_id,
                 TbActivity.start_date >= seven_days_ago,
+                TbActivity.start_date <= now,
                 TbActivity.tss.isnot(None),
                 TbActivity.tss > 0,
             ).scalar()
+            # 查询条件：start_date >= forty_two_days_ago AND start_date <= now（设置上限）
             sum_tss_42 = db.query(func.sum(TbActivity.tss)).filter(
                 TbActivity.athlete_id == athlete_id,
                 TbActivity.start_date >= forty_two_days_ago,
+                TbActivity.start_date <= now,
                 TbActivity.tss.isnot(None),
                 TbActivity.tss > 0,
             ).scalar()
-            # 计数信息（便于确认窗口内是否有数据被统计）
-            cnt_7 = db.query(func.count(TbActivity.id)).filter(
-                TbActivity.athlete_id == athlete_id,
-                TbActivity.start_date >= seven_days_ago,
-                TbActivity.tss.isnot(None),
-                TbActivity.tss > 0,
-            ).scalar()
-            cnt_42 = db.query(func.count(TbActivity.id)).filter(
-                TbActivity.athlete_id == athlete_id,
-                TbActivity.start_date >= forty_two_days_ago,
-                TbActivity.tss.isnot(None),
-                TbActivity.tss > 0,
-            ).scalar()
+            # logger.info(
+            #     "[athlete-status][tss-sum] athlete_id=%s 7天TSS总和=%.2f 42天TSS总和=%.2f window-7d=%s window-42d=%s ref_date=%s",
+            #     athlete_id, float(sum_tss_7 or 0), float(sum_tss_42 or 0), seven_days_ago, forty_two_days_ago, now
+            # )
             # 转为 float 再做除法，避免 Decimal 与 float 混算报错
             sum7 = float(sum_tss_7 or 0)
             sum42 = float(sum_tss_42 or 0)
             atl = int(round(sum7 / 7.0, 0))
             ctl = int(round(sum42 / 42.0, 0))
             tsb = ctl - atl
-
+            logger.info(
+                "[athlete-status][calc] athlete_id=%s atl=%s ctl=%s tsb=%s (sum7=%.2f sum42=%.2f)",
+                athlete_id, atl, ctl, tsb, sum7, sum42
+            )
             athlete_entry.atl = atl
             athlete_entry.ctl = ctl
             athlete_entry.tsb = tsb
             db.commit()
+            logger.info(
+                "[athlete-status][commit] athlete_id=%s atl=%s ctl=%s tsb=%s 已写入数据库",
+                athlete_id, atl, ctl, tsb
+            )
             return tsb
         except Exception:
             db.rollback()

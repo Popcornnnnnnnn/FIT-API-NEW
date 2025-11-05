@@ -13,7 +13,6 @@ import logging
 
 from ..repositories.activity_repo import (
     get_athlete_by_id,
-    get_avg_tss_by_athlete,
     upsert_daily_state
 )
 
@@ -64,16 +63,47 @@ class DailyStateService:
             }
         
         try:
-            # 计算时间范围
-            end_datetime = datetime.combine(target_date, datetime.max.time())
-            start_42d = end_datetime - timedelta(days=42)
-            start_7d = end_datetime - timedelta(days=7)
+            # 计算时间范围（与 activity_service.py 中的 _update_athlete_status 完全一致）
+            # 如果 target_date 是今天，使用当前时间；否则使用 target_date 的 23:59:59
+            if target_date == date.today():
+                now = datetime.now()
+            else:
+                now = datetime.combine(target_date, datetime.max.time())
             
-            # 计算健康度（最近42天平均TSS）
-            fitness = get_avg_tss_by_athlete(db, athlete_id, start_42d, end_datetime)
+            seven_days_ago = now - timedelta(days=7)
+            forty_two_days_ago = now - timedelta(days=42)
             
-            # 计算疲劳度（最近7天平均TSS）
-            fatigue = get_avg_tss_by_athlete(db, athlete_id, start_7d, end_datetime)
+            # 直接使用 SQLAlchemy 查询，与 _update_athlete_status 逻辑完全一致
+            from sqlalchemy import func
+            from ..db.models import TbActivity
+            
+            # 查询条件：start_date >= seven_days_ago AND start_date <= now（设置上限）
+            sum_tss_7 = db.query(func.sum(TbActivity.tss)).filter(
+                TbActivity.athlete_id == athlete_id,
+                TbActivity.start_date >= seven_days_ago,
+                TbActivity.start_date <= now,
+                TbActivity.tss.isnot(None),
+                TbActivity.tss > 0,
+            ).scalar()
+            
+            # 查询条件：start_date >= forty_two_days_ago AND start_date <= now（设置上限）
+            sum_tss_42 = db.query(func.sum(TbActivity.tss)).filter(
+                TbActivity.athlete_id == athlete_id,
+                TbActivity.start_date >= forty_two_days_ago,
+                TbActivity.start_date <= now,
+                TbActivity.tss.isnot(None),
+                TbActivity.tss > 0,
+            ).scalar()
+            
+            # 转为 float 再做除法，避免 Decimal 与 float 混算报错（与 _update_athlete_status 一致）
+            sum7 = float(sum_tss_7 or 0)
+            sum42 = float(sum_tss_42 or 0)
+
+            print(f"sum7: {sum7} sum42: {sum42}")
+            
+            # 除以固定的天数（与 _update_athlete_status 一致）
+            fatigue = sum7 / 7.0
+            fitness = sum42 / 42.0
             
             # 计算状态值
             status = fitness - fatigue

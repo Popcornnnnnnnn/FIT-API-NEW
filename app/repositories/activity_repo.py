@@ -54,26 +54,46 @@ def update_field(db: Session, table_class: Type[Any], record_id: int, field_name
         return False
 
 
-def get_avg_tss_by_athlete(db: Session, athlete_id: int, start_date: datetime, end_date: datetime) -> float:
-    """计算指定运动员在指定时间范围内的平均TSS
+def get_avg_tss_by_athlete(db: Session, athlete_id: int, start_date: datetime, end_date: datetime, days: int) -> float:
+    """计算指定运动员在指定时间范围内的平均TSS（按天数平均）
+    
+    注意：这里计算的是"总TSS / 天数"，而不是"活动TSS的平均值"
+    例如：7天内总TSS=700，则返回 700/7=100，而不是 700/活动数量
+    
+    实现方式与 activity_service.py 中的 _update_athlete_status 保持一致：
+    - 查询条件：start_date >= start_date AND start_date <= end_date（设置上限）
+    - 除以固定的天数（7.0 或 42.0），而不是计算时间差
     
     Args:
         db: 数据库会话
         athlete_id: 运动员ID
-        start_date: 开始时间
-        end_date: 结束时间
+        start_date: 开始时间（例如：7天前或42天前）
+        end_date: 结束时间（上限，例如：now 或 ref_date）
+        days: 天数（用于计算平均值，例如：7 表示7天，42 表示42天）
         
     Returns:
-        float: 平均TSS，如果没有记录则返回0.0
+        float: 平均TSS（总TSS除以天数），如果没有记录则返回0.0
     """
     try:
-        result = db.query(func.avg(TbActivity.tss)).filter(
+        if days <= 0:
+            return 0.0
+        
+        # 使用 SUM 求和，查询条件包含上限
+        # 与 activity_service.py 中的 _update_athlete_status 保持一致
+        sum_result = db.query(func.sum(TbActivity.tss)).filter(
             TbActivity.athlete_id == athlete_id,
             TbActivity.start_date >= start_date,
             TbActivity.start_date <= end_date,
-            TbActivity.tss.isnot(None)
+            TbActivity.tss.isnot(None),
+            TbActivity.tss > 0,
         ).scalar()
-        return float(result or 0.0)
+        
+        # 如果没有记录或总和为 None，返回 0.0
+        if sum_result is None:
+            return 0.0
+        
+        # 返回：总TSS / 天数（固定值，不是计算的时间差）
+        return float(sum_result) / days
     except Exception as e:
         logger.error("[db-error][avg-tss] athlete_id=%s err=%s", athlete_id, e)
         return 0.0
