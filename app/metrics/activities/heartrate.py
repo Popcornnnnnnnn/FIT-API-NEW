@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional
 from ...core.analytics.hr import (
     filter_hr_smooth,
     recovery_rate,
+    efficiency_index,
 )
 
 
@@ -28,7 +29,17 @@ def compute_heartrate_info(stream_data: Dict[str, Any], power_data_present: bool
 
     if power_data_present:
         result['heartrate_recovery_rate'] = recovery_rate(hr_data)
+        
+        # 对于骑行活动（有功率数据），计算 efficiency_index
+        power_data = stream_data.get('power', [])
+        if power_data and valid_hr:
+            eff_index = efficiency_index(power_data, hr_data)
+            result['efficiency_index'] = eff_index
+        else:
+            result['efficiency_index'] = None
     else:
         result['heartrate_recovery_rate'] = 0
+        # 非骑行活动，返回 null
+        result['efficiency_index'] = None
 
     return result

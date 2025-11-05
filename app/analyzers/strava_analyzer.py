@@ -49,6 +49,10 @@ class StravaAnalyzer:
         sport_type = activity_data.get('sport_type', '').lower() if activity_data else ''
         is_running = sport_type in ['run', 'trail_run', 'virtual_run']
 
+        # 统一获取 activity_athlete_pair，避免重复数据库查询
+        from .strava.metrics import _get_activity_athlete_by_external_id
+        activity_athlete_pair = _get_activity_athlete_by_external_id(db, external_id)
+
         # 对于跑步活动，不计算 best_powers
         if is_running:
             best_powers = None
@@ -63,15 +67,15 @@ class StravaAnalyzer:
                 activity_entry,
             )
 
-        overall = _metrics.analyze_overall(activity_data, stream_data, external_id, db)
-        power = _metrics.analyze_power(activity_data, stream_data, external_id, db)
+        overall = _metrics.analyze_overall(activity_data, stream_data, external_id, db, activity_athlete_pair)
+        power = _metrics.analyze_power(activity_data, stream_data, external_id, db, activity_athlete_pair)
         heartrate = _metrics.analyze_heartrate(activity_data, stream_data)
         cadence = _metrics.analyze_cadence(activity_data, stream_data)
         speed = _metrics.analyze_speed(activity_data, stream_data)
-        training_effect = _metrics.analyze_training_effect(activity_data, stream_data, external_id, db)
+        training_effect = _metrics.analyze_training_effect(activity_data, stream_data, external_id, db, activity_athlete_pair)
         altitude = _metrics.analyze_altitude(activity_data, stream_data)
         temp = _metrics.analyze_temperature(activity_data, stream_data)
-        zones = _metrics.analyze_zones(activity_data, stream_data, external_id, db)
+        zones = _metrics.analyze_zones(activity_data, stream_data, external_id, db, activity_athlete_pair)
 
         response = AllActivityDataResponse(
             overall         = overall,

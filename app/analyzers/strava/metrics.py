@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from sqlalchemy.orm import Session
 from ...core.analytics.time_utils import format_time as _fmt
 from ...core.analytics.power import normalized_power as _np, work_above_ftp as _work_above_ftp, w_balance_decline as _w_decline
-from ...core.analytics.hr import recovery_rate as _hr_recovery
+from ...core.analytics.hr import recovery_rate as _hr_recovery, efficiency_index as _efficiency_index
 from ...core.analytics.altitude import total_descent as _total_descent, uphill_downhill_distance_km as _updown
 from ...core.analytics.training import (
     aerobic_effect as _aerobic,
@@ -31,7 +31,7 @@ def _get_activity_athlete_by_external_id(db: Session, external_id: int) -> Optio
     return activity, athlete
 
 
-def analyze_overall(activity_data: Dict[str, Any], stream_data: Dict[str, Any], external_id: int, db: Session) -> Optional[Dict[str, Any]]:
+def analyze_overall(activity_data: Dict[str, Any], stream_data: Dict[str, Any], external_id: int, db: Session, activity_athlete_pair: Optional[Tuple[TbActivity, TbAthlete]] = None) -> Optional[Dict[str, Any]]:
     """分析整体信息，支持骑行和跑步活动的训练负荷计算"""
     try:
         # 判断活动类型：从activity_data的sport_type获取
@@ -52,9 +52,8 @@ def analyze_overall(activity_data: Dict[str, Any], stream_data: Dict[str, Any], 
         }
         
         # 计算训练负荷
-        aa = _get_activity_athlete_by_external_id(db, external_id)
-        if aa:
-            _, athlete = aa
+        if activity_athlete_pair:
+            _, athlete = activity_athlete_pair
             moving_time = int(activity_data.get('moving_time') or 0)
             
             if is_running:
@@ -106,16 +105,15 @@ def analyze_overall(activity_data: Dict[str, Any], stream_data: Dict[str, Any], 
         return None
 
 
-def analyze_power(activity_data: Dict[str, Any], stream_data: Dict[str, Any], external_id: int, db: Session) -> Optional[Dict[str, Any]]:
+def analyze_power(activity_data: Dict[str, Any], stream_data: Dict[str, Any], external_id: int, db: Session, activity_athlete_pair: Optional[Tuple[TbActivity, TbAthlete]] = None) -> Optional[Dict[str, Any]]:
     if 'watts' not in stream_data:
         return None
     try:
         power_stream = stream_data.get('watts', {})
         power = [p if p is not None else 0 for p in power_stream.get('data', [])]
-        aa = _get_activity_athlete_by_external_id(db, external_id)
-        if not aa:
+        if not activity_athlete_pair:
             return None
-        _, athlete = aa
+        _, athlete = activity_athlete_pair
         ftp = int(athlete.ftp)
         # 若无 w_balance 流，基于功率与 W' 粗略估算
         wbal = stream_data.get('w_balance', {}).get('data', []) if isinstance(stream_data.get('w_balance'), dict) else stream_data.get('w_balance', [])
@@ -138,11 +136,32 @@ def analyze_heartrate(
         return None
     try:
         hr = [h if h is not None else 0 for h in stream_data.get('heartrate', {}).get('data', [])]
-        return {
+        
+        # 判断是否为骑行活动
+        sport_type = activity_data.get('sport_type', '').lower() if activity_data else ''
+        is_running = sport_type in ['run', 'trail_run', 'virtual_run']
+        is_cycling = not is_running
+        
+        result = {
             'avg_heartrate'          : int(activity_data.get('average_heartrate')) if activity_data.get('average_heartrate') else (int(sum(hr)/len(hr)) if hr else None),
             'max_heartrate'          : int(activity_data.get('max_heartrate')) if activity_data.get('max_heartrate') else (int(max(hr)) if hr else None),
             'heartrate_recovery_rate': _hr_recovery(hr),
         }
+        
+        # 对于骑行活动，如果有功率数据，计算 efficiency_index
+        if is_cycling and 'watts' in stream_data:
+            power_stream = stream_data.get('watts', {})
+            power_data = power_stream.get('data', []) if isinstance(power_stream, dict) else power_stream
+            if power_data and hr:
+                eff_index = _efficiency_index(power_data, hr)
+                result['efficiency_index'] = eff_index
+            else:
+                result['efficiency_index'] = None
+        else:
+            # 非骑行活动，返回 null
+            result['efficiency_index'] = None
+        
+        return result
     except Exception:
         return None
 
@@ -201,17 +220,16 @@ def analyze_speed(activity_data: Dict[str, Any], stream_data: Dict[str, Any]) ->
         return None
 
 
-def analyze_training_effect(activity_data: Dict[str, Any], stream_data: Dict[str, Any], external_id: int, db: Session) -> Optional[Dict[str, Any]]:
+def analyze_training_effect(activity_data: Dict[str, Any], stream_data: Dict[str, Any], external_id: int, db: Session, activity_athlete_pair: Optional[Tuple[TbActivity, TbAthlete]] = None) -> Optional[Dict[str, Any]]:
     """分析训练效果，支持骑行（功率）和跑步（配速）活动"""
     try:
         # 判断活动类型：从activity_data的sport_type获取
         sport_type = activity_data.get('sport_type', '').lower() if activity_data else ''
         is_running = sport_type in ['run', 'trail_run', 'virtual_run']
         
-        aa = _get_activity_athlete_by_external_id(db, external_id)
-        if not aa:
+        if not activity_athlete_pair:
             return None
-        _, athlete = aa
+        _, athlete = activity_athlete_pair
         
         moving_time = int(activity_data.get('moving_time') or 0)
         
@@ -263,7 +281,7 @@ def analyze_training_effect(activity_data: Dict[str, Any], stream_data: Dict[str
             }
         else:
             # 骑行活动：基于功率计算
-            if not has_watts:
+            if 'watts' not in stream_data:
                 return None
             
             power = [p if p is not None else 0 for p in stream_data.get('watts', {}).get('data', [])]
@@ -329,12 +347,11 @@ def analyze_temperature(activity_data: Dict[str, Any], stream_data: Dict[str, An
         return None
 
 
-def analyze_zones(activity_data: Dict[str, Any], stream_data: Dict[str, Any], external_id: int, db: Session) -> Optional[List[Dict[str, Any]]]:
+def analyze_zones(activity_data: Dict[str, Any], stream_data: Dict[str, Any], external_id: int, db: Session, activity_athlete_pair: Optional[Tuple[TbActivity, TbAthlete]] = None) -> Optional[List[Dict[str, Any]]]:
     try:
-        aa = _get_activity_athlete_by_external_id(db, external_id)
-        if not aa:
+        if not activity_athlete_pair:
             return None
-        _, athlete = aa
+        _, athlete = activity_athlete_pair
         zones_data = []
         if 'watts' in stream_data and int(athlete.ftp) > 0:
             ftp = int(athlete.ftp)

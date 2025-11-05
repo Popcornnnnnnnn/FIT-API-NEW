@@ -142,7 +142,12 @@ class ActivityService:
                 except Exception:
                     logger.exception("[intervals][save-error-strava] activity_id=%s", activity_id)
                 
-                # efficiency_index 已移除，不再更新 efficiency_factor
+                # 对于骑行活动，更新 efficiency_factor（从 heartrate 结果中获取 efficiency_index）
+                if getattr(result.heartrate, 'efficiency_index', None) is not None:
+                    try:
+                        self._update_activity_efficiency_factor(db, activity_entry, result.heartrate.efficiency_index)
+                    except Exception:
+                        logger.exception("[efficiency-factor][update-error] activity_id=%s", activity_id)
 
                 # 将 training_load 写入数据库，并据此刷新 athlete 的 TSB（status）
                 try:
@@ -846,7 +851,14 @@ class ActivityService:
         if session_data is None and getattr(activity, 'upload_fit_url', None):
             session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         result = compute_heartrate_info(stream_data, bool(stream_data.get('power')), session_data)
-        # efficiency_index 已移除，不再更新 efficiency_factor
+        
+        # 对于骑行活动，更新 efficiency_factor（从 heartrate 结果中获取 efficiency_index）
+        if result and result.get('efficiency_index') is not None:
+            try:
+                self._update_activity_efficiency_factor(db, activity, result.get('efficiency_index'))
+            except Exception:
+                logger.exception("[efficiency-factor][update-error] activity_id=%s", activity_id)
+        
         return result
 
     def get_speed(
