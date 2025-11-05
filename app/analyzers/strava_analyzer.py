@@ -43,16 +43,25 @@ class StravaAnalyzer:
             stream_data = _ups.upsample_low_resolution(prepared, activity_data.get('moving_time', 0))
 
         stream_data = _extract.enrich_with_derived_streams(stream_data, activity_data, athlete_entry)
-        streams = _extract.extract_stream_data(stream_data, keys, resolution) if keys else None
+        streams = _extract.extract_stream_data(stream_data, keys, resolution, activity_data) if keys else None
 
-        best_powers, segment_records = _best.analyze_best_powers(
-            activity_data,
-            stream_data,
-            external_id,
-            db,
-            athlete_entry if athlete_entry is not None else getattr(activity_entry, 'athlete_id', None),
-            activity_entry,
-        )
+        # 判断是否为跑步活动
+        sport_type = activity_data.get('sport_type', '').lower() if activity_data else ''
+        is_running = sport_type in ['run', 'trail_run', 'virtual_run']
+
+        # 对于跑步活动，不计算 best_powers
+        if is_running:
+            best_powers = None
+            segment_records = None
+        else:
+            best_powers, segment_records = _best.analyze_best_powers(
+                activity_data,
+                stream_data,
+                external_id,
+                db,
+                athlete_entry if athlete_entry is not None else getattr(activity_entry, 'athlete_id', None),
+                activity_entry,
+            )
 
         overall = _metrics.analyze_overall(activity_data, stream_data, external_id, db)
         power = _metrics.analyze_power(activity_data, stream_data, external_id, db)

@@ -1,22 +1,22 @@
 {
   "duration": 3690,
-  "ftp": 191.0,
+  "ftp": 189.0,
   "intervals": [
     {
       "start": 0,
-      "end": 366,
-      "duration": 366,
+      "end": 356,
+      "duration": 356,
       "classification": "tempo",
-      "avg_power": 164.2,
-      "power_ratio": 0.86
+      "avg_power": 163.78,
+      "power_ratio": 0.87
     },
     {
-      "start": 366,
+      "start": 356,
       "end": 3691,
-      "duration": 3325,
+      "duration": 3335,
       "classification": "threshold",
-      "avg_power": 184.46,
-      "power_ratio": 0.97
+      "avg_power": 184.44,
+      "power_ratio": 0.98
     }
   ],
   "preview_image": null

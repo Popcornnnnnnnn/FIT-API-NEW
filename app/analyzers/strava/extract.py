@@ -204,10 +204,17 @@ def enrich_with_derived_streams(
     return enriched
 
 
-def extract_stream_data(stream_data: Dict[str, Any], keys: List[str], resolution: str = 'high') -> Optional[List[Dict[str, Any]]]:
+def extract_stream_data(stream_data: Dict[str, Any], keys: List[str], resolution: str = 'high', activity_data: Optional[Dict[str, Any]] = None) -> Optional[List[Dict[str, Any]]]:
     if not stream_data or not keys:
         return None
     result: List[Dict[str, Any]] = []
+    
+    # 判断是否为跑步活动
+    is_running = False
+    if activity_data:
+        sport_type = activity_data.get('sport_type', '').lower()
+        is_running = sport_type in ['run', 'trail_run', 'virtual_run']
+    
     try:
         for field in keys:
             if field == 'velocity_smooth' and 'velocity_smooth' in stream_data:
@@ -225,14 +232,19 @@ def extract_stream_data(stream_data: Dict[str, Any], keys: List[str], resolution
             if field in stream_data:
                 item = stream_data[field]
                 if isinstance(item, dict) and 'data' in item:
+                    data = item['data']
+                    # 如果是跑步活动的 cadence stream，需要乘以2
+                    if field == 'cadence' and is_running:
+                        data = [int((d or 0) * 2) if d is not None else None for d in data]
+                    
                     result.append({
                         'type': field,
-                        'data': item['data'],
+                        'data': data,
                         'series_type': item.get('series_type', 'time'),
                         'original_size': item.get('original_size', len(item['data'])),
                         'resolution': 'high'
                     })
-                continue
+                    continue
             if field in ['latitude', 'longitude'] and 'latlng' in stream_data:
                 latlng = stream_data['latlng']
                 data = latlng.get('data', [])

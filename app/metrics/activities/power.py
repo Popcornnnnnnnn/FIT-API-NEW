@@ -24,19 +24,6 @@ def compute_power_info(stream_data: Dict[str, Any], ftp: int, session_data: Opti
     else:
         result['max_power'] = int(max(valid_powers))
 
-    if session_data and 'normalized_power' in session_data:
-        result['normalized_power'] = int(session_data['normalized_power'])
-    else:
-        result['normalized_power'] = int(normalized_power(valid_powers))
-
-    result['intensity_factor']       = round(result['normalized_power'] / ftp, 2) if ftp else None
-    result['total_work']             = round(sum(valid_powers) / 1000, 0)
-    result['variability_index']      = round(result['normalized_power'] / result['avg_power'], 2) if result['avg_power'] > 0 else None
-    result['weighted_average_power'] = None
-    result['work_above_ftp']         = work_above_ftp(valid_powers, ftp)
-    result['eftp']                   = None
-
-    w_balance                   = stream_data.get('w_balance', [])
-    result['w_balance_decline'] = w_balance_decline(w_balance) if w_balance else None
+    result['total_work'] = round(sum(valid_powers) / 1000, 0)
 
     return result

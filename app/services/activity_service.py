@@ -45,6 +45,21 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# 骑行特有的 streams 字段（跑步活动需要过滤掉，但保留 watts/power）
+CYCLING_SPECIFIC_STREAM_FIELDS = {
+    'best_power',
+    'torque',
+    'spi',
+    'power_hr_ratio',
+    'w_balance',
+    'vam',
+    'left_right_balance',
+    'left_torque_effectiveness',
+    'right_torque_effectiveness',
+    'left_pedal_smoothness',
+    'right_pedal_smoothness',
+}
+
 class ActivityService:
     def get_all_data(
         self,
@@ -77,11 +92,25 @@ class ActivityService:
                 if athlete_entry.ftp is None:
                     athlete_entry.ftp = athlete_data.get('ftp')
 
+                # 获取活动类型并判断是否为跑步
+                activity_type = self._get_activity_type(activity_data=activity_data)
+                is_running = self._is_running_activity(activity_type)
 
+                # 根据运动类型决定默认 keys_list
                 if keys:
+                    # 用户指定了 keys，解析并过滤（如果是跑步活动）
                     keys_list = [k.strip() for k in keys.split(',') if k.strip()]
+                    if is_running:
+                        # 如果是跑步活动，过滤掉骑行特有的字段（保留 watts/power）
+                        keys_list = self._filter_keys_for_running(keys_list)
                 else:
-                    keys_list = ['time', 'distance', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp',  'best_power', 'torque', 'spi', 'power_hr_ratio', 'w_balance', 'vam']
+                    # 用户未指定 keys，使用默认值
+                    if is_running:
+                        # 跑步：不包含骑行特有字段，但保留 watts/power
+                        keys_list = ['time', 'distance', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp']
+                    else:
+                        # 骑行：包含所有字段
+                        keys_list = ['time', 'distance', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp', 'best_power', 'torque', 'spi', 'power_hr_ratio', 'w_balance', 'vam']
 
                 result = StravaAnalyzer.analyze_activity_data(
                     activity_data,
@@ -94,6 +123,10 @@ class ActivityService:
                     athlete_entry,
                     activity_entry,
                 )
+                
+                # 对返回的 streams 进行二次过滤（防止 StravaAnalyzer 返回了不需要的字段）
+                if is_running and result.streams:
+                    result.streams = self._filter_streams_for_running(result.streams)
 
                 # 生成 intervals 数据并保存到文件（包含预览图生成）
                 try:
@@ -109,8 +142,7 @@ class ActivityService:
                 except Exception:
                     logger.exception("[intervals][save-error-strava] activity_id=%s", activity_id)
                 
-                if getattr(result, 'heartrate', None) is not None:
-                    self._update_activity_efficiency_factor(db, activity_entry, result.heartrate.efficiency_index)
+                # efficiency_index 已移除，不再更新 efficiency_factor
 
                 # 将 training_load 写入数据库，并据此刷新 athlete 的 TSB（status）
                 try:
@@ -128,21 +160,7 @@ class ActivityService:
                     if result.overall:
                         result.overall.status = tsb
 
-                    # 附加 best_power_record（独立于分辨率）
-                    try:
-                        from ..repositories.best_power_file_repo import load_best_curve
-                        best_power_record = None
-
-                        curve = load_best_curve(athlete_entry.id)
-                        if curve:
-                            best_power_record = {
-                                'athlete_id': athlete_entry.id,
-                                'length': len(curve),
-                                'best_curve': curve,
-                            }
-                        result.best_power_record = BestPowerCurveRecord.model_validate(best_power_record)
-                    except Exception:
-                        result.best_power_record = None
+                    # best_power_record 已移除，不再返回
                 except Exception:
                     logger.exception(
                         "[training-load][error] activity_id=%s activity_entry=%s athlete_entry=%s",
@@ -244,6 +262,26 @@ class ActivityService:
                     s for s in available_result["available_streams"]
                     if s not in ("left_right_balance", "position_lat", "position_long")
                 ]
+                
+                # 尝试获取活动类型（从 session_cache 或其他数据源推断）
+                # 如果无法获取，默认不过滤（保持向后兼容）
+                activity_type = "unknown"
+                # 可以通过检查是否有功率数据来推断：如果有大量功率数据，可能是骑行；如果没有或很少，可能是跑步
+                # 但这里先简单处理：如果能从 session_cache 获取运动类型，就使用；否则不过滤
+                if session_cache:
+                    # 尝试从 session_cache 获取运动类型（如果 FIT 文件中有的话）
+                    # 这里暂时不实现，因为需要解析 FIT 文件的 session 消息
+                    pass
+                
+                # 如果是跑步活动，过滤掉骑行特有的字段
+                is_running = self._is_running_activity(activity_type)
+                if is_running:
+                    # 过滤掉骑行特有的字段（保留 watts/power）
+                    available_streams = [
+                        s for s in available_streams 
+                        if s not in CYCLING_SPECIFIC_STREAM_FIELDS
+                    ]
+                
                 res_enum = Resolution.HIGH if resolution == 'high' else Resolution.MEDIUM if resolution == 'medium' else Resolution.LOW
                 streams_data = activity_data_manager.get_activity_streams(db, activity_id, available_streams, res_enum)
                 for stream in streams_data or []:
@@ -255,6 +293,15 @@ class ActivityService:
                         stream["type"] = "watts"
                     if stream["type"] == "timestamp":
                         stream["type"] = "time"
+                
+                # 二次过滤（确保没有遗漏的骑行特有字段）
+                if is_running:
+                    streams_data = self._filter_streams_for_running(streams_data)
+                    # 如果是跑步活动，cadence stream 需要乘以2
+                    for stream in streams_data or []:
+                        if stream.get("type") == "cadence" and stream.get("data"):
+                            stream["data"] = [int((d or 0) * 2) if d is not None else None for d in stream["data"]]
+                
                 response_data["streams"] = streams_data
             else:
                 response_data["streams"] = None
@@ -263,37 +310,26 @@ class ActivityService:
             response_data["streams"] = None
 
         # best powers + segment_records（本地路径，封装到独立方法）
+        # 对于跑步活动，不计算 best_powers
         try:
             stream_raw = raw_stream_data
-            bp = self._extract_best_powers_from_stream(stream_raw)
-            response_data["best_powers"] = bp if bp else None
-            response_data["segment_records"] = self._update_segment_records_from_local(db, activity_id, stream_raw, bp)
+            # 判断是否为跑步活动（本地路径暂时无法准确判断，默认计算）
+            # TODO: 可以通过检查是否有大量功率数据来推断，或从 FIT 文件的 session 消息中获取运动类型
+            is_running = False
+            
+            if is_running:
+                response_data["best_powers"] = None
+                response_data["segment_records"] = None
+            else:
+                bp = self._extract_best_powers_from_stream(stream_raw)
+                response_data["best_powers"] = bp if bp else None
+                response_data["segment_records"] = self._update_segment_records_from_local(db, activity_id, stream_raw, bp)
         except Exception as e:
             logger.exception("[section-error][segments] activity_id=%s err=%s", activity_id, e)
             response_data["best_powers"] = None
             response_data["segment_records"] = None
 
-        # best_power_record（独立于分辨率，从文件仓库读取）
-        try:
-            from ..repositories.activity_repo import get_activity_athlete
-            from ..repositories.best_power_file_repo import load_best_curve
-            pair = get_activity_athlete(db, activity_id)
-            if pair:
-                _activity, athlete = pair
-                curve = load_best_curve(int(athlete.id))
-                if curve:
-                    response_data["best_power_record"] = {
-                        'athlete_id': int(athlete.id),
-                        'length': len(curve),
-                        'best_curve': curve,
-                    }
-                else:
-                    response_data["best_power_record"] = None
-            else:
-                response_data["best_power_record"] = None
-        except Exception as e:
-            logger.exception("[section-error][best_power_record] activity_id=%s err=%s", activity_id, e)
-            response_data["best_power_record"] = None
+        # best_power_record 已移除，不再返回
 
         # 生成并保存 intervals 数据（包含预览图生成）
         try:
@@ -810,10 +846,7 @@ class ActivityService:
         if session_data is None and getattr(activity, 'upload_fit_url', None):
             session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         result = compute_heartrate_info(stream_data, bool(stream_data.get('power')), session_data)
-        efficiency_value = None
-        if isinstance(result, dict):
-            efficiency_value = result.get('efficiency_index')
-        self._update_activity_efficiency_factor(db, activity, efficiency_value)
+        # efficiency_index 已移除，不再更新 efficiency_factor
         return result
 
     def get_speed(
@@ -878,7 +911,12 @@ class ActivityService:
             stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
         if session_data is None and getattr(activity, 'upload_fit_url', None):
             session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
-        return compute_cadence_info(stream_data, session_data)
+        
+        # 判断是否为跑步活动（本地路径暂时无法准确判断，默认False）
+        # TODO: 可以通过检查是否有大量功率数据来推断，或从 FIT 文件的 session 消息中获取运动类型
+        is_running = False
+        
+        return compute_cadence_info(stream_data, session_data, is_running)
 
     def get_altitude(
         self,
@@ -1448,6 +1486,53 @@ class ActivityService:
         # FIT路径：暂不考虑（按用户要求）
         # 如果无法确定，返回unknown
         return "unknown"
+    
+    def _is_running_activity(self, activity_type: str) -> bool:
+        """
+        判断是否为跑步活动
+        
+        参数：
+            activity_type: 运动类型字符串（全小写）
+        
+        返回：
+            True 如果是跑步活动，False 否则
+        """
+        return activity_type in ['run', 'trail_run', 'virtual_run']
+    
+    def _filter_streams_for_running(self, streams: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
+        """
+        为跑步活动过滤掉骑行特有的 streams 字段
+        
+        参数：
+            streams: 流数据列表
+        
+        返回：
+            过滤后的流数据列表
+        """
+        if not streams:
+            return streams
+        
+        filtered = []
+        for stream in streams:
+            stream_type = stream.get('type', '')
+            # 保留 watts/power，但过滤掉其他骑行特有字段
+            if stream_type not in CYCLING_SPECIFIC_STREAM_FIELDS:
+                filtered.append(stream)
+        
+        return filtered if filtered else None
+    
+    def _filter_keys_for_running(self, keys: List[str]) -> List[str]:
+        """
+        为跑步活动过滤掉骑行特有的 keys 字段
+        
+        参数：
+            keys: 流数据字段列表
+        
+        返回：
+            过滤后的字段列表
+        """
+        # 保留 watts/power，但过滤掉其他骑行特有字段
+        return [k for k in keys if k not in CYCLING_SPECIFIC_STREAM_FIELDS]
 
     def _select_intervals_data_source(
         self,

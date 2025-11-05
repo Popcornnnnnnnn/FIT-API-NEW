@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from sqlalchemy.orm import Session
 from ...core.analytics.time_utils import format_time as _fmt
 from ...core.analytics.power import normalized_power as _np, work_above_ftp as _work_above_ftp, w_balance_decline as _w_decline
-from ...core.analytics.hr import recovery_rate as _hr_recovery, hr_lag_seconds as _hr_lag, decoupling_rate as _decouple
+from ...core.analytics.hr import recovery_rate as _hr_recovery
 from ...core.analytics.altitude import total_descent as _total_descent, uphill_downhill_distance_km as _updown
 from ...core.analytics.training import (
     aerobic_effect as _aerobic,
@@ -122,16 +122,9 @@ def analyze_power(activity_data: Dict[str, Any], stream_data: Dict[str, Any], ex
         if (not wbal) and power and getattr(athlete, 'w_balance', None):
             wbal = _compute_w_balance_series(power, ftp, int(athlete.w_balance))
         return {
-            'avg_power'             : int(activity_data.get('average_watts')) if activity_data.get('average_watts') else (int(sum(power)/len(power)) if power else None),
-            'max_power'             : int(activity_data.get('max_watts')) if activity_data.get('max_watts') else (int(max(power)) if power else None),
-            'normalized_power'      : int(_np(power)),
-            'intensity_factor'      : round(_np(power)/ftp, 2) if ftp else None,
-            'total_work'            : round(sum(power)/1000, 0),
-            'variability_index'     : round(_np(power)/(int(activity_data.get('average_watts')) or (sum(power)/len(power) if power else 1)), 2) if power else None,
-            'weighted_average_power': int(activity_data.get('weighted_average_watts')) if activity_data.get('weighted_average_watts') else None,
-            'work_above_ftp'        : _work_above_ftp(power, ftp),
-            'eftp'                  : None,
-            'w_balance_decline'     : _w_decline(wbal) if (isinstance(wbal, list) and len(wbal) > 0) else None,
+            'avg_power' : int(activity_data.get('average_watts')) if activity_data.get('average_watts') else (int(sum(power)/len(power)) if power else None),
+            'max_power' : int(activity_data.get('max_watts')) if activity_data.get('max_watts') else (int(max(power)) if power else None),
+            'total_work': round(sum(power)/1000, 0),
         }
     except Exception:
         return None
@@ -145,15 +138,10 @@ def analyze_heartrate(
         return None
     try:
         hr = [h if h is not None else 0 for h in stream_data.get('heartrate', {}).get('data', [])]
-        pw = [p if p is not None else 0 for p in stream_data.get('watts', {}).get('data', [])] if 'watts' in stream_data else []
-        ei = _np([p for p in pw if p > 0]) / (sum(hr)/len(hr)) if pw and hr and any(hr) else None
         return {
             'avg_heartrate'          : int(activity_data.get('average_heartrate')) if activity_data.get('average_heartrate') else (int(sum(hr)/len(hr)) if hr else None),
             'max_heartrate'          : int(activity_data.get('max_heartrate')) if activity_data.get('max_heartrate') else (int(max(hr)) if hr else None),
             'heartrate_recovery_rate': _hr_recovery(hr),
-            'heartrate_lag'          : _hr_lag(pw, hr) if pw else None,
-            'efficiency_index'       : round(ei, 2) if ei else None,
-            'decoupling_rate'        : _decouple(pw, hr) if pw else None,
         }
     except Exception:
         return None
@@ -163,6 +151,8 @@ def analyze_cadence(activity_data: Dict[str, Any], stream_data: Dict[str, Any]) 
     """踏频指标（Strava 数据）。
 
     仅使用 cadence 流计算平均和最大踏频；其他高级指标保留为空。
+    
+    对于跑步活动，踏频数据需要乘以2（因为设备记录的是单侧步频，需要转换为总步频）。
     """
     if 'cadence' not in stream_data:
         return None
@@ -170,31 +160,18 @@ def analyze_cadence(activity_data: Dict[str, Any], stream_data: Dict[str, Any]) 
         cad = [c if c is not None else 0 for c in stream_data.get('cadence', {}).get('data', [])]
         if not cad:
             return None
-        # 估算总踏频（转数）：基于 time 流积分 cadence（rpm）
-        total_strokes = None
-        try:
-            t = stream_data.get('time', {}).get('data', [])
-            if t and len(t) == len(cad):
-                acc = 0.0
-                prev = t[0]
-                for i in range(1, len(t)):
-                    dt = max(0, (t[i] or 0) - (prev or 0))
-                    acc += (cad[i] or 0) * (dt / 60.0)
-                    prev = t[i]
-                total_strokes = int(round(acc))
-            else:
-                total_strokes = int(round(sum(cad) / 60.0))
-        except Exception:
-            total_strokes = None
+        
+        # 判断是否为跑步活动
+        sport_type = activity_data.get('sport_type', '').lower() if activity_data else ''
+        is_running = sport_type in ['run', 'trail_run', 'virtual_run']
+        
+        # 如果是跑步活动，踏频需要乘以2（单侧步频 -> 总步频）
+        if is_running:
+            cad = [c * 2 for c in cad]
+        
         return {
-            'avg_cadence'               : int(sum(cad)/len(cad)) if cad else None,
-            'max_cadence'               : int(max(cad)) if cad else None,
-            'left_right_balance'        : None,
-            'left_torque_effectiveness' : None,
-            'right_torque_effectiveness': None,
-            'left_pedal_smoothness'     : None,
-            'right_pedal_smoothness'    : None,
-            'total_strokes'             : total_strokes,
+            'avg_cadence': int(sum(cad)/len(cad)) if cad else None,
+            'max_cadence': int(max(cad)) if cad else None,
         }
     except Exception:
         return None
