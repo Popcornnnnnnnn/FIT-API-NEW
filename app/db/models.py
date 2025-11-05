@@ -27,7 +27,7 @@ class TbAthlete(Base):
     threshold_heartrate = Column(Integer)
     is_threshold_active = Column(Integer, default=0)
     ftp           = Column(VARCHAR(255))
-    FTPace        = Column(VARCHAR(255))  # 阈值配速，格式如 "3:40"
+    lactate_threshold_pace = Column(VARCHAR(255))  # 阈值配速，格式如 "3:40"
     w_balance     = Column(Integer)
     weight        = Column(Integer)
     tsb           = Column(Integer)

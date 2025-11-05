@@ -60,9 +60,9 @@ def analyze_overall(activity_data: Dict[str, Any], stream_data: Dict[str, Any], 
             if is_running:
                 # 跑步活动：使用 rTSS
                 ft_pace = None
-                if hasattr(athlete, 'FTPace') and athlete.FTPace:
+                if hasattr(athlete, 'lactate_threshold_pace') and athlete.lactate_threshold_pace:
                     try:
-                        pace_val = athlete.FTPace
+                        pace_val = athlete.lactate_threshold_pace
                         if isinstance(pace_val, str):
                             ft_pace = parse_pace_string(pace_val)
                         else:
@@ -218,9 +218,9 @@ def analyze_training_effect(activity_data: Dict[str, Any], stream_data: Dict[str
         if is_running:
             # 跑步活动：基于配速计算训练负荷
             ft_pace = None
-            if hasattr(athlete, 'FTPace') and athlete.FTPace:
+            if hasattr(athlete, 'lactate_threshold_pace') and athlete.lactate_threshold_pace:
                 try:
-                    pace_val = athlete.FTPace
+                    pace_val = athlete.lactate_threshold_pace
                     if isinstance(pace_val, str):
                         ft_pace = parse_pace_string(pace_val)
                     else:

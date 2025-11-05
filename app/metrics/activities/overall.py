@@ -61,11 +61,11 @@ def compute_overall_info(stream_data: Dict[str, Any], session_data: Optional[Dic
     
     if is_running:
         # 跑步活动：使用 rTSS，直接使用原始平均配速计算
-        # 获取阈值配速（FTPace字段）
+        # 获取阈值配速（lactate_threshold_pace字段）
         ft_pace = None
-        if hasattr(athlete, 'FTPace') and athlete.FTPace:
+        if hasattr(athlete, 'lactate_threshold_pace') and athlete.lactate_threshold_pace:
             try:
-                pace_val = athlete.FTPace
+                pace_val = athlete.lactate_threshold_pace
                 if isinstance(pace_val, str):
                     ft_pace = parse_pace_string(pace_val)
                 else:

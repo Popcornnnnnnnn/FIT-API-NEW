@@ -1,0 +1,103 @@
+{
+  "duration": 3890,
+  "ftp": 189.0,
+  "intervals": [
+    {
+      "start": 0,
+      "end": 919,
+      "duration": 919,
+      "classification": "tempo",
+      "avg_power": 154.07,
+      "power_ratio": 0.82
+    },
+    {
+      "start": 919,
+      "end": 1106,
+      "duration": 187,
+      "classification": "threshold",
+      "avg_power": 185.02,
+      "power_ratio": 0.98
+    },
+    {
+      "start": 1106,
+      "end": 1734,
+      "duration": 628,
+      "classification": "tempo",
+      "avg_power": 157.14,
+      "power_ratio": 0.83
+    },
+    {
+      "start": 1734,
+      "end": 2018,
+      "duration": 284,
+      "classification": "threshold",
+      "avg_power": 182.26,
+      "power_ratio": 0.96
+    },
+    {
+      "start": 2018,
+      "end": 2075,
+      "duration": 57,
+      "classification": "tempo",
+      "avg_power": 171.18,
+      "power_ratio": 0.91
+    },
+    {
+      "start": 2075,
+      "end": 2366,
+      "duration": 291,
+      "classification": "threshold",
+      "avg_power": 183.69,
+      "power_ratio": 0.97
+    },
+    {
+      "start": 2366,
+      "end": 3057,
+      "duration": 691,
+      "classification": "tempo",
+      "avg_power": 169.04,
+      "power_ratio": 0.89
+    },
+    {
+      "start": 3057,
+      "end": 3133,
+      "duration": 76,
+      "classification": "threshold",
+      "avg_power": 182.3,
+      "power_ratio": 0.96
+    },
+    {
+      "start": 3133,
+      "end": 3377,
+      "duration": 244,
+      "classification": "tempo",
+      "avg_power": 169.85,
+      "power_ratio": 0.9
+    },
+    {
+      "start": 3377,
+      "end": 3504,
+      "duration": 127,
+      "classification": "threshold",
+      "avg_power": 182.95,
+      "power_ratio": 0.97
+    },
+    {
+      "start": 3504,
+      "end": 3770,
+      "duration": 266,
+      "classification": "tempo",
+      "avg_power": 172.45,
+      "power_ratio": 0.91
+    },
+    {
+      "start": 3770,
+      "end": 3891,
+      "duration": 121,
+      "classification": "threshold",
+      "avg_power": 179.33,
+      "power_ratio": 0.95
+    }
+  ],
+  "preview_image": null
+}
