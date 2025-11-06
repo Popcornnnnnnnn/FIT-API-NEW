@@ -45,6 +45,12 @@ async def get_activity_all_data(
             logger.info("[cache-disabled] skip cache lookup")
 
         from ..services.activity_service import activity_service
+        from ..repositories.oauth_repo import get_access_token_by_athlete_id
+        from ..repositories.activity_repo import get_activity_athlete
+
+        activity_entry, athlete_entry = get_activity_athlete(db, activity_id)
+        if activity_entry.upload_fit_url: access_token = None
+        else: access_token = get_access_token_by_athlete_id(db, athlete_entry.id)
         result = activity_service.get_all_data(db, activity_id, access_token, keys, resolution)
 
         if _is_cache_enabled():

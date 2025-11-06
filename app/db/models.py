@@ -7,33 +7,46 @@ from ..db_base import Base
 class TbActivity(Base):
     __tablename__ = "tb_activity"
 
-    id             = Column(BIGINT, primary_key=True, index=True)
-    athlete_id     = Column(BIGINT)
-    upload_fit_url = Column(VARCHAR(255))
-    name           = Column(VARCHAR(255))
-    external_id    = Column(VARCHAR(255))
-    tss            = Column(Integer)
-    tss_updated    = Column(Integer, default=0)
+    id                = Column(BIGINT, primary_key=True, index=True)
+    athlete_id        = Column(BIGINT)
+    upload_fit_url    = Column(VARCHAR(255))
+    name              = Column(VARCHAR(255))
+    external_id       = Column(VARCHAR(255))
+    tss               = Column(Integer)
+    tss_updated       = Column(Integer, default=0)
     efficiency_factor = Column(Float)
-    start_date     = Column(DateTime)
+    start_date        = Column(DateTime)
 
 
 class TbAthlete(Base):
     __tablename__ = "tb_athlete"
 
-    id            = Column(BIGINT, primary_key=True, index=True)
-    max_heartrate = Column(Integer)
-    # 新增：阈值心率与是否启用阈值分区
-    threshold_heartrate = Column(Integer)
-    is_threshold_active = Column(Integer, default=0)
-    ftp           = Column(VARCHAR(255))
-    lactate_threshold_pace = Column(VARCHAR(255))  # 阈值配速，格式如 "3:40"
-    w_balance     = Column(Integer)
-    weight        = Column(Integer)
-    tsb           = Column(Integer)
-    ctl           = Column(Integer)
-    atl           = Column(Integer)
+    id                     = Column(BIGINT, primary_key=True, index=True)
+    max_heartrate          = Column(Integer)
+    threshold_heartrate    = Column(Integer)
+    is_threshold_active    = Column(Integer, default=0)
+    ftp                    = Column(VARCHAR(255))
+    lactate_threshold_pace = Column(VARCHAR(255))                          # 阈值配速，格式如 "3:40"
+    w_balance              = Column(Integer)
+    weight                 = Column(Integer)
+    tsb                    = Column(Integer)
+    ctl                    = Column(Integer)
+    atl                    = Column(Integer)
 
+class TbDevice(Base):
+    __tablename__ = "tb_device"
+    
+    id         = Column(BIGINT, primary_key=True, index=True)
+    owner_id   = Column(BIGINT, index=True, comment="关联的运动员ID")
+
+class TbOauthToken(Base):
+    __tablename__ = "tb_oauth_tokens"
+    
+    id            = Column(BIGINT, primary_key=True, index=True)
+    device_id     = Column(BIGINT, index=True, comment="关联的设备ID")
+    access_token  = Column(VARCHAR(255), comment="Strava访问令牌")
+    refresh_token = Column(VARCHAR(255), comment="刷新令牌")
+    update_time   = Column(DateTime, comment="更新时间")
 
 class TbAthletePowerRecords(Base):
     __tablename__ = "tb_athlete_power_records"
