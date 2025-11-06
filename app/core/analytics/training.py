@@ -295,3 +295,4 @@ def calculate_heart_rate_training_load(
     intensity_factor = hr_percent_max / fthr_percent_max
     hrss = 100 * (duration_seconds * (intensity_factor ** 2) / 3600.0)
     return int(hrss)
+

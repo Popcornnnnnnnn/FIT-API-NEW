@@ -20,6 +20,7 @@ from ...core.analytics.training import (
     calculate_running_training_load,
     calculate_heart_rate_training_load
 )
+from ...core.analytics.training_heartrate import compute_training_effect
 from ...core.analytics.pace import (
     parse_pace_string
 )
@@ -268,38 +269,65 @@ def analyze_training_effect(activity_data: Dict[str, Any], stream_data: Dict[str
     """分析训练效果，支持骑行（功率）和跑步（配速）活动"""
     try:
         # ! 跑步活动可以通过心率分析训练效果，还没有实现，骑行活动理论上也可以回退到心率来分析训练效果
+        power = [p if p is not None else 0 for p in stream_data.get('watts', {}).get('data', [])]
+        hr = [h if h is not None else 0 for h in stream_data.get('heartrate', {}).get('data', [])]
+
         if activity_type in ["run", "trail_run", "virtual_run"]:
-            return {
-                'primary_training_benefit': None,
-                'aerobic_effect': None,
-                'anaerobic_effect': None,
-                'training_load': None,
-                'carbohydrate_consumption': int(activity_data.get('calories', 0) / 4.138),
-            }
+            # 跑步活动，使用心率进行训练效果评估
+            if not hr:
+                return {
+                    'primary_training_benefit': None,
+                    'aerobic_effect': None,
+                    'anaerobic_effect': None,
+                    'training_load': None,
+                    'carbohydrate_consumption': int(activity_data.get('calories', 0) / 4.138),
+                }
+            else:
+                sex = "male" if activity_athlete_pair[1].sex == "male" else "female"
+                hr_result = compute_training_effect(hr, activity_athlete_pair[1].max_heartrate, activity_athlete_pair[1].threshold_heartrate, 1, sex)
+                return {
+                    'primary_training_benefit': hr_result['Training_Focus'],
+                    'aerobic_effect': hr_result['TE_Aerobic'],
+                    'anaerobic_effect': hr_result['TE_Anaerobic'],
+                    'training_load': None,
+                    'carbohydrate_consumption': int(activity_data.get('calories', 0) / 4.138),
+                }
         if activity_type in ["ride", "virtualride", "ebikeride"]:
-            # 骑行活动：基于功率计算
-            if 'watts' not in stream_data:
-                return None
-            
-            power = [p if p is not None else 0 for p in stream_data.get('watts', {}).get('data', [])]
-            if not power:
-                return None
-            
-            ftp = int(activity_athlete_pair[1].ftp)
-            
-            ae = _aerobic(power, ftp)
-            ne = _anaerobic(power, ftp)
-            zd = _zone_percentages(power, ftp)
-            zt = _zone_times(power, ftp)
-            pb, _ = _primary_benefit(zd, zt, round(len(power)/60, 0), ae, ne, ftp, int(activity_data.get('max_watts') or 0))
-            
-            return {
-                'primary_training_benefit': pb,
-                'aerobic_effect': ae,
-                'anaerobic_effect': ne,
-                'training_load': None,
-                'carbohydrate_consumption': int(activity_data.get('calories', 0) / 4.138),
-            }
+            # 骑行活动：优先基于功率计算，其次基于心率
+            if power:
+                ftp = int(activity_athlete_pair[1].ftp)
+                
+                ae = _aerobic(power, ftp)
+                ne = _anaerobic(power, ftp)
+                zd = _zone_percentages(power, ftp)
+                zt = _zone_times(power, ftp)
+                pb, _ = _primary_benefit(zd, zt, round(len(power)/60, 0), ae, ne, ftp, int(activity_data.get('max_watts') or 0))
+                
+                return {
+                    'primary_training_benefit': pb,
+                    'aerobic_effect': ae,
+                    'anaerobic_effect': ne,
+                    'training_load': None,
+                    'carbohydrate_consumption': int(activity_data.get('calories', 0) / 4.138),
+                }
+            elif hr:
+                sex = "male" if activity_athlete_pair[1].sex == "male" else "female"
+                hr_result = compute_training_effect(hr, activity_athlete_pair[1].max_heartrate, activity_athlete_pair[1].threshold_heartrate, 1, sex)
+                return {
+                    'primary_training_benefit': hr_result['Training_Focus'],
+                    'aerobic_effect': hr_result['TE_Aerobic'],
+                    'anaerobic_effect': hr_result['TE_Anaerobic'],
+                    'training_load': None,
+                    'carbohydrate_consumption': int(activity_data.get('calories', 0) / 4.138),
+                }
+            else:
+                return {
+                    'primary_training_benefit': None,
+                    'aerobic_effect': None,
+                    'anaerobic_effect': None,
+                    'training_load': None,
+                    'carbohydrate_consumption': int(activity_data.get('calories', 0) / 4.138),
+                }
     except Exception:
         return None
 

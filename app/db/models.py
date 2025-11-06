@@ -32,6 +32,7 @@ class TbAthlete(Base):
     tsb                    = Column(Integer)
     ctl                    = Column(Integer)
     atl                    = Column(Integer)
+    sex                    = Column(VARCHAR(255))
 
 class TbDevice(Base):
     __tablename__ = "tb_device"
