@@ -1,0 +1,15 @@
+{
+  "duration": 8423,
+  "ftp": 184.0,
+  "intervals": [
+    {
+      "start": 0,
+      "end": 8424,
+      "duration": 8424,
+      "classification": "tempo",
+      "avg_power": 158.4,
+      "power_ratio": 0.86
+    }
+  ],
+  "preview_image": null
+}

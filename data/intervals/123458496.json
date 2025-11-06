@@ -1,0 +1,23 @@
+{
+  "duration": 1077,
+  "ftp": 184.0,
+  "intervals": [
+    {
+      "start": 0,
+      "end": 277,
+      "duration": 277,
+      "classification": "endurance",
+      "avg_power": 104.16,
+      "power_ratio": 0.57
+    },
+    {
+      "start": 277,
+      "end": 1078,
+      "duration": 801,
+      "classification": "recovery",
+      "avg_power": 98.74,
+      "power_ratio": 0.54
+    }
+  ],
+  "preview_image": null
+}

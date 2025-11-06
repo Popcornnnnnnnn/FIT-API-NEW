@@ -63,15 +63,19 @@ class StravaAnalyzer:
             segment_records = None
 
 
-        overall = _metrics.analyze_overall(activity_data, stream_data, external_id, db, activity_athlete_pair)
-        power = _metrics.analyze_power(activity_data, stream_data, external_id, db, activity_athlete_pair)
-        heartrate = _metrics.analyze_heartrate(activity_data, stream_data)
-        cadence = _metrics.analyze_cadence(activity_data, stream_data)
+
+        overall = _metrics.analyze_overall(activity_data, stream_data, external_id, db, activity_athlete_pair, activity_type)
+        power = _metrics.analyze_power(activity_data, stream_data, external_id, db, activity_athlete_pair, activity_type)
+        heartrate = _metrics.analyze_heartrate(activity_data, stream_data, activity_type)
+        cadence = _metrics.analyze_cadence(activity_data, stream_data, activity_type)
         speed = _metrics.analyze_speed(activity_data, stream_data)
-        training_effect = _metrics.analyze_training_effect(activity_data, stream_data, external_id, db, activity_athlete_pair)
+        training_effect = _metrics.analyze_training_effect(activity_data, stream_data, external_id, db, activity_athlete_pair, activity_type)
         altitude = _metrics.analyze_altitude(activity_data, stream_data)
         temp = _metrics.analyze_temperature(activity_data, stream_data)
         zones = _metrics.analyze_zones(activity_data, stream_data, external_id, db, activity_athlete_pair)
+
+        # 部分项避免重复计算，直接复用
+        if training_effect: training_effect['training_load'] = overall['training_load']
 
         response = AllActivityDataResponse(
             overall         = overall,

@@ -92,7 +92,7 @@ class ActivityService:
                 keys_list = keys_list_all if activity_type == "ride" else keys_list_else
                 result = StravaAnalyzer.analyze_activity_data(activity_data, stream_data, athlete_data, activity_entry.external_id, db, keys_list, resolution, athlete_entry, activity_entry, activity_type)
                 self._generate_and_save_intervals_strava(db, activity_id, activity_entry, stream_data, activity_data, athlete_entry, athlete_data)
-                if getattr(result.heartrate, 'efficiency_index', None) is not None: self._update_activity_efficiency_factor(db, activity_entry, result.heartrate.efficiency_index)
+                if result.heartrate and result.heartrate.efficiency_index is not None: self._update_activity_efficiency_factor(self, db, activity_entry, result.heartrate.efficiency_index)
                 start_dt = datetime.fromisoformat(activity_data.get('start_date').replace('Z', '+00:00')).replace(tzinfo=None)
                 self._upsert_activity_tss(db, activity_entry, result.overall.training_load, start_dt)
                 result.overall.status = self._update_athlete_status(db, athlete_entry, start_dt)
