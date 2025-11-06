@@ -76,8 +76,9 @@ class ActivityService:
             keys_list_all = ['time', 'distance', 'latlng', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp', 'moving', 'grade_smooth']
             keys_list_else = ['time', 'distance', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp']
             try:
-                #  ! 可以也支持用external_id查找，增强鲁棒性
-                activity_entry, athlete_entry = get_activity_athlete(db, activity_id)
+                #  ! 支持用external_id或者id查找，增强鲁棒性
+                local_obj = db.query(TbActivity).filter((TbActivity.id == activity_id) | (TbActivity.external_id == activity_id)).first()
+                activity_entry, athlete_entry = get_activity_athlete(db, local_obj.id)
                 if not activity_entry or not athlete_entry: return None
     
                 full = client.fetch_full(activity_entry.external_id, keys=keys_list_all, resolution=None)
