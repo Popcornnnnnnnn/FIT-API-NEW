@@ -247,10 +247,51 @@ def calculate_running_training_load(
     if not ft_pace or ft_pace <= 0 or not ngp or ngp <= 0 or duration_seconds <= 0:
         return 0
     
-    # 强度因子：配速越小越快，所以比值越大强度越高
     intensity_factor = float(ft_pace) / ngp
     duration_hours = duration_seconds / 3600.0
-    # 使用IF²的公式（类似TSS）
     rtss = (intensity_factor ** 2) * duration_hours * 100
-    
     return int(rtss)
+
+def calculate_heart_rate_training_load(
+    avg_heartrate: int,
+    hr_max: int,
+    threshold_heartrate: int,
+    duration_seconds: int
+) -> int:
+    """计算基于心率的训练负荷（HRSS - Heart Rate Stress Score）
+    
+    使用 Method 2 方法，直接使用 %HRmax 和 FTHR%max 计算，跳过 HRrest。
+    参考 Elevate 和 TrainingPeaks 的实现方式。
+    
+    公式：
+        HRSS = 100 × (t × (HR%max / FTHR%max)² / 3600)
+    
+    其中：
+        HR%max = avg_heartrate / hr_max
+        FTHR%max = threshold_heartrate / hr_max
+        IF (Intensity Factor) = HR%max / FTHR%max
+        t = duration_seconds（训练时长，秒）
+    
+    参数：
+        avg_heartrate: 活动期间平均心率（bpm）
+        hr_max: 最大心率（bpm）
+        threshold_heartrate: 功能阈值心率 FTHR（bpm）
+        duration_seconds: 训练时长（秒）
+    
+    返回：
+        HRSS 整数值，若输入不合法返回 0
+    
+    示例：
+        >>> # HRmax=190, FTHR=170, 平均心率=160, 时长=45分钟
+        >>> # HR%max = 160/190 ≈ 0.842
+        >>> # FTHR%max = 170/190 ≈ 0.895
+        >>> # IF = 0.842/0.895 ≈ 0.941
+        >>> # HRSS = (2700 × 0.941² / 3600) × 100 ≈ 66
+        >>> calculate_heart_rate_training_load(160, 190, 170, 2700)
+        66
+    """
+    hr_percent_max = avg_heartrate / hr_max
+    fthr_percent_max = threshold_heartrate / hr_max
+    intensity_factor = hr_percent_max / fthr_percent_max
+    hrss = 100 * (duration_seconds * (intensity_factor ** 2) / 3600.0)
+    return int(hrss)

@@ -17,7 +17,8 @@ from ...core.analytics.training import (
     power_zone_times as _zone_times,
     primary_training_benefit as _primary_benefit,
     calculate_training_load,
-    calculate_running_training_load
+    calculate_running_training_load,
+    calculate_heart_rate_training_load
 )
 from ...core.analytics.pace import (
     parse_pace_string
@@ -42,23 +43,27 @@ def analyze_overall(activity_data: Dict[str, Any], stream_data: Dict[str, Any], 
             'avg_heartrate' : int(activity_data.get('average_heartrate')) if activity_data.get('average_heartrate') else None,
             'max_altitude'  : int(activity_data.get('elev_high')),
         }
-        
+
         # 计算训练负荷
         if activity_athlete_pair:
             _, athlete = activity_athlete_pair
             moving_time = int(activity_data.get('moving_time') or 0)
             
-            if activity_type == "run":
-                # 跑步活动：使用 rTSS
+            if activity_type in ["run", "trail_run", "virtual_run"]:
+                # 跑步活动：优先使用 rTSS（有阈值配速设置），其次使用心率负荷
                 ft_pace = parse_pace_string(athlete.lactate_threshold_pace)
-                result['training_load'] = calculate_running_training_load(1000.0 / (result['average_speed'] / 3.6), ft_pace, moving_time) if ft_pace and result.get('average_speed') else None
-            elif activity_type == "ride":
-                # 骑行活动：使用 TSS
+                if ft_pace: result['training_load'] = calculate_running_training_load(1000.0 / (result['average_speed'] / 3.6), ft_pace, moving_time) if ft_pace and result.get('average_speed') else None
+                else: result['training_load'] = calculate_heart_rate_training_load(result['avg_heartrate'], athlete.max_heartrate, athlete.threshold_heartrate, moving_time) if athlete.max_heartrate and athlete.threshold_heartrate and result.get('avg_heartrate') else None
+            elif activity_type in ["ride", "virtualride", "ebikeride"]:
+                # 骑行活动：优先使用 TSS(有功率数据)，其次使用心率负荷
                 ftp = int(athlete.ftp)
-                result['training_load'] = calculate_training_load(result['avg_power'], ftp, moving_time) if ftp and result.get('avg_power') else None
+                watts = stream_data.get('watts', {}).get('data')
+                if watts: result['training_load'] = calculate_training_load(result['avg_power'], ftp, moving_time) if ftp and result.get('avg_power') else None
+                else: result['training_load'] = calculate_heart_rate_training_load(result['avg_heartrate'], athlete.max_heartrate, athlete.threshold_heartrate, moving_time) if athlete.max_heartrate and athlete.threshold_heartrate and result.get('avg_heartrate') else None
+            
             else:
-                # ! 其他活动目前没有心率负荷，以后应该按照心率来
-                result['training_load'] = None
+                # 其他活动：默认都使用心率负荷
+                result['training_load'] = calculate_heart_rate_training_load(result['avg_heartrate'], athlete.max_heartrate, athlete.threshold_heartrate, moving_time) if athlete.max_heartrate and athlete.threshold_heartrate and result.get('avg_heartrate') else None
         return result
     except Exception:
         return None
@@ -72,9 +77,7 @@ def analyze_power(activity_data: Dict[str, Any], stream_data: Dict[str, Any], ex
         power = [p if p is not None else 0 for p in power_stream.get('data', [])]
         valid_powers = [int(p) for p in power if p and p > 0]
         if not valid_powers: return None
-        
-
-        if activity_type == "ride":
+        if activity_type in ["ride", "virtualride", "ebikeride"]:
             np_val = _np(valid_powers)
             avg_power = int(activity_data.get('average_watts')) if activity_data.get('average_watts') else int(sum(valid_powers) / len(valid_powers))
             ftp = int(activity_athlete_pair[1].ftp)
@@ -86,7 +89,7 @@ def analyze_power(activity_data: Dict[str, Any], stream_data: Dict[str, Any], ex
                 'intensity_factor': round(np_val / ftp, 2) if ftp > 0 else None,
                 'total_work': round(sum(valid_powers) / 1000, 0),
                 'variability_index': round(np_val / avg_power, 2) if avg_power > 0 else None,
-                'weighted_average_power': None,
+                'weighted_average_power': activity_data.get('weighted_average_watts') if activity_data.get('weighted_average_watts') else None,
                 'work_above_ftp': _work_above_ftp(valid_powers, ftp),
                 'eftp': None,
                 'w_balance_decline': _w_decline(wbal) if wbal else None,
@@ -121,7 +124,7 @@ def analyze_heartrate(activity_data: Dict[str, Any], stream_data: Dict[str, Any]
             'heartrate_recovery_rate': _hr_recovery(hr),
         }
         
-        if activity_type == "ride" and 'watts' in stream_data:
+        if activity_type in ["ride", "virtualride", "ebikeride"] and 'watts' in stream_data:
             # 对于骑行活动，如果有功率数据，计算 efficiency_index, heartrate_lag, decoupling_rate
             power_stream = stream_data.get('watts', {})
             power_data = power_stream.get('data', []) if isinstance(power_stream, dict) else power_stream
@@ -154,7 +157,7 @@ def analyze_cadence(activity_data: Dict[str, Any], stream_data: Dict[str, Any], 
         
         
         # 如果是跑步活动，踏频需要乘以2（单侧步频 -> 总步频）
-        if activity_type == "run":
+        if activity_type in ["run", "trail_run", "virtual_run"]:
             cad = [c * 2 for c in cad]
         
         result = {
@@ -163,7 +166,7 @@ def analyze_cadence(activity_data: Dict[str, Any], stream_data: Dict[str, Any], 
         }
         
         # 对于骑行活动，计算左右平衡、扭矩效率、踏板平顺度等指标
-        if activity_type == "ride":
+        if activity_type in ["ride", "virtualride", "ebikeride"]:
             # 左右平衡
             lrb = stream_data.get('left_right_balance', {}).get('data', []) if isinstance(stream_data.get('left_right_balance'), dict) else stream_data.get('left_right_balance', [])
             if lrb:
@@ -265,7 +268,7 @@ def analyze_training_effect(activity_data: Dict[str, Any], stream_data: Dict[str
     """分析训练效果，支持骑行（功率）和跑步（配速）活动"""
     try:
         # ! 跑步活动可以通过心率分析训练效果，还没有实现，骑行活动理论上也可以回退到心率来分析训练效果
-        if activity_type == "run":
+        if activity_type in ["run", "trail_run", "virtual_run"]:
             return {
                 'primary_training_benefit': None,
                 'aerobic_effect': None,
@@ -273,7 +276,7 @@ def analyze_training_effect(activity_data: Dict[str, Any], stream_data: Dict[str
                 'training_load': None,
                 'carbohydrate_consumption': int(activity_data.get('calories', 0) / 4.138),
             }
-        if activity_type == "ride":
+        if activity_type in ["ride", "virtualride", "ebikeride"]:
             # 骑行活动：基于功率计算
             if 'watts' not in stream_data:
                 return None
@@ -379,24 +382,3 @@ def analyze_zones(activity_data: Dict[str, Any], stream_data: Dict[str, Any], ex
         return None
 
 
-def _compute_w_balance_series(power: List[int], ftp: int, w_prime: int) -> List[float]:
-     # ! 这里的逻辑是怎么回事，为什么这里会有这个函数，w平衡数据流应该是哪里计算的？
-    """根据功率与 W'（w_prime）与 FTP 估算 w_balance 曲线（与 FIT 路径一致的简化模型）。"""
-    try:
-        if not power or not ftp or not w_prime:
-            return []
-        tau = 546.0
-        balance = float(w_prime)
-        out: List[float] = []
-        for p in power:
-            p = p or 0
-            if p > ftp * 1.05:
-                balance -= (p - ftp)
-            elif p < ftp * 0.95:
-                recovery = (w_prime - balance) / tau
-                balance += recovery
-            balance = max(0.0, min(float(w_prime), balance))
-            out.append(round(balance / 1000.0, 1))
-        return out
-    except Exception:
-        return []

@@ -74,80 +74,47 @@ async def get_activity_all_data(
 
 
 @router.get("/{activity_id}/intervals", response_model=IntervalsResponse)
-async def get_activity_intervals(
+@router.get("/{activity_id}/intervals/simple", response_model=IntervalsResponse)
+async def get_activity_intervals_common(
     activity_id: int,
     db: Session = Depends(get_db),
 ):
-    """获取活动的区间识别数据
-    
-    从 `/data/intervals/{activity_id}.json` 文件中读取预先生成的 intervals 数据。
-    该数据在调用 `/activities/{activity_id}/all` 接口时自动生成并保存。
-    
-    Args:
+    """
+    获取活动的区间识别数据（标准版和简化版，功能一致）
+
+    说明：
+        - 兼容下列两个路由（等价，便于前端/历史接口兼容）：
+          1. /activities/{activity_id}/intervals
+          2. /activities/{activity_id}/intervals/simple
+        - 均读取 /data/intervals/{activity_id}.json，内容相同
+
+    参数:
         activity_id: 活动ID
-        
-    Returns:
-        IntervalsResponse: 区间识别结果
-        
-    Raises:
-        HTTPException: 404 - 未找到intervals数据文件
-        HTTPException: 500 - 读取或解析文件时发生错误
+
+    返回:
+        IntervalsResponse 区间识别结果
+
+    异常:
+        HTTPException 404 - 未找到intervals数据文件
+        HTTPException 500 - 读取或解析文件时发生错误
     """
     try:
         from ..infrastructure.intervals_manager import load_intervals
-        
+
         intervals_data = load_intervals(activity_id)
-        
+
         if not intervals_data:
             raise HTTPException(
                 status_code=404, 
                 detail=f"未找到活动 {activity_id} 的区间数据，请先调用 /activities/{activity_id}/all 接口生成数据"
             )
-        
+
         return IntervalsResponse(**intervals_data)
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("[intervals][read-error] activity_id=%s", activity_id)
         raise HTTPException(status_code=500, detail=f"读取区间数据时发生错误: {str(e)}")
-
-
-@router.get("/{activity_id}/intervals/simple", response_model=IntervalsResponse)
-async def get_activity_intervals_simple(
-    activity_id: int,
-    db: Session = Depends(get_db),
-):
-    """获取活动的简化区间识别数据（仅用于画图）
-    
-    现在 /intervals 和 /intervals/simple 返回相同格式（简化版）
-    
-    Args:
-        activity_id: 活动ID
-        
-    Returns:
-        IntervalsResponse: 简化的区间识别结果
-        
-    Raises:
-        HTTPException: 404 - 未找到intervals数据文件
-        HTTPException: 500 - 读取或解析文件时发生错误
-    """
-    try:
-        from ..infrastructure.intervals_manager import load_intervals
-        
-        intervals_data = load_intervals(activity_id)
-        
-        if not intervals_data:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"未找到活动 {activity_id} 的区间数据，请先调用 /activities/{activity_id}/all 接口生成数据"
-            )
-        
-        return IntervalsResponse(**intervals_data)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("[intervals-simple][read-error] activity_id=%s", activity_id)
-        raise HTTPException(status_code=500, detail=f"读取简化区间数据时发生错误: {str(e)}")
 
 
 @router.delete("/cache/{activity_id}")

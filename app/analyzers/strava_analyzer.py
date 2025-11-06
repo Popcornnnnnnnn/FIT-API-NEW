@@ -18,7 +18,6 @@ class StravaAnalyzer:
     def analyze_activity_data(
         activity_data: Dict[str, Any],
         stream_data: Dict[str, Any],
-        athlete_data: Dict[str, Any],
         external_id: int,
         db: Session,
         keys: Optional[List[str]] = None,

@@ -1,0 +1,71 @@
+{
+  "duration": 1882,
+  "ftp": 270.0,
+  "intervals": [
+    {
+      "start": 0,
+      "end": 488,
+      "duration": 488,
+      "classification": "recovery",
+      "avg_power": 116.17,
+      "power_ratio": 0.43
+    },
+    {
+      "start": 488,
+      "end": 652,
+      "duration": 164,
+      "classification": "endurance",
+      "avg_power": 176.89,
+      "power_ratio": 0.66
+    },
+    {
+      "start": 652,
+      "end": 790,
+      "duration": 138,
+      "classification": "tempo",
+      "avg_power": 221.66,
+      "power_ratio": 0.82
+    },
+    {
+      "start": 790,
+      "end": 890,
+      "duration": 100,
+      "classification": "threshold",
+      "avg_power": 266.37,
+      "power_ratio": 0.99
+    },
+    {
+      "start": 890,
+      "end": 1012,
+      "duration": 122,
+      "classification": "vo2max",
+      "avg_power": 305.0,
+      "power_ratio": 1.13
+    },
+    {
+      "start": 1012,
+      "end": 1096,
+      "duration": 84,
+      "classification": "anaerobic",
+      "avg_power": 343.32,
+      "power_ratio": 1.27
+    },
+    {
+      "start": 1096,
+      "end": 1145,
+      "duration": 49,
+      "classification": "sprint",
+      "avg_power": 345.9,
+      "power_ratio": 1.28
+    },
+    {
+      "start": 1145,
+      "end": 1883,
+      "duration": 738,
+      "classification": "recovery",
+      "avg_power": 27.7,
+      "power_ratio": 0.1
+    }
+  ],
+  "preview_image": "artifacts/Pics/interval_preview_15318116021.png"
+}
