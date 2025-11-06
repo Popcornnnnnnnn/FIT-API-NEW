@@ -39,12 +39,23 @@ def get_session_data(fit_url: str) -> Optional[Dict[str, Any]]:
                 'left_torque_effectiveness', 'right_torque_effectiveness',
                 'left_pedal_smoothness', 'right_pedal_smoothness',
                 'avg_speed', 'max_speed', 'avg_temperature', 'max_temperature', 'min_temperature',
-                'normalized_power', 'training_stress_score', 'intensity_factor'
+                'normalized_power', 'training_stress_score', 'intensity_factor',
+                'sport', 'sub_sport'  # 添加运动类型字段
             ]
             for field in fields:
                 value = message.get_value(field)
                 if value is not None:
-                    session_data[field] = value
+                    # 对于 sport 和 sub_sport，如果是枚举值，转换为字符串
+                    if field in ('sport', 'sub_sport'):
+                        # fitparse 返回的可能是枚举对象，需要转换为字符串
+                        if hasattr(value, 'name'):
+                            session_data[field] = value.name.lower()
+                        elif isinstance(value, str):
+                            session_data[field] = value.lower()
+                        else:
+                            session_data[field] = str(value).lower()
+                    else:
+                        session_data[field] = value
             return session_data
         return None
     except Exception:

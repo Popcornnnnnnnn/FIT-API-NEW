@@ -2,7 +2,7 @@ from collections import deque
 from typing import List, Optional
 
 
-def normalized_power(powers: List[int], window: int = 30) -> int:
+def normalized_power(powers: List[int], window: int = 30) -> int: # ! 用numpy实现
     """Compute normalized power using an O(n) rolling average and 4th-power mean.
 
     Args:

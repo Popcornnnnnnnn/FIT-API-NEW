@@ -1,0 +1,71 @@
+{
+  "duration": 2920,
+  "ftp": 178.0,
+  "intervals": [
+    {
+      "start": 0,
+      "end": 369,
+      "duration": 369,
+      "classification": "tempo",
+      "avg_power": 151.44,
+      "power_ratio": 0.85
+    },
+    {
+      "start": 369,
+      "end": 409,
+      "duration": 40,
+      "classification": "threshold",
+      "avg_power": 168.05,
+      "power_ratio": 0.94
+    },
+    {
+      "start": 409,
+      "end": 545,
+      "duration": 136,
+      "classification": "tempo",
+      "avg_power": 166.33,
+      "power_ratio": 0.93
+    },
+    {
+      "start": 545,
+      "end": 778,
+      "duration": 233,
+      "classification": "threshold",
+      "avg_power": 168.54,
+      "power_ratio": 0.95
+    },
+    {
+      "start": 778,
+      "end": 850,
+      "duration": 72,
+      "classification": "tempo",
+      "avg_power": 166.05,
+      "power_ratio": 0.93
+    },
+    {
+      "start": 850,
+      "end": 1730,
+      "duration": 880,
+      "classification": "threshold",
+      "avg_power": 170.9,
+      "power_ratio": 0.96
+    },
+    {
+      "start": 1730,
+      "end": 1954,
+      "duration": 224,
+      "classification": "tempo",
+      "avg_power": 143.1,
+      "power_ratio": 0.8
+    },
+    {
+      "start": 1954,
+      "end": 2921,
+      "duration": 967,
+      "classification": "endurance",
+      "avg_power": 119.58,
+      "power_ratio": 0.67
+    }
+  ],
+  "preview_image": null
+}

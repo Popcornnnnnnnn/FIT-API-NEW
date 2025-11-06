@@ -4,6 +4,8 @@ from ...core.analytics.hr import (
     filter_hr_smooth,
     recovery_rate,
     efficiency_index,
+    hr_lag_seconds,
+    decoupling_rate,
 )
 
 
@@ -30,16 +32,22 @@ def compute_heartrate_info(stream_data: Dict[str, Any], power_data_present: bool
     if power_data_present:
         result['heartrate_recovery_rate'] = recovery_rate(hr_data)
         
-        # 对于骑行活动（有功率数据），计算 efficiency_index
+        # 对于骑行活动（有功率数据），计算 efficiency_index, heartrate_lag, decoupling_rate
         power_data = stream_data.get('power', [])
         if power_data and valid_hr:
             eff_index = efficiency_index(power_data, hr_data)
             result['efficiency_index'] = eff_index
+            result['heartrate_lag'] = hr_lag_seconds(power_data, hr_data)
+            result['decoupling_rate'] = decoupling_rate(power_data, hr_data)
         else:
             result['efficiency_index'] = None
+            result['heartrate_lag'] = None
+            result['decoupling_rate'] = None
     else:
         result['heartrate_recovery_rate'] = 0
         # 非骑行活动，返回 null
         result['efficiency_index'] = None
+        result['heartrate_lag'] = None
+        result['decoupling_rate'] = None
 
     return result

@@ -3,7 +3,12 @@ from typing import Dict, Any, Optional, List, Tuple
 from sqlalchemy.orm import Session
 from ...core.analytics.time_utils import format_time as _fmt
 from ...core.analytics.power import normalized_power as _np, work_above_ftp as _work_above_ftp, w_balance_decline as _w_decline
-from ...core.analytics.hr import recovery_rate as _hr_recovery, efficiency_index as _efficiency_index
+from ...core.analytics.hr import (
+    recovery_rate as _hr_recovery,
+    efficiency_index as _efficiency_index,
+    hr_lag_seconds as _hr_lag,
+    decoupling_rate as _decouple
+)
 from ...core.analytics.altitude import total_descent as _total_descent, uphill_downhill_distance_km as _updown
 from ...core.analytics.training import (
     aerobic_effect as _aerobic,
@@ -20,15 +25,6 @@ from ...core.analytics.pace import (
 from ...db.models import TbActivity, TbAthlete
 from ...core.analytics import zones as _zones
 
-
-def _get_activity_athlete_by_external_id(db: Session, external_id: int) -> Optional[Tuple[TbActivity, TbAthlete]]:
-    activity = db.query(TbActivity).filter(TbActivity.external_id == external_id).first()
-    if not activity or not getattr(activity, 'athlete_id', None):
-        return None
-    athlete = db.query(TbAthlete).filter(TbAthlete.id == activity.athlete_id).first()
-    if not athlete:
-        return None
-    return activity, athlete
 
 
 def analyze_overall(activity_data: Dict[str, Any], stream_data: Dict[str, Any], external_id: int, db: Session, activity_athlete_pair: Optional[Tuple[TbActivity, TbAthlete]] = None) -> Optional[Dict[str, Any]]:
@@ -59,9 +55,9 @@ def analyze_overall(activity_data: Dict[str, Any], stream_data: Dict[str, Any], 
             if is_running:
                 # 跑步活动：使用 rTSS
                 ft_pace = None
-                if hasattr(athlete, 'lactate_threshold_pace') and athlete.lactate_threshold_pace:
+                if hasattr(athlete, 'FTPace') and athlete.FTPace:
                     try:
-                        pace_val = athlete.lactate_threshold_pace
+                        pace_val = athlete.FTPace
                         if isinstance(pace_val, str):
                             ft_pace = parse_pace_string(pace_val)
                         else:
@@ -111,18 +107,62 @@ def analyze_power(activity_data: Dict[str, Any], stream_data: Dict[str, Any], ex
     try:
         power_stream = stream_data.get('watts', {})
         power = [p if p is not None else 0 for p in power_stream.get('data', [])]
+        if not power:
+            return None
+        
+        # 判断是否为骑行活动
+        sport_type = activity_data.get('sport_type', '').lower() if activity_data else ''
+        is_running = sport_type in ['run', 'trail_run', 'virtual_run']
+        
+        # 对于非骑行活动，只返回基本指标
+        if is_running:
+            return {
+                'avg_power': int(activity_data.get('average_watts')) if activity_data.get('average_watts') else (int(sum(power)/len(power)) if power else None),
+                'max_power': int(activity_data.get('max_watts')) if activity_data.get('max_watts') else (int(max(power)) if power else None),
+                'total_work': round(sum(power)/1000, 0),
+                'normalized_power': None,
+                'intensity_factor': None,
+                'variability_index': None,
+                'weighted_average_power': None,
+                'work_above_ftp': None,
+                'eftp': None,
+                'w_balance_decline': None,
+            }
+        
+        # 骑行活动：计算所有指标
         if not activity_athlete_pair:
             return None
         _, athlete = activity_athlete_pair
-        ftp = int(athlete.ftp)
+        ftp = int(athlete.ftp) if getattr(athlete, 'ftp', None) else 0
+        if not ftp or ftp <= 0:
+            return None
+        
+        # 计算标准化功率
+        valid_powers = [int(p) for p in power if p and p > 0]
+        if not valid_powers:
+            return None
+        
+        np_val = _np(valid_powers)
+        avg_power = int(activity_data.get('average_watts')) if activity_data.get('average_watts') else int(sum(valid_powers) / len(valid_powers))
+        
         # 若无 w_balance 流，基于功率与 W' 粗略估算
         wbal = stream_data.get('w_balance', {}).get('data', []) if isinstance(stream_data.get('w_balance'), dict) else stream_data.get('w_balance', [])
+        # ! TEST
         if (not wbal) and power and getattr(athlete, 'w_balance', None):
+            from ...analyzers.strava.extract import _compute_w_balance_series
             wbal = _compute_w_balance_series(power, ftp, int(athlete.w_balance))
+        
         return {
-            'avg_power' : int(activity_data.get('average_watts')) if activity_data.get('average_watts') else (int(sum(power)/len(power)) if power else None),
-            'max_power' : int(activity_data.get('max_watts')) if activity_data.get('max_watts') else (int(max(power)) if power else None),
-            'total_work': round(sum(power)/1000, 0),
+            'avg_power': avg_power,
+            'max_power': int(activity_data.get('max_watts')) if activity_data.get('max_watts') else (int(max(valid_powers)) if valid_powers else None),
+            'normalized_power': np_val,
+            'intensity_factor': round(np_val / ftp, 2) if ftp > 0 else None,
+            'total_work': round(sum(valid_powers) / 1000, 0),
+            'variability_index': round(np_val / avg_power, 2) if avg_power > 0 else None,
+            'weighted_average_power': None,
+            'work_above_ftp': _work_above_ftp(valid_powers, ftp),
+            'eftp': None,
+            'w_balance_decline': _w_decline(wbal) if wbal else None,
         }
     except Exception:
         return None
@@ -148,18 +188,24 @@ def analyze_heartrate(
             'heartrate_recovery_rate': _hr_recovery(hr),
         }
         
-        # 对于骑行活动，如果有功率数据，计算 efficiency_index
+        # 对于骑行活动，如果有功率数据，计算 efficiency_index, heartrate_lag, decoupling_rate
         if is_cycling and 'watts' in stream_data:
             power_stream = stream_data.get('watts', {})
             power_data = power_stream.get('data', []) if isinstance(power_stream, dict) else power_stream
             if power_data and hr:
                 eff_index = _efficiency_index(power_data, hr)
                 result['efficiency_index'] = eff_index
+                result['heartrate_lag'] = _hr_lag(power_data, hr)
+                result['decoupling_rate'] = _decouple(power_data, hr)
             else:
                 result['efficiency_index'] = None
+                result['heartrate_lag'] = None
+                result['decoupling_rate'] = None
         else:
             # 非骑行活动，返回 null
             result['efficiency_index'] = None
+            result['heartrate_lag'] = None
+            result['decoupling_rate'] = None
         
         return result
     except Exception:
@@ -169,9 +215,8 @@ def analyze_heartrate(
 def analyze_cadence(activity_data: Dict[str, Any], stream_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """踏频指标（Strava 数据）。
 
-    仅使用 cadence 流计算平均和最大踏频；其他高级指标保留为空。
-    
     对于跑步活动，踏频数据需要乘以2（因为设备记录的是单侧步频，需要转换为总步频）。
+    对于骑行活动，计算左右平衡、扭矩效率、踏板平顺度等指标。
     """
     if 'cadence' not in stream_data:
         return None
@@ -183,15 +228,88 @@ def analyze_cadence(activity_data: Dict[str, Any], stream_data: Dict[str, Any]) 
         # 判断是否为跑步活动
         sport_type = activity_data.get('sport_type', '').lower() if activity_data else ''
         is_running = sport_type in ['run', 'trail_run', 'virtual_run']
+        is_cycling = not is_running
         
         # 如果是跑步活动，踏频需要乘以2（单侧步频 -> 总步频）
         if is_running:
             cad = [c * 2 for c in cad]
         
-        return {
+        result = {
             'avg_cadence': int(sum(cad)/len(cad)) if cad else None,
             'max_cadence': int(max(cad)) if cad else None,
         }
+        
+        # 对于骑行活动，计算左右平衡、扭矩效率、踏板平顺度等指标
+        if is_cycling:
+            # 左右平衡
+            lrb = stream_data.get('left_right_balance', {}).get('data', []) if isinstance(stream_data.get('left_right_balance'), dict) else stream_data.get('left_right_balance', [])
+            if lrb:
+                valid_lrb = [v for v in lrb if v is not None and v >= 0]
+                if valid_lrb:
+                    avg_lrb = sum(valid_lrb) / len(valid_lrb)
+                    # left_right_balance 通常是百分比（0-100），需要转换为左右值
+                    # 假设值是左脚的百分比
+                    left_pct = int(round(avg_lrb))
+                    right_pct = 100 - left_pct
+                    result['left_right_balance'] = {'left': left_pct, 'right': right_pct}
+                else:
+                    result['left_right_balance'] = None
+            else:
+                result['left_right_balance'] = None
+            
+            # 扭矩效率
+            lte = stream_data.get('left_torque_effectiveness', {}).get('data', []) if isinstance(stream_data.get('left_torque_effectiveness'), dict) else stream_data.get('left_torque_effectiveness', [])
+            rte = stream_data.get('right_torque_effectiveness', {}).get('data', []) if isinstance(stream_data.get('right_torque_effectiveness'), dict) else stream_data.get('right_torque_effectiveness', [])
+            if lte:
+                valid_lte = [v for v in lte if v is not None and v >= 0]
+                result['left_torque_effectiveness'] = round(sum(valid_lte) / len(valid_lte), 2) if valid_lte else None
+            else:
+                result['left_torque_effectiveness'] = None
+            if rte:
+                valid_rte = [v for v in rte if v is not None and v >= 0]
+                result['right_torque_effectiveness'] = round(sum(valid_rte) / len(valid_rte), 2) if valid_rte else None
+            else:
+                result['right_torque_effectiveness'] = None
+            
+            # 踏板平顺度
+            lps = stream_data.get('left_pedal_smoothness', {}).get('data', []) if isinstance(stream_data.get('left_pedal_smoothness'), dict) else stream_data.get('left_pedal_smoothness', [])
+            rps = stream_data.get('right_pedal_smoothness', {}).get('data', []) if isinstance(stream_data.get('right_pedal_smoothness'), dict) else stream_data.get('right_pedal_smoothness', [])
+            if lps:
+                valid_lps = [v for v in lps if v is not None and v >= 0]
+                result['left_pedal_smoothness'] = round(sum(valid_lps) / len(valid_lps), 2) if valid_lps else None
+            else:
+                result['left_pedal_smoothness'] = None
+            if rps:
+                valid_rps = [v for v in rps if v is not None and v >= 0]
+                result['right_pedal_smoothness'] = round(sum(valid_rps) / len(valid_rps), 2) if valid_rps else None
+            else:
+                result['right_pedal_smoothness'] = None
+            
+            # 总踏频（转数）
+            try:
+                t = stream_data.get('time', {}).get('data', [])
+                if t and len(t) == len(cad):
+                    acc = 0.0
+                    prev = t[0]
+                    for i in range(1, len(t)):
+                        dt = max(0, (t[i] or 0) - (prev or 0))
+                        acc += (cad[i] or 0) * (dt / 60.0)
+                        prev = t[i]
+                    result['total_strokes'] = int(round(acc))
+                else:
+                    result['total_strokes'] = int(round(sum(cad) / 60.0))
+            except Exception:
+                result['total_strokes'] = None
+        else:
+            # 非骑行活动，返回 null
+            result['left_right_balance'] = None
+            result['left_torque_effectiveness'] = None
+            result['right_torque_effectiveness'] = None
+            result['left_pedal_smoothness'] = None
+            result['right_pedal_smoothness'] = None
+            result['total_strokes'] = None
+        
+        return result
     except Exception:
         return None
 
@@ -236,9 +354,9 @@ def analyze_training_effect(activity_data: Dict[str, Any], stream_data: Dict[str
         if is_running:
             # 跑步活动：基于配速计算训练负荷
             ft_pace = None
-            if hasattr(athlete, 'lactate_threshold_pace') and athlete.lactate_threshold_pace:
+            if hasattr(athlete, 'FTPace') and athlete.FTPace:
                 try:
-                    pace_val = athlete.lactate_threshold_pace
+                    pace_val = athlete.FTPace
                     if isinstance(pace_val, str):
                         ft_pace = parse_pace_string(pace_val)
                     else:

@@ -3,7 +3,7 @@ from typing import Dict, Any, List, Optional
 from ...core.analytics.power import normalized_power, work_above_ftp, w_balance_decline
 
 
-def compute_power_info(stream_data: Dict[str, Any], ftp: int, session_data: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+def compute_power_info(stream_data: Dict[str, Any], ftp: int, session_data: Optional[Dict[str, Any]] = None, is_running: bool = False) -> Optional[Dict[str, Any]]:
     power_data = stream_data.get('power', [])
     if not power_data:
         return None
@@ -25,5 +25,41 @@ def compute_power_info(stream_data: Dict[str, Any], ftp: int, session_data: Opti
         result['max_power'] = int(max(valid_powers))
 
     result['total_work'] = round(sum(valid_powers) / 1000, 0)
+    
+    # 对于非骑行活动，只返回基本指标
+    if is_running:
+        result['normalized_power'] = None
+        result['intensity_factor'] = None
+        result['variability_index'] = None
+        result['weighted_average_power'] = None
+        result['work_above_ftp'] = None
+        result['eftp'] = None
+        result['w_balance_decline'] = None
+        return result
+    
+    # 骑行活动：计算所有指标
+    if not ftp or ftp <= 0:
+        result['normalized_power'] = None
+        result['intensity_factor'] = None
+        result['variability_index'] = None
+        result['weighted_average_power'] = None
+        result['work_above_ftp'] = None
+        result['eftp'] = None
+        result['w_balance_decline'] = None
+        return result
+
+    if session_data and 'normalized_power' in session_data:
+        result['normalized_power'] = int(session_data['normalized_power'])
+    else:
+        result['normalized_power'] = int(normalized_power(valid_powers))
+
+    result['intensity_factor'] = round(result['normalized_power'] / ftp, 2) if ftp else None
+    result['variability_index'] = round(result['normalized_power'] / result['avg_power'], 2) if result['avg_power'] > 0 else None
+    result['weighted_average_power'] = None
+    result['work_above_ftp'] = work_above_ftp(valid_powers, ftp)
+    result['eftp'] = None
+
+    w_balance = stream_data.get('w_balance', [])
+    result['w_balance_decline'] = w_balance_decline(w_balance) if w_balance else None
 
     return result

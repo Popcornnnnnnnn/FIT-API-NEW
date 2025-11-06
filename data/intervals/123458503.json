@@ -1,0 +1,111 @@
+{
+  "duration": 5202,
+  "ftp": 150.0,
+  "intervals": [
+    {
+      "start": 0,
+      "end": 16,
+      "duration": 16,
+      "classification": "sprint",
+      "avg_power": 171.25,
+      "power_ratio": 1.14
+    },
+    {
+      "start": 16,
+      "end": 56,
+      "duration": 40,
+      "classification": "threshold",
+      "avg_power": 139.45,
+      "power_ratio": 0.93
+    },
+    {
+      "start": 56,
+      "end": 275,
+      "duration": 219,
+      "classification": "sprint",
+      "avg_power": 171.71,
+      "power_ratio": 1.14
+    },
+    {
+      "start": 275,
+      "end": 327,
+      "duration": 52,
+      "classification": "vo2max",
+      "avg_power": 120.85,
+      "power_ratio": 0.81
+    },
+    {
+      "start": 327,
+      "end": 483,
+      "duration": 156,
+      "classification": "sprint",
+      "avg_power": 178.36,
+      "power_ratio": 1.19
+    },
+    {
+      "start": 483,
+      "end": 525,
+      "duration": 42,
+      "classification": "threshold",
+      "avg_power": 71.93,
+      "power_ratio": 0.48
+    },
+    {
+      "start": 525,
+      "end": 1529,
+      "duration": 1004,
+      "classification": "sprint",
+      "avg_power": 176.12,
+      "power_ratio": 1.17
+    },
+    {
+      "start": 1529,
+      "end": 1756,
+      "duration": 227,
+      "classification": "recovery",
+      "avg_power": 0.17,
+      "power_ratio": 0.0
+    },
+    {
+      "start": 1756,
+      "end": 3454,
+      "duration": 1698,
+      "classification": "sprint",
+      "avg_power": 167.16,
+      "power_ratio": 1.11
+    },
+    {
+      "start": 3454,
+      "end": 3489,
+      "duration": 35,
+      "classification": "vo2max",
+      "avg_power": 143.77,
+      "power_ratio": 0.96
+    },
+    {
+      "start": 3489,
+      "end": 3530,
+      "duration": 41,
+      "classification": "threshold",
+      "avg_power": 146.37,
+      "power_ratio": 0.98
+    },
+    {
+      "start": 3530,
+      "end": 3556,
+      "duration": 26,
+      "classification": "anaerobic",
+      "avg_power": 171.58,
+      "power_ratio": 1.14
+    },
+    {
+      "start": 3556,
+      "end": 5203,
+      "duration": 1647,
+      "classification": "sprint",
+      "avg_power": 164.97,
+      "power_ratio": 1.1
+    }
+  ],
+  "preview_image": "artifacts/Pics/interval_preview_123458503.png"
+}

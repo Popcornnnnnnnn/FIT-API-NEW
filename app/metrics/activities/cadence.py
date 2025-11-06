@@ -46,6 +46,77 @@ def compute_cadence_info(stream_data: Dict[str, Any], session_data: Optional[Dic
     else:
         res['max_cadence'] = int(max(cadence)) if cadence else None
 
+    # 对于骑行活动，计算左右平衡、扭矩效率、踏板平顺度等指标
+    if not is_running:
+        # 左右平衡
+        lrb = stream_data.get('left_right_balance', [])
+        if lrb:
+            valid_lrb = [v for v in lrb if v is not None and v >= 0]
+            if valid_lrb:
+                avg_lrb = sum(valid_lrb) / len(valid_lrb)
+                # left_right_balance 通常是百分比（0-100），需要转换为左右值
+                # 假设值是左脚的百分比
+                left_pct = int(round(avg_lrb))
+                right_pct = 100 - left_pct
+                res['left_right_balance'] = {'left': left_pct, 'right': right_pct}
+            else:
+                res['left_right_balance'] = None
+        else:
+            res['left_right_balance'] = None
+        
+        # 扭矩效率
+        lte = stream_data.get('left_torque_effectiveness', [])
+        rte = stream_data.get('right_torque_effectiveness', [])
+        if lte:
+            valid_lte = [v for v in lte if v is not None and v >= 0]
+            res['left_torque_effectiveness'] = round(sum(valid_lte) / len(valid_lte), 2) if valid_lte else None
+        else:
+            res['left_torque_effectiveness'] = None
+        if rte:
+            valid_rte = [v for v in rte if v is not None and v >= 0]
+            res['right_torque_effectiveness'] = round(sum(valid_rte) / len(valid_rte), 2) if valid_rte else None
+        else:
+            res['right_torque_effectiveness'] = None
+        
+        # 踏板平顺度
+        lps = stream_data.get('left_pedal_smoothness', [])
+        rps = stream_data.get('right_pedal_smoothness', [])
+        if lps:
+            valid_lps = [v for v in lps if v is not None and v >= 0]
+            res['left_pedal_smoothness'] = round(sum(valid_lps) / len(valid_lps), 2) if valid_lps else None
+        else:
+            res['left_pedal_smoothness'] = None
+        if rps:
+            valid_rps = [v for v in rps if v is not None and v >= 0]
+            res['right_pedal_smoothness'] = round(sum(valid_rps) / len(valid_rps), 2) if valid_rps else None
+        else:
+            res['right_pedal_smoothness'] = None
+        
+        # 总踏频（转数）
+        try:
+            elapsed_time = stream_data.get('elapsed_time', [])
+            if elapsed_time and len(elapsed_time) == len(cadence):
+                acc = 0.0
+                prev = elapsed_time[0] if elapsed_time else 0
+                for i in range(1, len(cadence)):
+                    dt = max(0, (elapsed_time[i] if i < len(elapsed_time) else elapsed_time[-1]) - prev)
+                    acc += (cadence[i] or 0) * (dt / 60.0)
+                    prev = elapsed_time[i] if i < len(elapsed_time) else elapsed_time[-1]
+                res['total_strokes'] = int(round(acc))
+            else:
+                # 如果没有时间数据，使用简单的估算
+                res['total_strokes'] = int(round(sum(cadence) / 60.0))
+        except Exception:
+            res['total_strokes'] = None
+    else:
+        # 非骑行活动，返回 null
+        res['left_right_balance'] = None
+        res['left_torque_effectiveness'] = None
+        res['right_torque_effectiveness'] = None
+        res['left_pedal_smoothness'] = None
+        res['right_pedal_smoothness'] = None
+        res['total_strokes'] = None
+
     logger.debug(
         "[cadence] avg=%s max=%s len=%d is_running=%s",
         res.get('avg_cadence'), res.get('max_cadence'), len(cadence), is_running
