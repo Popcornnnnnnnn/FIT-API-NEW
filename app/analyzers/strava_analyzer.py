@@ -48,7 +48,7 @@ class StravaAnalyzer:
         activity_athlete_pair = (activity_entry, athlete_entry)
 
         # 对于非骑行活动，不计算 best_powers
-        if activity_type == "ride":
+        if activity_type in ["ride", "virtualride", "ebikeride"]:
             best_powers, segment_records = _best.analyze_best_powers(
                 activity_data,
                 stream_data,

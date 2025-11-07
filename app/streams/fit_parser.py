@@ -50,28 +50,34 @@ class FitParser:
             return self._parse_with_fitparse(file_data, athlete_info)
         except Exception as fitparse_err:
             logger.warning(
-                "[fit-parser] fitparse failed, attempting fitdecode fallback",
-                exc_info=True,
+                "[fit-parser] fitparse failed (expected for some non-standard FIT files), attempting fitdecode fallback"
             )
+            logger.debug("[fit-parser] fitparse error details", exc_info=True)
 
         if not _FITDECODE_TRIED:
             try:
                 import fitdecode  # type: ignore
                 _FITDECODE = fitdecode
+                logger.info("[fit-parser] fitdecode module loaded successfully")
             except ImportError:
                 _FITDECODE = None
+                logger.error("[fit-parser] fitdecode not installed, cannot use fallback parser")
             finally:
                 _FITDECODE_TRIED = True
 
         if _FITDECODE is not None:
             try:
-                return self._parse_with_fitdecode(_FITDECODE, file_data, athlete_info)
-            except Exception:
-                logger.warning(
-                    "[fit-parser] fitdecode fallback failed",
+                result = self._parse_with_fitdecode(_FITDECODE, file_data, athlete_info)
+                logger.info("[fit-parser] fitdecode fallback succeeded")
+                return result
+            except Exception as fitdecode_err:
+                logger.error(
+                    "[fit-parser] fitdecode fallback also failed",
                     exc_info=True,
                 )
+                raise fitdecode_err
 
+        logger.error("[fit-parser] all parsing methods failed, fitdecode not available")
         raise fitparse_err
 
     def _parse_with_fitparse(
@@ -167,78 +173,103 @@ class FitParser:
         file_data: bytes,
         athlete_info: Optional[Dict[str, Any]] = None,
     ) -> StreamData:
-        reader = fitdecode_module.FitReader(BytesIO(file_data))
-        timestamp, position_lat, position_long, distance, enhanced_altitude, altitude, enhanced_speed, speed, power, heart_rate, cadence, left_right_balance, left_torque_effectiveness, right_torque_effectiveness, left_pedal_smoothness, right_pedal_smoothness, temperature = ([] for _ in range(17))
-        start_time = None
-
-        def _get(frame: Any, field: str) -> Any:
+        # 使用更宽松的错误处理模式，以兼容不规范的 FIT 文件
+        import warnings
+        
+        # 抑制 fitdecode 的 UserWarning（关于字段大小不匹配等）
+        # 这些警告不影响解析结果，只是说明文件格式略有不规范
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', category=UserWarning, module='fitdecode')
+            
             try:
-                return frame.get_value(field, fallback=None)
-            except KeyError:
-                return None
-
-        with reader:
-            for frame in reader:
-                if not isinstance(frame, fitdecode_module.records.FitDataMessage):
-                    continue
-                if frame.name != 'record':
-                    continue
-
-                ts = _get(frame, 'timestamp')
-                if ts is None:
-                    continue
-                if start_time is None:
-                    start_time = ts
-                timestamp.append(int((ts - start_time).total_seconds()))
-
-                dist = _get(frame, 'distance')
-                distance.append(float(dist) if dist is not None else 0.0)
-
-                alt = _get(frame, 'enhanced_altitude')
-                if alt is None:
-                    alt = _get(frame, 'altitude')
-                altitude.append(int(round(float(alt))) if alt is not None else 0)
-                enhanced_altitude.append(float(alt) if alt is not None else 0.0)
-
-                cad = _get(frame, 'cadence')
-                cadence.append(int(cad) if cad is not None else 0)
-
-                hr = _get(frame, 'heart_rate')
-                heart_rate.append(int(hr) if hr is not None else 0)
-
-                spd = _get(frame, 'enhanced_speed')
-                if spd is None:
-                    spd = _get(frame, 'speed')
-                if spd is not None:
-                    enhanced_speed.append(float(spd))
-                    speed.append(round(float(spd) * 3.6, 1))
+                # 尝试使用宽松模式（忽略 CRC 错误和格式错误）
+                if hasattr(fitdecode_module, 'ErrorHandling') and hasattr(fitdecode_module, 'CrcCheck'):
+                    reader = fitdecode_module.FitReader(
+                        BytesIO(file_data),
+                        check_crc=fitdecode_module.CrcCheck.DISABLED,
+                        error_handling=fitdecode_module.ErrorHandling.IGNORE,
+                    )
+                    logger.info("[fit-parser] using fitdecode with relaxed error handling")
                 else:
-                    enhanced_speed.append(0.0)
-                    speed.append(0.0)
+                    # 旧版本 fitdecode 没有这些选项
+                    reader = fitdecode_module.FitReader(BytesIO(file_data))
+                    logger.info("[fit-parser] using fitdecode with default settings")
+            except TypeError:
+                # 如果参数不支持，回退到默认方式
+                reader = fitdecode_module.FitReader(BytesIO(file_data))
+                logger.info("[fit-parser] fallback to fitdecode default mode")
+            
+            timestamp, position_lat, position_long, distance, enhanced_altitude, altitude, enhanced_speed, speed, power, heart_rate, cadence, left_right_balance, left_torque_effectiveness, right_torque_effectiveness, left_pedal_smoothness, right_pedal_smoothness, temperature = ([] for _ in range(17))
+            start_time = None
 
-                lat = _get(frame, 'position_lat')
-                position_lat.append(float(lat) if lat is not None else 0.0)
-                lon = _get(frame, 'position_long')
-                position_long.append(float(lon) if lon is not None else 0.0)
+            def _get(frame: Any, field: str) -> Any:
+                try:
+                    return frame.get_value(field, fallback=None)
+                except KeyError:
+                    return None
 
-                pwr = _get(frame, 'power')
-                power.append(int(pwr) if pwr is not None else 0)
+            with reader:
+                for frame in reader:
+                    if not isinstance(frame, fitdecode_module.records.FitDataMessage):
+                        continue
+                    if frame.name != 'record':
+                        continue
 
-                tmp = _get(frame, 'temperature')
-                temperature.append(float(tmp) if tmp is not None else 0.0)
+                    ts = _get(frame, 'timestamp')
+                    if ts is None:
+                        continue
+                    if start_time is None:
+                        start_time = ts
+                    timestamp.append(int((ts - start_time).total_seconds()))
 
-                lrb = _get(frame, 'left_right_balance')
-                left_right_balance.append(float(lrb) if lrb is not None else 0.0)
-                lte = _get(frame, 'left_torque_effectiveness')
-                left_torque_effectiveness.append(float(lte) if lte is not None else 0.0)
-                rte = _get(frame, 'right_torque_effectiveness')
-                right_torque_effectiveness.append(float(rte) if rte is not None else 0.0)
-                lps = _get(frame, 'left_pedal_smoothness')
-                left_pedal_smoothness.append(float(lps) if lps is not None else 0.0)
-                rps = _get(frame, 'right_pedal_smoothness')
-                right_pedal_smoothness.append(float(rps) if rps is not None else 0.0)
+                    dist = _get(frame, 'distance')
+                    distance.append(float(dist) if dist is not None else 0.0)
 
-        result = self._finalize_stream_data(
+                    alt = _get(frame, 'enhanced_altitude')
+                    if alt is None:
+                        alt = _get(frame, 'altitude')
+                    altitude.append(int(round(float(alt))) if alt is not None else 0)
+                    enhanced_altitude.append(float(alt) if alt is not None else 0.0)
+
+                    cad = _get(frame, 'cadence')
+                    cadence.append(int(cad) if cad is not None else 0)
+
+                    hr = _get(frame, 'heart_rate')
+                    heart_rate.append(int(hr) if hr is not None else 0)
+
+                    spd = _get(frame, 'enhanced_speed')
+                    if spd is None:
+                        spd = _get(frame, 'speed')
+                    if spd is not None:
+                        enhanced_speed.append(float(spd))
+                        speed.append(round(float(spd) * 3.6, 1))
+                    else:
+                        enhanced_speed.append(0.0)
+                        speed.append(0.0)
+
+                    lat = _get(frame, 'position_lat')
+                    position_lat.append(float(lat) if lat is not None else 0.0)
+                    lon = _get(frame, 'position_long')
+                    position_long.append(float(lon) if lon is not None else 0.0)
+
+                    pwr = _get(frame, 'power')
+                    power.append(int(pwr) if pwr is not None else 0)
+
+                    tmp = _get(frame, 'temperature')
+                    temperature.append(float(tmp) if tmp is not None else 0.0)
+
+                    lrb = _get(frame, 'left_right_balance')
+                    left_right_balance.append(float(lrb) if lrb is not None else 0.0)
+                    lte = _get(frame, 'left_torque_effectiveness')
+                    left_torque_effectiveness.append(float(lte) if lte is not None else 0.0)
+                    rte = _get(frame, 'right_torque_effectiveness')
+                    right_torque_effectiveness.append(float(rte) if rte is not None else 0.0)
+                    lps = _get(frame, 'left_pedal_smoothness')
+                    left_pedal_smoothness.append(float(lps) if lps is not None else 0.0)
+                    rps = _get(frame, 'right_pedal_smoothness')
+                    right_pedal_smoothness.append(float(rps) if rps is not None else 0.0)
+
+            result = self._finalize_stream_data(
             timestamp,
             position_lat,
             position_long,

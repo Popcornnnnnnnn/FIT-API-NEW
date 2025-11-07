@@ -54,19 +54,6 @@ def compute_overall_info(
         powers = [p for p in stream_data.get('power', []) if p and p > 0]
         res['avg_power'] = int(sum(powers) / len(powers)) if powers else None
     
-    
-    # ! 计算训练负荷, 实现一个用阈值心率活动训练负荷的，现在是通过阈值配速
-    ftp = int(athlete.ftp)
-    from ...core.analytics.pace import parse_pace_string
-    ft_pace = parse_pace_string(athlete.lactate_threshold_pace)
-    if activity_type in ['ride', 'virtualride', 'ebikeride']:
-        res['training_load'] = calculate_training_load(res['avg_power'], ftp, moving_time) if ftp and res.get('avg_power') else None
-    else:
-        res['training_load'] = calculate_running_training_load(1000.0 / (res['average_speed'] / 3.6), ft_pace, moving_time) if ft_pace and res.get('average_speed') else None
-
-
-    # ! status在上一级函数处理了
-     
     if session_data and 'avg_heart_rate' in session_data:
         res['avg_heartrate'] = int(session_data['avg_heart_rate'])
     elif 'heart_rate' in stream_data:
@@ -74,12 +61,39 @@ def compute_overall_info(
         res['avg_heartrate'] = int(sum(hrs) / len(hrs)) if hrs else None
     else:
         res['avg_heartrate'] = None
+
+        
+    ftp = int(athlete.ftp)
+    from ...core.analytics.pace import parse_pace_string
+    from ...core.analytics.training import (
+        calculate_training_load,
+        calculate_running_training_load,
+        calculate_heart_rate_training_load
+    )
+    if activity_type in ["run", "trail_run", "virtual_run"]:
+        # 跑步活动：优先使用 rTSS（有阈值配速设置），其次使用心率负荷
+        ft_pace = parse_pace_string(athlete.lactate_threshold_pace)
+        if ft_pace: res['training_load'] = calculate_running_training_load(1000.0 / (res['average_speed'] / 3.6), ft_pace, res['moving_time']) if ft_pace and res.get('average_speed') else None
+        else: res['training_load'] = calculate_heart_rate_training_load(res['avg_heartrate'], athlete.max_heartrate, athlete.threshold_heartrate, moving_time) if athlete.max_heartrate and athlete.threshold_heartrate and res.get('avg_heartrate') else None
+    elif activity_type in ["ride", "virtualride", "ebikeride"]:
+        # 骑行活动：优先使用 TSS(有功率数据)，其次使用心率负荷
+        ftp = int(athlete.ftp)
+        powers = [p for p in stream_data.get('power', []) if p and p > 0]
+        if powers: res['training_load'] = calculate_training_load(res['avg_power'], ftp, moving_time) if ftp and res.get('avg_power') else None
+        else: res['training_load'] = calculate_heart_rate_training_load(res['avg_heartrate'], athlete.max_heartrate, athlete.threshold_heartrate, res['moving_time']) if athlete.max_heartrate and athlete.threshold_heartrate and res.get('avg_heartrate') else None
+            
+    else:
+        # 其他活动：默认都使用心率负荷
+        res['training_load'] = calculate_heart_rate_training_load(res['avg_heartrate'], athlete.max_heartrate, athlete.threshold_heartrate, moving_time) if athlete.max_heartrate and athlete.threshold_heartrate and res.get('avg_heartrate') else None
+
+    # ! status在上一级函数处理了
         
     if session_data and 'max_altitude' in session_data:
         res['max_altitude'] = int(session_data['max_altitude'])
     else:
         alts = stream_data.get('altitude', [])
         res['max_altitude'] = int(max(alts)) if alts else None
+
     if 'avg_power' in res and res['avg_power'] is not None:
         res['calories'] = estimate_calories_with_power(res['avg_power'], moving_time or 0, getattr(athlete, 'weight', 70) or 70)
     elif res.get('avg_heartrate') is not None:

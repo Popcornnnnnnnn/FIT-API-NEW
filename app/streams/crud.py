@@ -33,19 +33,22 @@ class StreamCRUD:
         self._raw_fit_cache: Dict[int, bytes] = {}
 
     def _parse_session_from_bytes(self, file_data: bytes) -> Optional[Dict[str, Any]]:
+        """从 FIT 文件字节流中解析 session 数据（支持 fitparse -> fitdecode fallback）"""
+        fields = [
+            'total_distance', 'total_elapsed_time', 'total_timer_time',
+            'avg_power', 'max_power', 'avg_heart_rate', 'max_heart_rate',
+            'total_calories', 'total_ascent', 'total_descent',
+            'avg_cadence', 'max_cadence', 'left_right_balance',
+            'left_torque_effectiveness', 'right_torque_effectiveness',
+            'left_pedal_smoothness', 'right_pedal_smoothness',
+            'avg_speed', 'max_speed', 'avg_temperature', 'max_temperature', 'min_temperature',
+            'normalized_power', 'training_stress_score', 'intensity_factor',
+            'sport', 'sub_sport'  # 添加运动类型字段
+        ]
+        
+        # 尝试使用 fitparse
         try:
             fitfile = FitFile(BytesIO(file_data))
-            fields = [
-                'total_distance', 'total_elapsed_time', 'total_timer_time',
-                'avg_power', 'max_power', 'avg_heart_rate', 'max_heart_rate',
-                'total_calories', 'total_ascent', 'total_descent',
-                'avg_cadence', 'max_cadence', 'left_right_balance',
-                'left_torque_effectiveness', 'right_torque_effectiveness',
-                'left_pedal_smoothness', 'right_pedal_smoothness',
-                'avg_speed', 'max_speed', 'avg_temperature', 'max_temperature', 'min_temperature',
-                'normalized_power', 'training_stress_score', 'intensity_factor',
-                'sport', 'sub_sport'  # 添加运动类型字段
-            ]
             for message in fitfile.get_messages('session'):
                 session_data: Dict[str, Any] = {}
                 for field in fields:
@@ -63,10 +66,72 @@ class StreamCRUD:
                         else:
                             session_data[field] = value
                 if session_data:
+                    logger.debug("[stream-crud][session] parsed with fitparse")
                     return session_data
             return None
-        except Exception:
-            return None
+        except Exception as fitparse_err:
+            logger.debug("[stream-crud][session] fitparse failed, trying fitdecode fallback")
+            
+            # 尝试使用 fitdecode fallback
+            try:
+                import fitdecode
+                import warnings
+                
+                # 抑制 UserWarning
+                with warnings.catch_warnings():
+                    warnings.filterwarnings('ignore', category=UserWarning, module='fitdecode')
+                    
+                    # 使用宽松模式
+                    try:
+                        if hasattr(fitdecode, 'ErrorHandling') and hasattr(fitdecode, 'CrcCheck'):
+                            reader = fitdecode.FitReader(
+                                BytesIO(file_data),
+                                check_crc=fitdecode.CrcCheck.DISABLED,
+                                error_handling=fitdecode.ErrorHandling.IGNORE,
+                            )
+                        else:
+                            reader = fitdecode.FitReader(BytesIO(file_data))
+                    except TypeError:
+                        reader = fitdecode.FitReader(BytesIO(file_data))
+                    
+                    with reader:
+                        for frame in reader:
+                            if not isinstance(frame, fitdecode.records.FitDataMessage):
+                                continue
+                            if frame.name != 'session':
+                                continue
+                            
+                            session_data: Dict[str, Any] = {}
+                            for field in fields:
+                                try:
+                                    value = frame.get_value(field, fallback=None)
+                                except KeyError:
+                                    value = None
+                                
+                                if value is not None:
+                                    # 对于 sport 和 sub_sport，如果是枚举值，转换为字符串
+                                    if field in ('sport', 'sub_sport'):
+                                        if hasattr(value, 'name'):
+                                            session_data[field] = value.name.lower()
+                                        elif isinstance(value, str):
+                                            session_data[field] = value.lower()
+                                        else:
+                                            session_data[field] = str(value).lower()
+                                    else:
+                                        session_data[field] = value
+                            
+                            if session_data:
+                                logger.info("[stream-crud][session] parsed with fitdecode fallback")
+                                return session_data
+                    
+                    return None
+                    
+            except ImportError:
+                logger.error("[stream-crud][session] fitdecode not installed, cannot parse session data")
+                return None
+            except Exception as fitdecode_err:
+                logger.error("[stream-crud][session] both fitparse and fitdecode failed", exc_info=True)
+                return None
 
     def load_stream_data(
         self,

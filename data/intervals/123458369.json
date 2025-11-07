@@ -1,0 +1,95 @@
+{
+  "duration": 1647,
+  "ftp": 200.0,
+  "intervals": [
+    {
+      "start": 0,
+      "end": 150,
+      "duration": 150,
+      "classification": "sprint",
+      "avg_power": 110.39,
+      "power_ratio": 0.55
+    },
+    {
+      "start": 150,
+      "end": 256,
+      "duration": 106,
+      "classification": "recovery",
+      "avg_power": 0.0,
+      "power_ratio": 0.0
+    },
+    {
+      "start": 256,
+      "end": 441,
+      "duration": 185,
+      "classification": "sprint",
+      "avg_power": 223.3,
+      "power_ratio": 1.12
+    },
+    {
+      "start": 441,
+      "end": 550,
+      "duration": 109,
+      "classification": "recovery",
+      "avg_power": 6.72,
+      "power_ratio": 0.03
+    },
+    {
+      "start": 550,
+      "end": 802,
+      "duration": 252,
+      "classification": "sprint",
+      "avg_power": 184.66,
+      "power_ratio": 0.92
+    },
+    {
+      "start": 802,
+      "end": 937,
+      "duration": 135,
+      "classification": "recovery",
+      "avg_power": 0.0,
+      "power_ratio": 0.0
+    },
+    {
+      "start": 937,
+      "end": 1126,
+      "duration": 189,
+      "classification": "sprint",
+      "avg_power": 196.51,
+      "power_ratio": 0.98
+    },
+    {
+      "start": 1126,
+      "end": 1224,
+      "duration": 98,
+      "classification": "tempo",
+      "avg_power": 119.64,
+      "power_ratio": 0.6
+    },
+    {
+      "start": 1224,
+      "end": 1486,
+      "duration": 262,
+      "classification": "sprint",
+      "avg_power": 180.84,
+      "power_ratio": 0.9
+    },
+    {
+      "start": 1486,
+      "end": 1542,
+      "duration": 56,
+      "classification": "anaerobic",
+      "avg_power": 243.34,
+      "power_ratio": 1.22
+    },
+    {
+      "start": 1542,
+      "end": 1648,
+      "duration": 106,
+      "classification": "vo2max",
+      "avg_power": 149.52,
+      "power_ratio": 0.75
+    }
+  ],
+  "preview_image": "artifacts/Pics/interval_preview_123458369.png"
+}

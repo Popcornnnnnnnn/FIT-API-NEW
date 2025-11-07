@@ -47,19 +47,41 @@ from ..repositories.activity_repo import get_activity_athlete
 
 logger = logging.getLogger(__name__)
 
-# 骑行特有的 streams 字段（跑步活动需要过滤掉，但保留 watts/power）
-CYCLING_SPECIFIC_STREAM_FIELDS = {
+CYCLING_STREAMS = {
+    'time', 'timestamp', 'distance', 
+    'altitude', 'enhanced_altitude',
+    'velocity_smooth', 'enhanced_speed', 'speed',
+    'heartrate', 'heart_rate',
+    'cadence',
+    'watts', 'power',
+    'temp', 'temperature',
+    'moving',
+    'grade_smooth',
+    # 骑行特有字段
     'best_power',
-    'torque',
-    'spi',
     'power_hr_ratio',
+    'spi',
     'w_balance',
     'vam',
+    'torque',
     'left_right_balance',
     'left_torque_effectiveness',
     'right_torque_effectiveness',
     'left_pedal_smoothness',
     'right_pedal_smoothness',
+}
+
+BASIC_STREAMS = {
+    'time', 'timestamp',
+    'distance',
+    'altitude', 'enhanced_altitude',
+    'velocity_smooth', 'enhanced_speed', 'speed',
+    'heartrate', 'heart_rate',
+    'cadence',
+    'watts', 'power',  # 保留功率字段，因为跑步也可能有功率计
+    'temp', 'temperature',
+    'moving',
+    'grade_smooth',
 }
 
 class ActivityService:
@@ -73,8 +95,8 @@ class ActivityService:
     ) -> AllActivityDataResponse:
         if access_token:
             client = StravaClient(access_token)
-            keys_list_all = ['time', 'distance', 'latlng', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp', 'moving', 'grade_smooth']
-            keys_list_else = ['time', 'distance', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp']
+            keys_list_all  = ['elapsed_time', 'time', 'distance', 'position_lat',  'position_long', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp', 'moving', 'grade_smooth', 'power_hr_ratio', 'spi', 'w_balance', 'vam', 'torque']
+            keys_list_else = ['elapsed_time', 'time', 'distance', 'position_lat',  'position_long', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp']
             try:
                 activity_entry, athlete_entry = get_activity_athlete(db, activity_id)
                 if not activity_entry or not athlete_entry: return None
@@ -96,22 +118,33 @@ class ActivityService:
                 self._upsert_activity_tss(db, activity_entry, result.overall.training_load, start_dt)
                 result.overall.status = self._update_athlete_status(db, athlete_entry, start_dt)
 
-                # ! best_power_record 待实现
+                # best_power_record 
+                if activity_type in ['ride', 'virtualride', 'ebikeride']:
+                    from ..repositories.best_power_file_repo import load_best_curve
+                    best_curve = load_best_curve(athlete_entry.id)
+                    if best_curve:
+                        result.best_power_record = {
+                            "athlete_id": athlete_entry.id,
+                            "length": len(best_curve),
+                            "best_curve": best_curve
+                        }
+                    else:
+                        result.best_power_record = None
+                else:
+                    result.best_power_record = None
                 return result
             except Exception:
                 raise
         else:
             local_pair = get_activity_athlete(db, activity_id)
-            if not local_pair: 
-                logger.error("[data-error][all_data] activity_id=%s，本地活动数据缺失", activity_id)
-                raise ValueError("本地活动数据不存在，无法分析。")
-            
+       
             # 本地fit文件处理，没有输入ftp的时候，进行ftp估算
             if local_pair[1].ftp is None or local_pair[1].ftp <= 0:
                 from app.core.analytics.ftp_estimator import estimate_ftp_from_best_curve, _load_best_curve
                 # 如果是第一次活动，没有best curve，则不估算ftp，ftp保持为0，继续流程
                 if _load_best_curve(int(local_pair[1].id)) is not None:
                     local_pair[1].ftp = round(estimate_ftp_from_best_curve(local_pair[1].id).ftp)
+
 
             raw_stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
             session_cache = activity_data_manager.get_session_data(db, activity_id, local_pair[0].upload_fit_url)
@@ -123,139 +156,74 @@ class ActivityService:
 
             response_data = {}
             response_data["overall"] = self.get_overall(db, activity_id, local_pair, raw_stream_data, session_cache, activity_type, use_cache=False)
+            response_data["power"] = self.get_power(db, activity_id, local_pair, raw_stream_data, session_cache, activity_type, use_cache=False)
+            response_data["heartrate"] = self.get_heartrate(db, activity_id, local_pair, raw_stream_data, session_cache, activity_type, use_cache=False)
+            response_data["cadence"] = self.get_cadence(db, activity_id, local_pair, raw_stream_data, session_cache, activity_type, use_cache=False)
+            response_data["speed"] = self.get_speed(db, activity_id, local_pair, raw_stream_data, session_cache, use_cache=False)
+            response_data["training_effect"] = self.get_training_effect(db, activity_id, local_pair, raw_stream_data, activity_type, use_cache=False)
+            response_data["altitude"] = self.get_altitude(db, activity_id, local_pair, raw_stream_data, session_cache, use_cache=False)
+            response_data["temp"] = self.get_temperature(db, activity_id, raw_stream_data, use_cache=False)
 
-
-            try:
-                response_data["power"] = self.get_power(db, activity_id, local_pair, raw_stream_data, session_cache, use_cache=False)
-            except Exception as e:
-                logger.exception("[section-error][power] activity_id=%s err=%s", activity_id, e)
-                response_data["power"] = None
-
-            try:
-                response_data["heartrate"] = self.get_heartrate(db, activity_id, local_pair, raw_stream_data, session_cache, use_cache=False)
-            except Exception as e:
-                logger.exception("[section-error][heartrate] activity_id=%s err=%s", activity_id, e)
-                response_data["heartrate"] = None
-
-            try:
-                response_data["cadence"] = self.get_cadence(db, activity_id, local_pair, raw_stream_data, session_cache, use_cache=False)
-            except Exception as e:
-                logger.exception("[section-error][cadence] activity_id=%s err=%s", activity_id, e)
-                response_data["cadence"] = None
-
-            try:
-                response_data["speed"] = self.get_speed(db, activity_id, local_pair, raw_stream_data, session_cache, use_cache=False)
-            except Exception as e:
-                logger.exception("[section-error][speed] activity_id=%s err=%s", activity_id, e)
-                response_data["speed"] = None
-
-            try:
-                response_data["training_effect"] = self.get_training_effect(db, activity_id, local_pair, raw_stream_data, use_cache=False)
-            except Exception as e:
-                logger.exception("[section-error][training_effect] activity_id=%s err=%s", activity_id, e)
-                response_data["training_effect"] = None
-
-            try:
-                response_data["altitude"] = self.get_altitude(db, activity_id, local_pair, raw_stream_data, session_cache, use_cache=False)
-            except Exception as e:
-                logger.exception("[section-error][altitude] activity_id=%s err=%s", activity_id, e)
-                response_data["altitude"] = None
-
-            try:
-                response_data["temp"] = self.get_temperature(db, activity_id, raw_stream_data, use_cache=False)
-            except Exception as e:
-                logger.exception("[section-error][temp] activity_id=%s err=%s", activity_id, e)
-                response_data["temp"] = None
-
+            # 补全一下刚才缺失的值
+            response_data["training_effect"]["training_load"] = response_data["overall"]["training_load"]
             # zones
             zones_data: List[ZoneData] = []
-            try:
-                pz = self._compute_power_zones(db, activity_id)
-                if pz:
-                    zones_data.append(ZoneData(**pz))
-            except Exception as e:
-                logger.exception("[section-error][zones-power] activity_id=%s err=%s", activity_id, e)
-                pass
-            try:
-                hz = self._compute_heartrate_zones(db, activity_id)
-                if hz:
-                    zones_data.append(ZoneData(**hz))
-            except Exception as e:
-                logger.exception("[section-error][zones-hr] activity_id=%s err=%s", activity_id, e)
-                pass
+            pz = self._compute_power_zones(db, activity_id)
+            if pz: zones_data.append(ZoneData(**pz))
+            hz = self._compute_heartrate_zones(db, activity_id)
+            if hz: zones_data.append(ZoneData(**hz))
             response_data["zones"] = zones_data if zones_data else None
 
             # streams
             try:
                 available_result = stream_crud.get_available_streams(db, activity_id)
                 if available_result["status"] == "success":
-                    available_streams = [
-                        s for s in available_result["available_streams"]
-                        if s not in ("left_right_balance", "position_lat", "position_long")
-                    ]
-                    
-                    # 从 session_cache 获取活动类型（FIT文件路径）
-                    activity_type = self._get_activity_type(
-                        activity_data=None,
-                        session_data=session_cache,
-                    )
-                    
-                    # 如果是跑步活动，过滤掉骑行特有的字段
-                    is_running = self._is_running_activity(activity_type)
-                    if is_running:
-                        # 过滤掉骑行特有的字段（保留 watts/power）
-                        available_streams = [
-                            s for s in available_streams 
-                            if s not in CYCLING_SPECIFIC_STREAM_FIELDS
-                        ]
-                    
+                    is_cycling = activity_type in ['ride', 'virtualride', 'ebikeride']
+                    allowed_streams = CYCLING_STREAMS if is_cycling else BASIC_STREAMS
+                    available_streams = [s for s in available_result["available_streams"] if s in allowed_streams]
                     res_enum = Resolution.HIGH if resolution == 'high' else Resolution.MEDIUM if resolution == 'medium' else Resolution.LOW
                     streams_data = activity_data_manager.get_activity_streams(db, activity_id, available_streams, res_enum)
+
                     for stream in streams_data or []:
-                        if stream["type"] == "temperature":
+                        stream_type = stream.get("type")
+                        if stream_type == "temperature":
                             stream["type"] = "temp"
-                        if stream["type"] == "heart_rate":
+                        elif stream_type == "heart_rate":
                             stream["type"] = "heartrate"
-                        if stream["type"] == "power":
+                        elif stream_type == "power":
                             stream["type"] = "watts"
-                        if stream["type"] == "timestamp":
+                        elif stream_type == "timestamp":
                             stream["type"] = "time"
-                    
-                    # 二次过滤（确保没有遗漏的骑行特有字段）
-                    if is_running:
-                        streams_data = self._filter_streams_for_running(streams_data)
-                        # 如果是跑步活动，cadence stream 需要乘以2
-                        for stream in streams_data or []:
-                            if stream.get("type") == "cadence" and stream.get("data"):
-                                stream["data"] = [int((d or 0) * 2) if d is not None else None for d in stream["data"]]
-                    
+
                     response_data["streams"] = streams_data
                 else:
                     response_data["streams"] = None
+
             except Exception as e:
                 logger.exception("[section-error][streams] activity_id=%s err=%s", activity_id, e)
                 response_data["streams"] = None
 
             # best powers + segment_records（本地路径，封装到独立方法）
             # 对于跑步活动，不计算 best_powers
-            try:
-                stream_raw = raw_stream_data
-                # 使用之前获取的 activity_type 判断是否为跑步活动
-                is_running = self._is_running_activity(activity_type)
-                
-                if is_running:
+            try:        
+                if activity_type in ['ride', 'virtualride', 'ebikeride']:
+                    bp = self._extract_best_powers_from_stream(raw_stream_data)
+                    response_data["best_powers"] = bp
+                    response_data["segment_records"] = self._update_segment_records_from_local(db, activity_id, raw_stream_data, bp)
+                    from ..repositories.best_power_file_repo import load_best_curve
+                    best_curve = load_best_curve(local_pair[1].id)
+                    if best_curve:
+                        response_data["best_power_record"] = {
+                            "athlete_id": local_pair[1].id,
+                            "length": len(best_curve),
+                            "best_curve": best_curve
+                        }
+                else:
                     response_data["best_powers"] = None
                     response_data["segment_records"] = None
-                else:
-                    bp = self._extract_best_powers_from_stream(stream_raw)
-                    response_data["best_powers"] = bp if bp else None
-                    response_data["segment_records"] = self._update_segment_records_from_local(db, activity_id, stream_raw, bp)
+                    response_data["best_power_record"] = None
             except Exception as e:
                 logger.exception("[section-error][segments] activity_id=%s err=%s", activity_id, e)
-                response_data["best_powers"] = None
-                response_data["segment_records"] = None
-
-            # ! best_power_record 已移除，不再返回
 
             # 生成并保存 intervals 数据（包含预览图生成）
             try:
@@ -273,12 +241,7 @@ class ActivityService:
 
     @staticmethod
 
-    def _update_activity_efficiency_factor(self, db: Session, activity, value: Optional[float]) -> None:
-        if not hasattr(activity, 'efficiency_factor'):
-            return
-        current = getattr(activity, 'efficiency_factor', None)
-        if current == value:
-            return
+    def _update_activity_efficiency_factor(self, db: Session, activity: Any, value: Optional[float]) -> None:
         try:
             setattr(activity, 'efficiency_factor', value)
             db.commit()
@@ -676,6 +639,7 @@ class ActivityService:
         pair: Optional[Tuple[Any, Any]] = None,
         stream_data: Optional[Dict[str, Any]] = None,
         session_data: Optional[Dict[str, Any]] = None,
+        activity_type: Optional[str] = None,
         use_cache: bool = True,
     ) -> Optional[Dict[str, Any]]:
         from ..infrastructure.cache_manager import activity_cache_manager
@@ -688,26 +652,7 @@ class ActivityService:
                 return None
         
         from ..metrics.activities.power import compute_power_info
-        from ..repositories.activity_repo import get_activity_athlete
-        from ..infrastructure.data_manager import activity_data_manager
-        if pair is None:
-            pair = get_activity_athlete(db, activity_id)
-            if not pair:
-                return None
-        activity, athlete = pair
-        if stream_data is None:
-            stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        if session_data is None and getattr(activity, 'upload_fit_url', None):
-            session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
-        
-        # 从 session_data 获取活动类型（FIT文件路径）
-        activity_type = self._get_activity_type(
-            activity_data=None,
-            session_data=session_data,
-        )
-        is_running = self._is_running_activity(activity_type)
-        
-        return compute_power_info(stream_data, int(athlete.ftp), session_data, is_running)
+        return compute_power_info(stream_data, int(pair[1].ftp), session_data, activity_type)
 
     def get_heartrate(
         self,
@@ -716,6 +661,7 @@ class ActivityService:
         pair: Optional[Tuple[Any, Any]] = None,
         stream_data: Optional[Dict[str, Any]] = None,
         session_data: Optional[Dict[str, Any]] = None,
+        activity_type: Optional[str] = None,
         use_cache: bool = True,
     ) -> Optional[Dict[str, Any]]:
         from ..infrastructure.cache_manager import activity_cache_manager
@@ -728,26 +674,11 @@ class ActivityService:
                 return None
         
         from ..metrics.activities.heartrate import compute_heartrate_info
-        from ..repositories.activity_repo import get_activity_athlete
-        from ..infrastructure.data_manager import activity_data_manager
-        if pair is None:
-            pair = get_activity_athlete(db, activity_id)
-            if not pair:
-                return None
-        activity, athlete = pair
-        if stream_data is None:
-            stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        if session_data is None and getattr(activity, 'upload_fit_url', None):
-            session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
-        result = compute_heartrate_info(stream_data, bool(stream_data.get('power')), session_data)
-        
-        # 对于骑行活动，更新 efficiency_factor（从 heartrate 结果中获取 efficiency_index）
+        result = compute_heartrate_info(stream_data, bool(stream_data.get('power')), session_data, activity_type)
+
+        # ! 在数据库中更新EF指数
         if result and result.get('efficiency_index') is not None:
-            try:
-                self._update_activity_efficiency_factor(db, activity, result.get('efficiency_index'))
-            except Exception:
-                logger.exception("[efficiency-factor][update-error] activity_id=%s", activity_id)
-        
+            self._update_activity_efficiency_factor(self, db, pair[0], result.get('efficiency_index'))
         return result
 
     def get_speed(
@@ -769,17 +700,6 @@ class ActivityService:
                 return None
         
         from ..metrics.activities.speed import compute_speed_info
-        from ..repositories.activity_repo import get_activity_athlete
-        from ..infrastructure.data_manager import activity_data_manager
-        if pair is None:
-            pair = get_activity_athlete(db, activity_id)
-            if not pair:
-                return None
-        activity, _athlete = pair
-        if stream_data is None:
-            stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        if session_data is None and getattr(activity, 'upload_fit_url', None):
-            session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         return compute_speed_info(stream_data, session_data)
 
     def get_cadence(
@@ -789,6 +709,7 @@ class ActivityService:
         pair: Optional[Tuple[Any, Any]] = None,
         stream_data: Optional[Dict[str, Any]] = None,
         session_data: Optional[Dict[str, Any]] = None,
+        activity_type: Optional[str] = None,
         use_cache: bool = True,
     ) -> Optional[Dict[str, Any]]:
         from ..infrastructure.cache_manager import activity_cache_manager
@@ -799,28 +720,8 @@ class ActivityService:
                 return cached
             if not activity_cache_manager.has_cache(db, activity_id):
                 return None
-        
         from ..metrics.activities.cadence import compute_cadence_info
-        from ..repositories.activity_repo import get_activity_athlete
-        from ..infrastructure.data_manager import activity_data_manager
-        if pair is None:
-            pair = get_activity_athlete(db, activity_id)
-            if not pair:
-                return None
-        activity, _athlete = pair
-        if stream_data is None:
-            stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        if session_data is None and getattr(activity, 'upload_fit_url', None):
-            session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
-        
-        # 从 session_data 获取活动类型（FIT文件路径）
-        activity_type = self._get_activity_type(
-            activity_data=None,
-            session_data=session_data,
-        )
-        is_running = self._is_running_activity(activity_type)
-        
-        return compute_cadence_info(stream_data, session_data, is_running)
+        return compute_cadence_info(stream_data, session_data, activity_type)
 
     def get_altitude(
         self,
@@ -841,17 +742,6 @@ class ActivityService:
                 return None
         
         from ..metrics.activities.altitude import compute_altitude_info
-        from ..repositories.activity_repo import get_activity_athlete
-        from ..infrastructure.data_manager import activity_data_manager
-        if pair is None:
-            pair = get_activity_athlete(db, activity_id)
-            if not pair:
-                return None
-        activity, _athlete = pair
-        if stream_data is None:
-            stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        if session_data is None and getattr(activity, 'upload_fit_url', None):
-            session_data = activity_data_manager.get_session_data(db, activity_id, activity.upload_fit_url)
         return compute_altitude_info(stream_data, session_data)
 
     def get_temperature(
@@ -871,9 +761,6 @@ class ActivityService:
                 return None
         
         from ..metrics.activities.temperature import compute_temperature_info
-        from ..infrastructure.data_manager import activity_data_manager
-        if stream_data is None:
-            stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
         return compute_temperature_info(stream_data)
 
     def get_training_effect(
@@ -882,6 +769,7 @@ class ActivityService:
         activity_id: int,
         pair: Optional[Tuple[Any, Any]] = None,
         stream_data: Optional[Dict[str, Any]] = None,
+        activity_type: Optional[str] = None,
         use_cache: bool = True,
     ) -> Optional[Dict[str, Any]]:
         from ..infrastructure.cache_manager import activity_cache_manager
@@ -893,55 +781,75 @@ class ActivityService:
             if not activity_cache_manager.has_cache(db, activity_id):
                 return None
         
-        from ..repositories.activity_repo import get_activity_athlete
-        from ..infrastructure.data_manager import activity_data_manager
         from ..core.analytics.training import (
             aerobic_effect, anaerobic_effect, power_zone_percentages,
-            power_zone_times, calculate_training_load, estimate_calories_with_power, estimate_calories_with_heartrate
+            power_zone_times, primary_training_benefit
         )
-        if pair is None:
-            pair = get_activity_athlete(db, activity_id)
-            if not pair:
-                return None
-        activity, athlete = pair
-        if stream_data is None:
-            stream_data = activity_data_manager.get_activity_stream_data(db, activity_id)
-        power = stream_data.get('power', [])
-        if not power:
-            return None
-        ftp = int(athlete.ftp)
-        if ftp is None or ftp <= 0:
-            logger.warning("[training-effect] missing ftp for athlete_id=%s activity_id=%s", getattr(athlete, 'id', None), activity_id)
-            return None
-        ae = aerobic_effect(power, ftp)
-        ne = anaerobic_effect(power, ftp)
-        zd = power_zone_percentages(power, ftp)
-        zt = power_zone_times(power, ftp)
-        # primary benefit
-        from ..core.analytics.training import primary_training_benefit
-        pb, _ = primary_training_benefit(zd, zt, round(len(power)/60, 0), ae, ne, ftp, max(power))
-        avg_power = int(sum(power)/len(power)) if power else 0
-        tss = calculate_training_load(avg_power, ftp, len(power))
-        # 计算碳水消耗（约），优先用功率估算，如无功率则尝试心率
-        calories = None
+
+        from ..core.analytics.training_heartrate import compute_training_effect
         try:
-            if avg_power and len(power) > 0:
-                calories = estimate_calories_with_power(avg_power, len(power), getattr(athlete, 'weight', 70) or 70)
-            else:
-                hr = stream_data.get('heart_rate', [])
-                if hr and any(hr):
-                    avg_hr = int(sum(hr)/len(hr))
-                    calories = estimate_calories_with_heartrate(avg_hr, len(power), getattr(athlete, 'weight', 70) or 70)
+
+            power = [p if p is not None else 0 for p in stream_data.get('power', {}).get('data', [])]
+            hr = [h if h is not None else 0 for h in stream_data.get('heart_rate', {}).get('data', [])]
+
+            if activity_type in ["run", "trail_run", "virtual_run"]:
+                # 跑步活动，使用心率进行训练效果评估
+                if not hr:
+                    return {
+                        'primary_training_benefit': None,
+                        'aerobic_effect': None,
+                        'anaerobic_effect': None,
+                        'training_load': None,
+                        'carbohydrate_consumption': None,
+                    }
+                else:
+                    sex = "male" if pair[1].sex == "male" else "female"
+                    hr_result = compute_training_effect(hr, pair[1].max_heartrate, pair[1].threshold_heartrate, 1, sex)
+                    return {
+                        'primary_training_benefit': hr_result['Training_Focus'],
+                        'aerobic_effect': hr_result['TE_Aerobic'],
+                        'anaerobic_effect': hr_result['TE_Anaerobic'],
+                        'training_load': None,
+                        'carbohydrate_consumption': None,
+                    }
+            if activity_type in ["ride", "virtualride", "ebikeride"]:
+                # 骑行活动：优先基于功率计算，其次基于心率
+                if power:
+                    ftp = int(pair[1].ftp)
+                    
+                    ae = aerobic_effect(power, ftp)
+                    ne = anaerobic_effect(power, ftp)
+                    zd = power_zone_percentages(power, ftp)
+                    zt = power_zone_times(power, ftp)
+                    pb, _ = primary_training_benefit(zd, zt, round(len(power)/60, 0), ae, ne, ftp, int(max(power)))
+                    
+                    return {
+                        'primary_training_benefit': pb,
+                        'aerobic_effect': ae,
+                        'anaerobic_effect': ne,
+                        'training_load': None,
+                        'carbohydrate_consumption': None,
+                    }
+                elif hr:
+                    sex = "male" if pair[1].sex == "M" else "female"
+                    hr_result = compute_training_effect(hr, pair[1].max_heartrate, pair[1].threshold_heartrate, 1, sex)
+                    return {
+                        'primary_training_benefit': hr_result['Training_Focus'],
+                        'aerobic_effect': hr_result['TE_Aerobic'],
+                        'anaerobic_effect': hr_result['TE_Anaerobic'],
+                        'training_load': None,
+                        'carbohydrate_consumption': None,
+                    }
+                else:
+                    return {
+                        'primary_training_benefit': None,
+                        'aerobic_effect': None,
+                        'anaerobic_effect': None,
+                        'training_load': None,
+                        'carbohydrate_consumption': None,
+                    }
         except Exception:
-            calories = None
-        carbohydrate = int(calories / 4.138) if calories else None
-        return {
-            'primary_training_benefit': pb,
-            'aerobic_effect': ae,
-            'anaerobic_effect': ne,
-            'training_load': tss,
-            'carbohydrate_consumption': carbohydrate,
-        }
+            return None
 
     @staticmethod
     def _locate_index(timeline: List[int], target: int, default: int = 0) -> int:
@@ -952,58 +860,6 @@ class ActivityService:
         if idx >= len(timeline):
             return len(timeline)
         return idx
-
-    @staticmethod
-    def _interval_summary_to_item(
-        summary: IntervalSummary,
-        timeline: List[int],
-        start_override: Optional[int] = None,
-        end_override: Optional[int] = None,
-    ) -> IntervalItem:
-        if timeline:
-            start_idx = max(0, min(int(summary.start), len(timeline) - 1))
-            end_idx = max(start_idx + 1, min(int(summary.end), len(timeline)))
-            start_time = int(start_override) if start_override is not None else int(timeline[start_idx])
-            if end_override is not None:
-                end_time = int(end_override)
-            else:
-                ref_idx = min(end_idx - 1, len(timeline) - 1)
-                end_time = int(timeline[ref_idx] + 1)
-        else:
-            start_time = int(start_override) if start_override is not None else int(summary.start)
-            end_time = int(end_override) if end_override is not None else int(summary.end)
-
-        duration = max(end_time - start_time, int(summary.duration))
-        metadata = summary.metadata or {}
-        cleaned_metadata: Dict[str, Any] = {}
-        for key, value in metadata.items():
-            if isinstance(value, (int, float, bool, str, list, dict)) or value is None:
-                cleaned_metadata[key] = value
-            else:
-                try:
-                    cleaned_metadata[key] = float(value)
-                except Exception:
-                    cleaned_metadata[key] = value
-
-        return IntervalItem(
-            start=start_time,
-            end=end_time,
-            duration=duration,
-            classification=summary.classification,
-            average_power=float(summary.average_power),
-            peak_power=float(summary.peak_power),
-            normalized_power=float(summary.normalized_power),
-            intensity_factor=float(summary.intensity_factor),
-            power_ratio=float(summary.power_ratio),
-            time_above_95=float(summary.time_above_95),
-            time_above_106=float(summary.time_above_106),
-            time_above_120=float(summary.time_above_120),
-            time_above_150=float(summary.time_above_150),
-            heart_rate_avg=float(summary.heart_rate_avg) if summary.heart_rate_avg is not None else None,
-            heart_rate_max=int(summary.heart_rate_max) if summary.heart_rate_max is not None else None,
-            heart_rate_slope=float(summary.heart_rate_slope) if summary.heart_rate_slope is not None else None,
-            metadata=cleaned_metadata,
-        )
 
     def _build_interval_response_simplified(
         self,

@@ -1,0 +1,47 @@
+{
+  "duration": 1839,
+  "ftp": 200.0,
+  "intervals": [
+    {
+      "start": 0,
+      "end": 80,
+      "duration": 80,
+      "classification": "tempo",
+      "avg_power": 118.28,
+      "power_ratio": 0.59
+    },
+    {
+      "start": 80,
+      "end": 128,
+      "duration": 48,
+      "classification": "threshold",
+      "avg_power": 194.44,
+      "power_ratio": 0.97
+    },
+    {
+      "start": 128,
+      "end": 546,
+      "duration": 418,
+      "classification": "tempo",
+      "avg_power": 155.61,
+      "power_ratio": 0.78
+    },
+    {
+      "start": 546,
+      "end": 671,
+      "duration": 125,
+      "classification": "recovery",
+      "avg_power": 89.05,
+      "power_ratio": 0.45
+    },
+    {
+      "start": 671,
+      "end": 1840,
+      "duration": 1169,
+      "classification": "tempo",
+      "avg_power": 162.21,
+      "power_ratio": 0.81
+    }
+  ],
+  "preview_image": "artifacts/Pics/interval_preview_123458360.png"
+}

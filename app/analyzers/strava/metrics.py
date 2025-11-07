@@ -268,7 +268,7 @@ def analyze_speed(activity_data: Dict[str, Any], stream_data: Dict[str, Any], ac
 def analyze_training_effect(activity_data: Dict[str, Any], stream_data: Dict[str, Any], external_id: int, db: Session, activity_athlete_pair: Optional[Tuple[TbActivity, TbAthlete]] = None, activity_type: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """分析训练效果，支持骑行（功率）和跑步（配速）活动"""
     try:
-        # ! 跑步活动可以通过心率分析训练效果，还没有实现，骑行活动理论上也可以回退到心率来分析训练效果
+
         power = [p if p is not None else 0 for p in stream_data.get('watts', {}).get('data', [])]
         hr = [h if h is not None else 0 for h in stream_data.get('heartrate', {}).get('data', [])]
 
@@ -311,7 +311,7 @@ def analyze_training_effect(activity_data: Dict[str, Any], stream_data: Dict[str
                     'carbohydrate_consumption': int(activity_data.get('calories', 0) / 4.138),
                 }
             elif hr:
-                sex = "male" if activity_athlete_pair[1].sex == "male" else "female"
+                sex = "male" if activity_athlete_pair[1].sex == "M" else "female"
                 hr_result = compute_training_effect(hr, activity_athlete_pair[1].max_heartrate, activity_athlete_pair[1].threshold_heartrate, 1, sex)
                 return {
                     'primary_training_benefit': hr_result['Training_Focus'],

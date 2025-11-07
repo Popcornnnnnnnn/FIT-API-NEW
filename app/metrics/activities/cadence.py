@@ -5,7 +5,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def compute_cadence_info(stream_data: Dict[str, Any], session_data: Optional[Dict[str, Any]] = None, is_running: bool = False) -> Optional[Dict[str, Any]]:
+def compute_cadence_info(stream_data: Dict[str, Any], session_data: Optional[Dict[str, Any]] = None, activity_type: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """计算踏频相关信息：平均/最大踏频。
 
     对于跑步活动，踏频数据需要乘以2（因为设备记录的是单侧步频，需要转换为总步频）。
@@ -22,7 +22,7 @@ def compute_cadence_info(stream_data: Dict[str, Any], session_data: Optional[Dic
         return None
 
     # 如果是跑步活动，踏频需要乘以2（单侧步频 -> 总步频）
-    if is_running:
+    if activity_type in ["run", "trail_run", "virtual_run"]:
         cadence = [c * 2 for c in cadence]
 
     res: Dict[str, Any] = {}
@@ -31,7 +31,7 @@ def compute_cadence_info(stream_data: Dict[str, Any], session_data: Optional[Dic
     if session_data and 'avg_cadence' in session_data and session_data['avg_cadence'] is not None:
         avg_cad = int(session_data['avg_cadence'])
         # 如果是跑步活动，session_data 中的值也需要乘以2
-        if is_running:
+        if activity_type in ["run", "trail_run", "virtual_run"]:
             avg_cad = int(avg_cad * 2)
         res['avg_cadence'] = avg_cad
     else:
@@ -40,14 +40,14 @@ def compute_cadence_info(stream_data: Dict[str, Any], session_data: Optional[Dic
     if session_data and 'max_cadence' in session_data and session_data['max_cadence'] is not None:
         max_cad = int(session_data['max_cadence'])
         # 如果是跑步活动，session_data 中的值也需要乘以2
-        if is_running:
+        if activity_type in ["run", "trail_run", "virtual_run"]:
             max_cad = int(max_cad * 2)
         res['max_cadence'] = max_cad
     else:
         res['max_cadence'] = int(max(cadence)) if cadence else None
 
     # 对于骑行活动，计算左右平衡、扭矩效率、踏板平顺度等指标
-    if not is_running:
+    if activity_type in ["ride", "virtualride", "ebikeride"]:
         # 左右平衡
         lrb = stream_data.get('left_right_balance', [])
         if lrb:
@@ -117,9 +117,5 @@ def compute_cadence_info(stream_data: Dict[str, Any], session_data: Optional[Dic
         res['right_pedal_smoothness'] = None
         res['total_strokes'] = None
 
-    logger.debug(
-        "[cadence] avg=%s max=%s len=%d is_running=%s",
-        res.get('avg_cadence'), res.get('max_cadence'), len(cadence), is_running
-    )
 
     return res
