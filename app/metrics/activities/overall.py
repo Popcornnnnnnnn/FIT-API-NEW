@@ -74,7 +74,8 @@ def compute_overall_info(
         # 跑步活动：优先使用 rTSS（有阈值配速设置），其次使用心率负荷
         ft_pace = parse_pace_string(athlete.lactate_threshold_pace)
         if ft_pace: res['training_load'] = calculate_running_training_load(1000.0 / (res['average_speed'] / 3.6), ft_pace, res['moving_time']) if ft_pace and res.get('average_speed') else None
-        else: res['training_load'] = calculate_heart_rate_training_load(res['avg_heartrate'], athlete.max_heartrate, athlete.threshold_heartrate, moving_time) if athlete.max_heartrate and athlete.threshold_heartrate and res.get('avg_heartrate') else None
+        else: 
+            res['training_load'] = calculate_heart_rate_training_load(res['avg_heartrate'], athlete.max_heartrate, athlete.threshold_heartrate, moving_time) if athlete.max_heartrate and athlete.threshold_heartrate and res.get('avg_heartrate') else None
     elif activity_type in ["ride", "virtualride", "ebikeride"]:
         # 骑行活动：优先使用 TSS(有功率数据)，其次使用心率负荷
         ftp = int(athlete.ftp)

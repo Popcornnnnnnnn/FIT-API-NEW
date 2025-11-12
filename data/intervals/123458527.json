@@ -1,0 +1,15 @@
+{
+  "duration": 1976,
+  "ftp": 270.0,
+  "intervals": [
+    {
+      "start": 0,
+      "end": 1977,
+      "duration": 1977,
+      "classification": "recovery",
+      "avg_power": 102.66,
+      "power_ratio": 0.38
+    }
+  ],
+  "preview_image": "artifacts/Pics/interval_preview_123458527.png"
+}

@@ -74,8 +74,8 @@ def update_daily_state():
     updated = 0               
 
     for athlete_id in athlete_ids:
-        fitness = get_avg_tss(cursor, athlete_id, 42)
-        fatigue = get_avg_tss(cursor, athlete_id, 7)
+        fitness = int(get_avg_tss(cursor, athlete_id, 42))
+        fatigue = int(get_avg_tss(cursor, athlete_id, 7))
         status = fitness - fatigue
         cursor.execute("""
             REPLACE INTO tb_athlete_daily_state

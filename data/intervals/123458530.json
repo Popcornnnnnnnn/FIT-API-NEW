@@ -1,0 +1,63 @@
+{
+  "duration": 3715,
+  "ftp": 189.0,
+  "intervals": [
+    {
+      "start": 0,
+      "end": 678,
+      "duration": 678,
+      "classification": "endurance",
+      "avg_power": 133.54,
+      "power_ratio": 0.71
+    },
+    {
+      "start": 678,
+      "end": 801,
+      "duration": 123,
+      "classification": "tempo",
+      "avg_power": 147.05,
+      "power_ratio": 0.78
+    },
+    {
+      "start": 801,
+      "end": 1868,
+      "duration": 1067,
+      "classification": "endurance",
+      "avg_power": 136.29,
+      "power_ratio": 0.72
+    },
+    {
+      "start": 1868,
+      "end": 2090,
+      "duration": 222,
+      "classification": "tempo",
+      "avg_power": 143.15,
+      "power_ratio": 0.76
+    },
+    {
+      "start": 2090,
+      "end": 2585,
+      "duration": 495,
+      "classification": "endurance",
+      "avg_power": 138.72,
+      "power_ratio": 0.73
+    },
+    {
+      "start": 2585,
+      "end": 2668,
+      "duration": 83,
+      "classification": "tempo",
+      "avg_power": 144.73,
+      "power_ratio": 0.77
+    },
+    {
+      "start": 2668,
+      "end": 3716,
+      "duration": 1048,
+      "classification": "endurance",
+      "avg_power": 138.08,
+      "power_ratio": 0.73
+    }
+  ],
+  "preview_image": null
+}

@@ -88,6 +88,8 @@ class CadenceResponse(BaseModel):
     left_pedal_smoothness: Optional[float] = Field(None, description="左踏板平顺度")
     right_pedal_smoothness: Optional[float] = Field(None, description="右踏板平顺度")
     total_strokes: Optional[int] = Field(None, description="总踏频次数")
+    avg_stride_length: Optional[float] = Field(None, description="平均步幅（米/步，保留两位小数，仅跑步活动）")
+    
 
 
 class SpeedResponse(BaseModel):

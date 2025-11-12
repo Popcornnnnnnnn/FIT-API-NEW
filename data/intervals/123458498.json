@@ -1,0 +1,119 @@
+{
+  "duration": 4289,
+  "ftp": 189.0,
+  "intervals": [
+    {
+      "start": 0,
+      "end": 786,
+      "duration": 786,
+      "classification": "endurance",
+      "avg_power": 112.11,
+      "power_ratio": 0.59
+    },
+    {
+      "start": 786,
+      "end": 842,
+      "duration": 56,
+      "classification": "tempo",
+      "avg_power": 164.35,
+      "power_ratio": 0.87
+    },
+    {
+      "start": 842,
+      "end": 912,
+      "duration": 70,
+      "classification": "threshold",
+      "avg_power": 180.76,
+      "power_ratio": 0.96
+    },
+    {
+      "start": 912,
+      "end": 974,
+      "duration": 62,
+      "classification": "tempo",
+      "avg_power": 175.5,
+      "power_ratio": 0.93
+    },
+    {
+      "start": 974,
+      "end": 1017,
+      "duration": 43,
+      "classification": "threshold",
+      "avg_power": 180.71,
+      "power_ratio": 0.96
+    },
+    {
+      "start": 1017,
+      "end": 1263,
+      "duration": 246,
+      "classification": "tempo",
+      "avg_power": 171.49,
+      "power_ratio": 0.91
+    },
+    {
+      "start": 1263,
+      "end": 1595,
+      "duration": 332,
+      "classification": "threshold",
+      "avg_power": 179.84,
+      "power_ratio": 0.95
+    },
+    {
+      "start": 1595,
+      "end": 1879,
+      "duration": 284,
+      "classification": "tempo",
+      "avg_power": 173.62,
+      "power_ratio": 0.92
+    },
+    {
+      "start": 1879,
+      "end": 2168,
+      "duration": 289,
+      "classification": "threshold",
+      "avg_power": 181.87,
+      "power_ratio": 0.96
+    },
+    {
+      "start": 2168,
+      "end": 2573,
+      "duration": 405,
+      "classification": "tempo",
+      "avg_power": 168.57,
+      "power_ratio": 0.89
+    },
+    {
+      "start": 2573,
+      "end": 2777,
+      "duration": 204,
+      "classification": "threshold",
+      "avg_power": 182.03,
+      "power_ratio": 0.96
+    },
+    {
+      "start": 2777,
+      "end": 3062,
+      "duration": 285,
+      "classification": "tempo",
+      "avg_power": 169.07,
+      "power_ratio": 0.89
+    },
+    {
+      "start": 3062,
+      "end": 3581,
+      "duration": 519,
+      "classification": "threshold",
+      "avg_power": 182.77,
+      "power_ratio": 0.97
+    },
+    {
+      "start": 3581,
+      "end": 4290,
+      "duration": 709,
+      "classification": "tempo",
+      "avg_power": 171.43,
+      "power_ratio": 0.91
+    }
+  ],
+  "preview_image": null
+}

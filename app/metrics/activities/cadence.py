@@ -108,6 +108,7 @@ def compute_cadence_info(stream_data: Dict[str, Any], session_data: Optional[Dic
                 res['total_strokes'] = int(round(sum(cadence) / 60.0))
         except Exception:
             res['total_strokes'] = None
+        
     else:
         # 非骑行活动，返回 null
         res['left_right_balance'] = None
@@ -118,4 +119,12 @@ def compute_cadence_info(stream_data: Dict[str, Any], session_data: Optional[Dic
         res['total_strokes'] = None
 
 
+    if activity_type in ["run", "trail_run", "virtual_run"]:
+        speed_data = stream_data.get('speed', []) 
+        avg_speed = sum([s for s in speed_data if s is not None and s > 0]) / len([s for s in speed_data if s is not None and s > 0])
+        res['avg_stride_length'] = round(avg_speed * 60.0 / res['avg_cadence'], 2)
+    else:
+        res['avg_stride_length'] = None
+
+    print(res['avg_stride_length'])
     return res

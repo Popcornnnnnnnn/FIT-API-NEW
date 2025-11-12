@@ -236,6 +236,22 @@ def analyze_cadence(activity_data: Dict[str, Any], stream_data: Dict[str, Any], 
             result['right_pedal_smoothness'] = None
             result['total_strokes'] = None
         
+        if activity_type in ["run", "trail_run", "virtual_run"]:
+            vel = stream_data.get('velocity_smooth', {}).get('data', [])
+            cad = stream_data.get('cadence', {}).get('data', [])
+            if vel and cad and len(vel) == len(cad):
+                valid_pairs = [
+                    (v, c * 2) for v, c in zip(vel, cad)  # cadence 需要乘以2
+                    if v is not None and c is not None and v > 0 and c > 0
+                ]
+                
+                if valid_pairs:
+                    # 步幅(m/step) = 速度(m/s) * 60 / 踏频(steps/min)
+                    stride_lengths = [v * 60.0 / c for v, c in valid_pairs]
+                    result['avg_stride_length'] = round(sum(stride_lengths) / len(stride_lengths), 2)
+        else:
+            result['avg_stride_length'] = None
+        print(result['avg_stride_length'])
         return result
     except Exception:
         return None

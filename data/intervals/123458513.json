@@ -1,61 +1,45 @@
 {
   "duration": 2223,
-  "ftp": 187.0,
+  "ftp": 189.0,
   "intervals": [
     {
       "start": 0,
-      "end": 86,
-      "duration": 86,
+      "end": 88,
+      "duration": 88,
       "classification": "tempo",
-      "avg_power": 147.63,
+      "avg_power": 148.5,
       "power_ratio": 0.79
     },
     {
-      "start": 86,
-      "end": 404,
-      "duration": 318,
+      "start": 88,
+      "end": 1852,
+      "duration": 1764,
       "classification": "threshold",
-      "avg_power": 190.29,
-      "power_ratio": 1.02
+      "avg_power": 194.11,
+      "power_ratio": 1.03
     },
     {
-      "start": 404,
-      "end": 433,
-      "duration": 29,
+      "start": 1852,
+      "end": 1888,
+      "duration": 36,
       "classification": "vo2max",
-      "avg_power": 197.14,
+      "avg_power": 198.92,
       "power_ratio": 1.05
     },
     {
-      "start": 433,
-      "end": 1542,
-      "duration": 1109,
+      "start": 1888,
+      "end": 2171,
+      "duration": 283,
       "classification": "threshold",
-      "avg_power": 194.18,
+      "avg_power": 197.03,
       "power_ratio": 1.04
     },
     {
-      "start": 1542,
-      "end": 2110,
-      "duration": 568,
-      "classification": "vo2max",
-      "avg_power": 197.51,
-      "power_ratio": 1.06
-    },
-    {
-      "start": 2110,
-      "end": 2155,
-      "duration": 45,
-      "classification": "threshold",
-      "avg_power": 195.31,
-      "power_ratio": 1.04
-    },
-    {
-      "start": 2155,
+      "start": 2171,
       "end": 2224,
-      "duration": 69,
+      "duration": 53,
       "classification": "vo2max",
-      "avg_power": 198.97,
+      "avg_power": 199.68,
       "power_ratio": 1.06
     }
   ],

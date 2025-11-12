@@ -1,0 +1,407 @@
+{
+  "duration": 15401,
+  "ftp": 235.0,
+  "intervals": [
+    {
+      "start": 0,
+      "end": 371,
+      "duration": 371,
+      "classification": "tempo",
+      "avg_power": 154.6,
+      "power_ratio": 0.66
+    },
+    {
+      "start": 371,
+      "end": 575,
+      "duration": 204,
+      "classification": "endurance",
+      "avg_power": 151.0,
+      "power_ratio": 0.64
+    },
+    {
+      "start": 575,
+      "end": 837,
+      "duration": 262,
+      "classification": "recovery",
+      "avg_power": 110.33,
+      "power_ratio": 0.47
+    },
+    {
+      "start": 837,
+      "end": 891,
+      "duration": 54,
+      "classification": "threshold",
+      "avg_power": 213.5,
+      "power_ratio": 0.91
+    },
+    {
+      "start": 891,
+      "end": 1083,
+      "duration": 192,
+      "classification": "recovery",
+      "avg_power": 137.81,
+      "power_ratio": 0.59
+    },
+    {
+      "start": 1083,
+      "end": 1323,
+      "duration": 240,
+      "classification": "tempo",
+      "avg_power": 147.9,
+      "power_ratio": 0.63
+    },
+    {
+      "start": 1323,
+      "end": 1405,
+      "duration": 82,
+      "classification": "threshold",
+      "avg_power": 211.0,
+      "power_ratio": 0.9
+    },
+    {
+      "start": 1405,
+      "end": 4064,
+      "duration": 2659,
+      "classification": "endurance",
+      "avg_power": 145.79,
+      "power_ratio": 0.62
+    },
+    {
+      "start": 4064,
+      "end": 4547,
+      "duration": 483,
+      "classification": "recovery",
+      "avg_power": 83.25,
+      "power_ratio": 0.35
+    },
+    {
+      "start": 4547,
+      "end": 4607,
+      "duration": 60,
+      "classification": "threshold",
+      "avg_power": 206.33,
+      "power_ratio": 0.88
+    },
+    {
+      "start": 4607,
+      "end": 4682,
+      "duration": 75,
+      "classification": "endurance",
+      "avg_power": 79.5,
+      "power_ratio": 0.34
+    },
+    {
+      "start": 4682,
+      "end": 4794,
+      "duration": 112,
+      "classification": "tempo",
+      "avg_power": 195.14,
+      "power_ratio": 0.83
+    },
+    {
+      "start": 4794,
+      "end": 5355,
+      "duration": 561,
+      "classification": "recovery",
+      "avg_power": 91.79,
+      "power_ratio": 0.39
+    },
+    {
+      "start": 5355,
+      "end": 5784,
+      "duration": 429,
+      "classification": "endurance",
+      "avg_power": 142.23,
+      "power_ratio": 0.61
+    },
+    {
+      "start": 5784,
+      "end": 6372,
+      "duration": 588,
+      "classification": "recovery",
+      "avg_power": 99.7,
+      "power_ratio": 0.42
+    },
+    {
+      "start": 6372,
+      "end": 6461,
+      "duration": 89,
+      "classification": "anaerobic",
+      "avg_power": 280.8,
+      "power_ratio": 1.19
+    },
+    {
+      "start": 6461,
+      "end": 6725,
+      "duration": 264,
+      "classification": "recovery",
+      "avg_power": 49.33,
+      "power_ratio": 0.21
+    },
+    {
+      "start": 6725,
+      "end": 6746,
+      "duration": 21,
+      "classification": "anaerobic",
+      "avg_power": 286.5,
+      "power_ratio": 1.22
+    },
+    {
+      "start": 6746,
+      "end": 7498,
+      "duration": 752,
+      "classification": "endurance",
+      "avg_power": 124.39,
+      "power_ratio": 0.53
+    },
+    {
+      "start": 7498,
+      "end": 7633,
+      "duration": 135,
+      "classification": "recovery",
+      "avg_power": 114.0,
+      "power_ratio": 0.49
+    },
+    {
+      "start": 7633,
+      "end": 7763,
+      "duration": 130,
+      "classification": "threshold",
+      "avg_power": 207.44,
+      "power_ratio": 0.88
+    },
+    {
+      "start": 7763,
+      "end": 9370,
+      "duration": 1607,
+      "classification": "recovery",
+      "avg_power": 48.82,
+      "power_ratio": 0.21
+    },
+    {
+      "start": 9370,
+      "end": 9463,
+      "duration": 93,
+      "classification": "endurance",
+      "avg_power": 160.71,
+      "power_ratio": 0.68
+    },
+    {
+      "start": 9463,
+      "end": 11265,
+      "duration": 1802,
+      "classification": "recovery",
+      "avg_power": 106.15,
+      "power_ratio": 0.45
+    },
+    {
+      "start": 11265,
+      "end": 11342,
+      "duration": 77,
+      "classification": "vo2max",
+      "avg_power": 232.2,
+      "power_ratio": 0.99
+    },
+    {
+      "start": 11342,
+      "end": 11465,
+      "duration": 123,
+      "classification": "threshold",
+      "avg_power": 148.6,
+      "power_ratio": 0.63
+    },
+    {
+      "start": 11465,
+      "end": 11706,
+      "duration": 241,
+      "classification": "recovery",
+      "avg_power": 91.96,
+      "power_ratio": 0.39
+    },
+    {
+      "start": 11706,
+      "end": 11776,
+      "duration": 70,
+      "classification": "sprint",
+      "avg_power": 296.17,
+      "power_ratio": 1.26
+    },
+    {
+      "start": 11776,
+      "end": 12093,
+      "duration": 317,
+      "classification": "tempo",
+      "avg_power": 130.2,
+      "power_ratio": 0.55
+    },
+    {
+      "start": 12093,
+      "end": 12306,
+      "duration": 213,
+      "classification": "vo2max",
+      "avg_power": 246.68,
+      "power_ratio": 1.05
+    },
+    {
+      "start": 12306,
+      "end": 12579,
+      "duration": 273,
+      "classification": "tempo",
+      "avg_power": 118.35,
+      "power_ratio": 0.5
+    },
+    {
+      "start": 12579,
+      "end": 12631,
+      "duration": 52,
+      "classification": "sprint",
+      "avg_power": 279.8,
+      "power_ratio": 1.19
+    },
+    {
+      "start": 12631,
+      "end": 12878,
+      "duration": 247,
+      "classification": "recovery",
+      "avg_power": 127.56,
+      "power_ratio": 0.54
+    },
+    {
+      "start": 12878,
+      "end": 12919,
+      "duration": 41,
+      "classification": "threshold",
+      "avg_power": 225.0,
+      "power_ratio": 0.96
+    },
+    {
+      "start": 12919,
+      "end": 12970,
+      "duration": 51,
+      "classification": "tempo",
+      "avg_power": 138.2,
+      "power_ratio": 0.59
+    },
+    {
+      "start": 12970,
+      "end": 12987,
+      "duration": 17,
+      "classification": "anaerobic",
+      "avg_power": 154.5,
+      "power_ratio": 0.66
+    },
+    {
+      "start": 12987,
+      "end": 13188,
+      "duration": 201,
+      "classification": "tempo",
+      "avg_power": 120.76,
+      "power_ratio": 0.51
+    },
+    {
+      "start": 13188,
+      "end": 13246,
+      "duration": 58,
+      "classification": "sprint",
+      "avg_power": 203.0,
+      "power_ratio": 0.86
+    },
+    {
+      "start": 13246,
+      "end": 13418,
+      "duration": 172,
+      "classification": "tempo",
+      "avg_power": 130.12,
+      "power_ratio": 0.55
+    },
+    {
+      "start": 13418,
+      "end": 13447,
+      "duration": 29,
+      "classification": "anaerobic",
+      "avg_power": 222.33,
+      "power_ratio": 0.95
+    },
+    {
+      "start": 13447,
+      "end": 13501,
+      "duration": 54,
+      "classification": "tempo",
+      "avg_power": 176.0,
+      "power_ratio": 0.75
+    },
+    {
+      "start": 13501,
+      "end": 13534,
+      "duration": 33,
+      "classification": "anaerobic",
+      "avg_power": 228.33,
+      "power_ratio": 0.97
+    },
+    {
+      "start": 13534,
+      "end": 13845,
+      "duration": 311,
+      "classification": "tempo",
+      "avg_power": 122.32,
+      "power_ratio": 0.52
+    },
+    {
+      "start": 13845,
+      "end": 13884,
+      "duration": 39,
+      "classification": "sprint",
+      "avg_power": 289.33,
+      "power_ratio": 1.23
+    },
+    {
+      "start": 13884,
+      "end": 14063,
+      "duration": 179,
+      "classification": "threshold",
+      "avg_power": 160.6,
+      "power_ratio": 0.68
+    },
+    {
+      "start": 14063,
+      "end": 14181,
+      "duration": 118,
+      "classification": "anaerobic",
+      "avg_power": 289.2,
+      "power_ratio": 1.23
+    },
+    {
+      "start": 14181,
+      "end": 14303,
+      "duration": 122,
+      "classification": "endurance",
+      "avg_power": 123.17,
+      "power_ratio": 0.52
+    },
+    {
+      "start": 14303,
+      "end": 14432,
+      "duration": 129,
+      "classification": "sprint",
+      "avg_power": 262.62,
+      "power_ratio": 1.12
+    },
+    {
+      "start": 14432,
+      "end": 14778,
+      "duration": 346,
+      "classification": "endurance",
+      "avg_power": 133.62,
+      "power_ratio": 0.57
+    },
+    {
+      "start": 14778,
+      "end": 15402,
+      "duration": 624,
+      "classification": "recovery",
+      "avg_power": 69.58,
+      "power_ratio": 0.3
+    }
+  ],
+  "preview_image": "artifacts/Pics/interval_preview_16400358895.png"
+}

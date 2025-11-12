@@ -235,7 +235,6 @@ def calculate_running_training_load(
     
     公式：rTSS = (秒数 × IF²) × 100
     其中：IF = 阈值配速 / NGP
-    
     参数：
         ngp: 标准化坡度配速（秒/公里）
         ft_pace: 阈值配速（秒/公里）
@@ -246,7 +245,6 @@ def calculate_running_training_load(
     """
     if not ft_pace or ft_pace <= 0 or not ngp or ngp <= 0 or duration_seconds <= 0:
         return 0
-    
     intensity_factor = float(ft_pace) / ngp
     duration_hours = duration_seconds / 3600.0
     rtss = (intensity_factor ** 2) * duration_hours * 100
@@ -290,6 +288,7 @@ def calculate_heart_rate_training_load(
         >>> calculate_heart_rate_training_load(160, 190, 170, 2700)
         66
     """
+    # print(f"[training][参数] avg_heartrate={avg_heartrate} hr_max={hr_max} threshold_heartrate={threshold_heartrate} duration_seconds={duration_seconds}")
     hr_percent_max = avg_heartrate / hr_max
     fthr_percent_max = threshold_heartrate / hr_max
     intensity_factor = hr_percent_max / fthr_percent_max

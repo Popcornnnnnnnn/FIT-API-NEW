@@ -95,8 +95,8 @@ class ActivityService:
     ) -> AllActivityDataResponse:
         if access_token:
             client = StravaClient(access_token)
-            keys_list_all  = ['elapsed_time', 'time', 'distance', 'position_lat',  'position_long', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp', 'moving', 'grade_smooth', 'power_hr_ratio', 'spi', 'w_balance', 'vam', 'torque']
-            keys_list_else = ['elapsed_time', 'time', 'distance', 'position_lat',  'position_long', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp']
+            keys_list_all  = ['best_power', 'elapsed_time', 'time', 'distance', 'position_lat',  'position_long', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp', 'moving', 'grade_smooth', 'power_hr_ratio', 'spi', 'w_balance', 'vam', 'torque']
+            keys_list_else = ['best_power', 'elapsed_time', 'time', 'distance', 'position_lat',  'position_long', 'altitude', 'velocity_smooth', 'heartrate', 'cadence', 'watts', 'temp']
             try:
                 activity_entry, athlete_entry = get_activity_athlete(db, activity_id)
                 if not activity_entry or not athlete_entry: return None
@@ -123,11 +123,11 @@ class ActivityService:
                     from ..repositories.best_power_file_repo import load_best_curve
                     best_curve = load_best_curve(athlete_entry.id)
                     if best_curve:
-                        result.best_power_record = {
-                            "athlete_id": athlete_entry.id,
-                            "length": len(best_curve),
-                            "best_curve": best_curve
-                        }
+                        result.best_power_record = BestPowerCurveRecord(
+                            athlete_id=athlete_entry.id,
+                            length=len(best_curve),
+                            best_curve=best_curve
+                        )
                     else:
                         result.best_power_record = None
                 else:
@@ -165,7 +165,8 @@ class ActivityService:
             response_data["temp"] = self.get_temperature(db, activity_id, raw_stream_data, use_cache=False)
 
             # 补全一下刚才缺失的值
-            response_data["training_effect"]["training_load"] = response_data["overall"]["training_load"]
+            if response_data.get("training_effect") is not None and response_data.get("overall") is not None:
+                response_data["training_effect"]["training_load"] = response_data["overall"]["training_load"]
             # zones
             zones_data: List[ZoneData] = []
             pz = self._compute_power_zones(db, activity_id)
@@ -791,7 +792,6 @@ class ActivityService:
 
             power = [p if p is not None else 0 for p in stream_data.get('power', {}).get('data', [])]
             hr = [h if h is not None else 0 for h in stream_data.get('heart_rate', {}).get('data', [])]
-
             if activity_type in ["run", "trail_run", "virtual_run"]:
                 # 跑步活动，使用心率进行训练效果评估
                 if not hr:
